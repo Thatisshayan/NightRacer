@@ -3,13 +3,15 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Warboss Highway Game API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: scores
+    description: High score leaderboard and stats
 paths:
   /healthz:
     get:
@@ -24,6 +26,64 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /scores:
+    get:
+      operationId: getLeaderboard
+      tags: [scores]
+      summary: Get top scores leaderboard
+      description: Returns the top 20 all-time high scores
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: Leaderboard entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Score"
+    post:
+      operationId: submitScore
+      tags: [scores]
+      summary: Submit a new score
+      description: Record a player score after a game session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScoreInput"
+      responses:
+        "201":
+          description: Score recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Score"
+        "400":
+          description: Invalid input
+
+  /scores/stats:
+    get:
+      operationId: getGameStats
+      tags: [scores]
+      summary: Get global game stats
+      description: Returns aggregate game statistics (total games, top score, avg score)
+      responses:
+        "200":
+          description: Game statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GameStats"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +94,66 @@ components:
       required:
         - status
 
+    Score:
+      type: object
+      properties:
+        id:
+          type: integer
+        playerName:
+          type: string
+        score:
+          type: integer
+        powerupsUsed:
+          type: integer
+        distanceTraveled:
+          type: integer
+        rank:
+          type: ["integer", "null"]
+        createdAt:
+          type: string
+      required:
+        - id
+        - playerName
+        - score
+        - powerupsUsed
+        - distanceTraveled
+        - createdAt
+
+    ScoreInput:
+      type: object
+      properties:
+        playerName:
+          type: string
+          minLength: 1
+          maxLength: 20
+        score:
+          type: integer
+          minimum: 0
+        powerupsUsed:
+          type: integer
+          minimum: 0
+        distanceTraveled:
+          type: integer
+          minimum: 0
+      required:
+        - playerName
+        - score
+        - powerupsUsed
+        - distanceTraveled
+
+    GameStats:
+      type: object
+      properties:
+        totalGamesPlayed:
+          type: integer
+        highestScore:
+          type: integer
+        averageScore:
+          type: integer
+        totalPowerupsUsed:
+          type: integer
+      required:
+        - totalGamesPlayed
+        - highestScore
+        - averageScore
+        - totalPowerupsUsed

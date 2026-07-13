@@ -1,0 +1,27 @@
+kind = "web"
+previewPath = "/"
+title = "Warboss Highway"
+version = "1.0.0"
+id = "artifacts/warboss-highway"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 21936
+
+[services.development]
+run = "pnpm --filter @workspace/warboss-highway run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/warboss-highway", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/warboss-highway/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "21936"
+BASE_PATH = "/"

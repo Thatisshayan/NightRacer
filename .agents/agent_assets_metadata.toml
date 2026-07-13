@@ -1,0 +1,32 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "3_sMeCkU-d1EPKLvee9yv"
+uri = "file://attached_assets/generated_audio/sfx_gameover.mp3"
+type = "audio"
+title = "game-over"
+
+[[outputs]]
+id = "EuhTr0TLELlZknXId1BVa"
+uri = "file://attached_assets/generated_audio/sfx_crash.mp3"
+type = "audio"
+title = "car-crash"
+
+[[outputs]]
+id = "7dUihsFMO2vdoZt_Pt5j_"
+uri = "file://attached_assets/generated_audio/sfx_powerup.mp3"
+type = "audio"
+title = "powerup-collect"
+
+[[outputs]]
+id = "nrBCMaqCP2Z0p6Z6JiRI9"
+uri = "file://attached_assets/generated_audio/menu_track.mp3"
+type = "audio"
+title = "gta-vibe-menu"
+
+[[outputs]]
+id = "on0MT2ZcLcE7J2fh-TQJk"
+uri = "file://attached_assets/generated_audio/gameplay_track.mp3"
+type = "audio"
+title = "gta-vibe-gameplay"
