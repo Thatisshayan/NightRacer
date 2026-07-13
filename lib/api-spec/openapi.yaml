@@ -40,6 +40,13 @@ paths:
           schema:
             type: integer
             default: 20
+        - name: period
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [all, daily, weekly]
+            default: all
       responses:
         "200":
           description: Leaderboard entries

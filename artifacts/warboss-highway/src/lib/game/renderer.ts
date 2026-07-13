@@ -1,4 +1,4 @@
-import { type PowerUpType, type GameState } from './engine';
+import { type GameState, type ObstacleType } from './engine';
 
 export const drawHUD = (
   ctx: CanvasRenderingContext2D,
@@ -8,151 +8,303 @@ export const drawHUD = (
   speedMultiplier: number
 ) => {
   ctx.save();
-  
-  // HUD Background
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
-  ctx.fillRect(0, 0, width, 50);
+
+  // Top HUD background
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(0, 0, width, 72);
 
   // Score
   ctx.font = '24px "Russo One", sans-serif';
   ctx.fillStyle = state.activePowerUp === 'SCORE_BLAST' ? '#ffaa00' : '#ffffff';
   ctx.textAlign = 'left';
-  ctx.fillText(`SCORE: ${Math.floor(state.score)}`, 15, 32);
+  ctx.fillText(`SCORE: ${Math.floor(state.score)}`, 15, 34);
 
-  // Speed/Distance
-  ctx.font = '14px "Roboto Mono", monospace';
-  ctx.fillStyle = '#aaaaaa';
-  ctx.fillText(`DIST: ${Math.floor(state.distance)}m | SPD: ${speedMultiplier.toFixed(1)}x`, 15, 65);
+  // Distance & speed
+  ctx.font = '13px "Roboto Mono", monospace';
+  ctx.fillStyle = '#888';
+  ctx.fillText(`DIST: ${Math.floor(state.distance)}m  SPD: ${speedMultiplier.toFixed(1)}×`, 15, 58);
 
-  // Lives
+  // Combo counter (top center)
+  if (state.combo > 1) {
+    ctx.font = '13px "Roboto Mono", monospace';
+    ctx.fillStyle = '#ffee22';
+    ctx.textAlign = 'center';
+    ctx.fillText(`COMBO ×${state.combo}`, width / 2, 34);
+  }
+
+  // Daily challenge badge
+  if (state.isDailyChallenge) {
+    ctx.font = '10px "Roboto Mono", monospace';
+    ctx.fillStyle = '#55ffaa';
+    ctx.textAlign = 'center';
+    ctx.fillText('◆ DAILY CHALLENGE', width / 2, 60);
+  }
+
+  // Lives (top right)
   ctx.textAlign = 'right';
   for (let i = 0; i < state.lives; i++) {
     ctx.fillStyle = '#cc0000';
     ctx.beginPath();
-    const x = width - 25 - (i * 25);
-    const y = 25;
-    // Draw a simple chunky heart
-    ctx.moveTo(x, y + 5);
-    ctx.lineTo(x - 8, y - 3);
-    ctx.lineTo(x - 4, y - 8);
-    ctx.lineTo(x, y - 5);
-    ctx.lineTo(x + 4, y - 8);
-    ctx.lineTo(x + 8, y - 3);
+    const hx = width - 22 - i * 26;
+    const hy = 28;
+    ctx.moveTo(hx, hy + 6);
+    ctx.lineTo(hx - 9, hy - 2);
+    ctx.lineTo(hx - 5, hy - 8);
+    ctx.lineTo(hx, hy - 5);
+    ctx.lineTo(hx + 5, hy - 8);
+    ctx.lineTo(hx + 9, hy - 2);
     ctx.fill();
   }
 
-  // Active Power-up
-  if (state.activePowerUp && state.powerUpTimer > 0) {
-    ctx.fillStyle = 'rgba(0,0,0,0.6)';
-    ctx.fillRect(10, height - 50, 200, 40);
-    
-    let color = '#fff';
-    let label = '';
-    if (state.activePowerUp === 'SHIELD') { color = '#00ffff'; label = 'SHIELD'; }
-    if (state.activePowerUp === 'SLOWMO') { color = '#ffff00'; label = 'SLOW-MO'; }
-    if (state.activePowerUp === 'SCORE_BLAST') { color = '#ffaa00'; label = 'SCORE BLAST'; }
-    
-    ctx.fillStyle = color;
-    ctx.font = '18px "Russo One", sans-serif';
-    ctx.textAlign = 'left';
-    ctx.fillText(label, 20, height - 25);
-    
-    // Timer bar
-    ctx.fillStyle = color;
-    const barWidth = 100 * (state.powerUpTimer / (state.activePowerUp === 'SHIELD' ? 5000 : state.activePowerUp === 'SLOWMO' ? 4000 : 6000));
-    ctx.fillRect(110, height - 35, Math.max(0, barWidth), 10);
+  // Oil slick indicator
+  if (state.player.oilSlicked) {
+    ctx.font = '12px "Roboto Mono", monospace';
+    ctx.fillStyle = '#8888ff';
+    ctx.textAlign = 'right';
+    ctx.fillText('⚠ SLIPPING', width - 12, 60);
   }
 
-  // Wasted state handled via React UI instead to easily overlay the form
+  // Active power-up bar (bottom left)
+  if (state.activePowerUp && state.powerUpTimer > 0) {
+    ctx.fillStyle = 'rgba(0,0,0,0.65)';
+    ctx.fillRect(10, height - 58, 210, 48);
+
+    let color = '#fff';
+    let label = '';
+    if (state.activePowerUp === 'SHIELD')      { color = '#00ffff'; label = '🛡 SHIELD'; }
+    if (state.activePowerUp === 'SLOWMO')      { color = '#ffff00'; label = '⏱ SLOW-MO'; }
+    if (state.activePowerUp === 'SCORE_BLAST') { color = '#ffaa00'; label = '★ SCORE BLAST'; }
+
+    const maxDur = state.activePowerUp === 'SHIELD' ? 5000 : state.activePowerUp === 'SCORE_BLAST' ? 6000 : 4000;
+    const barFill = Math.max(0, (state.powerUpTimer / maxDur) * 140);
+
+    ctx.fillStyle = color;
+    ctx.font = '16px "Russo One", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(label, 20, height - 34);
+
+    ctx.fillStyle = 'rgba(255,255,255,0.15)';
+    ctx.fillRect(20, height - 26, 140, 8);
+    ctx.fillStyle = color;
+    ctx.fillRect(20, height - 26, barFill, 8);
+  }
 
   ctx.restore();
 };
 
-export const drawVehicle = (ctx: CanvasRenderingContext2D, type: string, w: number, h: number, color: string) => {
+export const drawObstacle = (
+  ctx: CanvasRenderingContext2D,
+  type: ObstacleType,
+  w: number,
+  h: number
+) => {
   ctx.save();
-  
-  if (type === 'SEDAN') {
+
+  if (type === 'OIL_SLICK') {
+    const grad = ctx.createRadialGradient(0, 0, 4, 0, 0, w / 2);
+    grad.addColorStop(0,   'rgba(100, 20, 200, 0.85)');
+    grad.addColorStop(0.5, 'rgba(0, 50, 120, 0.70)');
+    grad.addColorStop(1,   'rgba(0, 0, 30, 0.20)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, w / 2, h / 2, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Iridescent edge
+    ctx.strokeStyle = 'rgba(160, 110, 255, 0.55)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    // Text warning
+    ctx.fillStyle = 'rgba(255,255,255,0.25)';
+    ctx.font = '9px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('OIL', 0, 0);
+  } else if (type === 'DEBRIS') {
+    const chunks: [number, number, number, number, string][] = [
+      [-w * 0.3, -h * 0.2, 10, 7,  '#6a5040'],
+      [ w * 0.1, -h * 0.3,  8, 6,  '#504030'],
+      [-w * 0.1,  h * 0.1, 11, 5,  '#403020'],
+      [ w * 0.25, h * 0.2,  7, 9,  '#5a4535'],
+      [-w * 0.05, h * 0.3,  6, 4,  '#303030'],
+    ];
+    chunks.forEach(([cx, cy, cw, ch, col]) => {
+      ctx.fillStyle = col;
+      ctx.fillRect(cx, cy, cw, ch);
+    });
+  }
+
+  ctx.restore();
+};
+
+export const drawVehicle = (
+  ctx: CanvasRenderingContext2D,
+  type: string,
+  w: number,
+  h: number,
+  color: string
+) => {
+  ctx.save();
+
+  if (type === 'SEDAN' || type === 'WAR_RUNNER') {
     ctx.fillStyle = color || '#555';
-    ctx.fillRect(-w/2, -h/2, w, h);
-    // Roof
+    ctx.fillRect(-w / 2, -h / 2, w, h);
     ctx.fillStyle = '#222';
-    ctx.fillRect(-w/2 + 4, -h/2 + 10, w - 8, h - 20);
-    // Windshields
+    ctx.fillRect(-w / 2 + 4, -h / 2 + 10, w - 8, h - 20);
     ctx.fillStyle = '#88aaff';
-    ctx.fillRect(-w/2 + 5, -h/2 + 11, w - 10, 6);
-    ctx.fillRect(-w/2 + 5, h/2 - 17, w - 10, 6);
-  } 
+    ctx.fillRect(-w / 2 + 5, -h / 2 + 11, w - 10, 6);
+    ctx.fillRect(-w / 2 + 5,  h / 2 - 17, w - 10, 6);
+  }
+  else if (type === 'RATTLETRAP') {
+    // Wide boxy rusted truck
+    ctx.fillStyle = color || '#5a3a1a';
+    ctx.fillRect(-w / 2, -h / 2, w, h);
+    ctx.fillStyle = '#3a1a0a';
+    ctx.fillRect(-w / 2 + 4, -h / 2 + 8, w - 8, h - 18);
+    ctx.fillStyle = '#669999';
+    ctx.fillRect(-w / 2 + 6, -h / 2 + 10, w - 12, 7);
+    // Rust patches
+    ctx.fillStyle = 'rgba(120,50,10,0.5)';
+    ctx.fillRect(-w / 2 + 2, -h / 4, 9, 9);
+    ctx.fillRect( w / 2 - 11,  h / 4, 9, 7);
+    // Front bumper
+    ctx.fillStyle = '#888';
+    ctx.fillRect(-w / 2 + 2, h / 2 - 6, w - 4, 5);
+  }
+  else if (type === 'DEATHSLED') {
+    // Narrow sleek wedge
+    ctx.fillStyle = color || '#1a1a2e';
+    ctx.beginPath();
+    ctx.moveTo(0,          h / 2);
+    ctx.lineTo(-w / 2,     h / 4);
+    ctx.lineTo(-w / 2 + 2, -h / 2);
+    ctx.lineTo( w / 2 - 2, -h / 2);
+    ctx.lineTo( w / 2,     h / 4);
+    ctx.closePath();
+    ctx.fill();
+    // Neon blue trim
+    ctx.strokeStyle = '#4466ff';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    // Dark windshield
+    ctx.fillStyle = '#0a0a22';
+    ctx.fillRect(-w / 2 + 4, -h / 3, w - 8, h / 4);
+    // Blue taillights
+    ctx.fillStyle = '#4488ff';
+    ctx.fillRect(-w / 2 + 2,  h / 2 - 5, 5, 4);
+    ctx.fillRect( w / 2 - 7,  h / 2 - 5, 5, 4);
+  }
   else if (type === 'PICKUP') {
-    // Bed
     ctx.fillStyle = color || '#453c31';
-    ctx.fillRect(-w/2, -h/2, w, h);
-    // Cab
+    ctx.fillRect(-w / 2, -h / 2, w, h);
     ctx.fillStyle = '#222';
-    ctx.fillRect(-w/2 + 2, -h/2 + 8, w - 4, h/2);
-    // Windshield
+    ctx.fillRect(-w / 2 + 2, -h / 2 + 8, w - 4, h / 2);
     ctx.fillStyle = '#88aaff';
-    ctx.fillRect(-w/2 + 4, -h/2 + 9, w - 8, 6);
+    ctx.fillRect(-w / 2 + 4, -h / 2 + 9, w - 8, 6);
   }
   else if (type === 'COP') {
     ctx.fillStyle = '#fff';
-    ctx.fillRect(-w/2, -h/2, w, h);
+    ctx.fillRect(-w / 2, -h / 2, w, h);
     ctx.fillStyle = '#000';
-    ctx.fillRect(-w/2, -h/2 + 5, w, h - 10);
-    // Lights
+    ctx.fillRect(-w / 2, -h / 2 + 5, w, h - 10);
     ctx.fillStyle = '#ff0000';
-    ctx.fillRect(-w/2 + 2, -h/2 + 15, w/2 - 2, 4);
+    ctx.fillRect(-w / 2 + 2, -h / 2 + 16, w / 2 - 2, 5);
     ctx.fillStyle = '#0000ff';
-    ctx.fillRect(0, -h/2 + 15, w/2 - 2, 4);
-    // Roof
+    ctx.fillRect(0,           -h / 2 + 16, w / 2 - 2, 5);
     ctx.fillStyle = '#fff';
-    ctx.fillRect(-w/2 + 4, -h/2 + 22, w - 8, h - 40);
+    ctx.fillRect(-w / 2 + 4, -h / 2 + 24, w - 8, h - 42);
   }
   else if (type === 'BOXTRUCK') {
     ctx.fillStyle = '#dcdcdc';
-    ctx.fillRect(-w/2, -h/2, w, h);
-    // Cab
+    ctx.fillRect(-w / 2, -h / 2, w, h);
     ctx.fillStyle = color || '#333';
-    ctx.fillRect(-w/2 + 4, h/2 - 15, w - 8, 15);
+    ctx.fillRect(-w / 2 + 4, h / 2 - 18, w - 8, 18);
+    ctx.fillStyle = '#88aaff';
+    ctx.fillRect(-w / 2 + 6, h / 2 - 16, w - 12, 6);
   }
   else if (type === 'BUS') {
     ctx.fillStyle = color || '#4b5320';
-    ctx.fillRect(-w/2, -h/2, w, h);
-    // Windows
+    ctx.fillRect(-w / 2, -h / 2, w, h);
     ctx.fillStyle = '#111';
-    for(let i=0; i<5; i++) {
-        ctx.fillRect(-w/2 + 2, -h/2 + 10 + i*(h/5), 4, (h/5)-4);
-        ctx.fillRect(w/2 - 6, -h/2 + 10 + i*(h/5), 4, (h/5)-4);
+    for (let i = 0; i < 5; i++) {
+      ctx.fillRect(-w / 2 + 2, -h / 2 + 10 + i * (h / 5), 4, h / 5 - 4);
+      ctx.fillRect( w / 2 - 6, -h / 2 + 10 + i * (h / 5), 4, h / 5 - 4);
     }
   }
   else if (type === 'SPORTS') {
     ctx.fillStyle = color || '#cc0000';
     ctx.beginPath();
-    ctx.moveTo(0, h/2); // front tip
-    ctx.lineTo(-w/2, h/4);
-    ctx.lineTo(-w/2 + 2, -h/2);
-    ctx.lineTo(w/2 - 2, -h/2);
-    ctx.lineTo(w/2, h/4);
+    ctx.moveTo(0,       h / 2);
+    ctx.lineTo(-w / 2,  h / 4);
+    ctx.lineTo(-w / 2 + 2, -h / 2);
+    ctx.lineTo( w / 2 - 2, -h / 2);
+    ctx.lineTo( w / 2,  h / 4);
     ctx.closePath();
     ctx.fill();
-    // Windshield
     ctx.fillStyle = '#111';
-    ctx.fillRect(-w/2 + 6, -h/4, w - 12, h/3);
+    ctx.fillRect(-w / 2 + 6, -h / 4, w - 12, h / 3);
   }
   else if (type === 'TANK') {
     ctx.fillStyle = '#2b331f';
-    ctx.fillRect(-w/2 + 10, -h/2, w - 20, h);
-    // Treads
+    ctx.fillRect(-w / 2 + 10, -h / 2, w - 20, h);
     ctx.fillStyle = '#111';
-    ctx.fillRect(-w/2, -h/2 - 5, 10, h + 10);
-    ctx.fillRect(w/2 - 10, -h/2 - 5, 10, h + 10);
-    // Turret
+    ctx.fillRect(-w / 2, -h / 2 - 5, 10, h + 10);
+    ctx.fillRect( w / 2 - 10, -h / 2 - 5, 10, h + 10);
     ctx.fillStyle = '#3c4a2c';
     ctx.beginPath();
-    ctx.arc(0, 0, w/3, 0, Math.PI * 2);
+    ctx.arc(0, 0, w / 3, 0, Math.PI * 2);
     ctx.fill();
-    // Cannon (facing up)
     ctx.fillStyle = '#1a1f12';
-    ctx.fillRect(-4, 0, 8, h/2 + 20);
+    ctx.fillRect(-4, 0, 8, h / 2 + 20);
+  }
+  else if (type === 'BOSS') {
+    // Massive armored war-rig
+    const bw = w, bh = h;
+    // Hull
+    ctx.fillStyle = color || '#1a0a00';
+    ctx.fillRect(-bw / 2, -bh / 2, bw, bh);
+    // Armored panel
+    ctx.fillStyle = '#2a1200';
+    ctx.fillRect(-bw / 2 + 5, -bh / 2 + 6, bw - 10, bh - 12);
+    // Treads
+    ctx.fillStyle = '#0a0a0a';
+    ctx.fillRect(-bw / 2,      -bh / 2 - 4, 14, bh + 8);
+    ctx.fillRect( bw / 2 - 14, -bh / 2 - 4, 14, bh + 8);
+    // Tread details
+    ctx.fillStyle = '#1a1a1a';
+    for (let i = 0; i < 6; i++) {
+      ctx.fillRect(-bw / 2 + 2, -bh / 2 + i * (bh / 5), 10, bh / 5 - 2);
+      ctx.fillRect( bw / 2 - 12, -bh / 2 + i * (bh / 5), 10, bh / 5 - 2);
+    }
+    // Front spikes
+    ctx.fillStyle = '#888';
+    for (let i = 0; i < 5; i++) {
+      const sx = -bw / 2 + 20 + i * ((bw - 40) / 4);
+      ctx.beginPath();
+      ctx.moveTo(sx, -bh / 2 - 10);
+      ctx.lineTo(sx - 5, -bh / 2);
+      ctx.lineTo(sx + 5, -bh / 2);
+      ctx.closePath();
+      ctx.fill();
+    }
+    // Red visor slit
+    ctx.fillStyle = '#cc0000';
+    ctx.shadowColor = '#ff0000';
+    ctx.shadowBlur = 8;
+    ctx.fillRect(-bw / 2 + 18, -bh / 4 - 2, bw - 36, 9);
+    ctx.shadowBlur = 0;
+    // Skull emblem
+    ctx.fillStyle = '#fff';
+    ctx.font = `bold ${Math.min(22, bh / 4)}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('☠', 0, bh / 6);
+    // Chain bumper
+    ctx.strokeStyle = '#888';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(-bw / 2 + 15, bh / 2);
+    ctx.lineTo( bw / 2 - 15, bh / 2);
+    ctx.stroke();
   }
 
   ctx.restore();

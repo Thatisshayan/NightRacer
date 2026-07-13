@@ -43,5 +43,15 @@ export interface GameStats {
 
 export type GetLeaderboardParams = {
 limit?: number;
+period?: GetLeaderboardPeriod;
 };
+
+export type GetLeaderboardPeriod = typeof GetLeaderboardPeriod[keyof typeof GetLeaderboardPeriod];
+
+
+export const GetLeaderboardPeriod = {
+  all: 'all',
+  daily: 'daily',
+  weekly: 'weekly',
+} as const;
 

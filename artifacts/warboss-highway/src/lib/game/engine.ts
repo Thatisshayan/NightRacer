@@ -1,7 +1,50 @@
 import { playAudio, stopAudio } from './audio';
-import { drawVehicle, drawHUD } from './renderer';
+import { drawVehicle, drawHUD, drawObstacle } from './renderer';
 
 export type PowerUpType = 'SHIELD' | 'SLOWMO' | 'SCORE_BLAST' | 'EXTRA_LIFE';
+export type CarType = 'RATTLETRAP' | 'WAR_RUNNER' | 'DEATHSLED';
+export type VehicleType = 'SEDAN' | 'PICKUP' | 'COP' | 'BOXTRUCK' | 'BUS' | 'SPORTS' | 'TANK' | 'BOSS';
+export type ObstacleType = 'OIL_SLICK' | 'DEBRIS';
+
+export interface CarStats {
+  width: number;
+  height: number;
+  speedMod: number;
+  color: string;
+  label: string;
+  desc: string;
+  stats: string;
+}
+
+export const CAR_STATS: Record<CarType, CarStats> = {
+  RATTLETRAP: {
+    width: 40,
+    height: 62,
+    speedMod: 0.85,
+    color: '#5a3a1a',
+    label: 'RATTLETRAP',
+    desc: 'Wide & sturdy. Slower to react.',
+    stats: 'SPD ██░░░  ARM █████',
+  },
+  WAR_RUNNER: {
+    width: 30,
+    height: 50,
+    speedMod: 1.0,
+    color: '#2b331f',
+    label: 'WAR-RUNNER',
+    desc: 'Balanced. The classic choice.',
+    stats: 'SPD ███░░  ARM ███░░',
+  },
+  DEATHSLED: {
+    width: 22,
+    height: 46,
+    speedMod: 1.15,
+    color: '#1a1a2e',
+    label: 'DEATHSLED',
+    desc: 'Narrow & fast. High risk.',
+    stats: 'SPD █████  ARM █░░░░',
+  },
+};
 
 export interface GameObject {
   x: number;
@@ -13,17 +56,24 @@ export interface GameObject {
 export interface Player extends GameObject {
   isInvulnerable: boolean;
   invulnTimer: number;
+  oilSlicked: boolean;
+  oilTimer: number;
 }
 
 export interface Vehicle extends GameObject {
-  type: 'SEDAN' | 'PICKUP' | 'COP' | 'BOXTRUCK' | 'BUS' | 'SPORTS' | 'TANK';
+  type: VehicleType;
   color: string;
   speed: number;
   lane: number;
+  passed: boolean;
 }
 
 export interface PowerUpItem extends GameObject {
   type: PowerUpType;
+}
+
+export interface Obstacle extends GameObject {
+  type: ObstacleType;
 }
 
 export interface Particle {
@@ -41,6 +91,7 @@ export interface GameState {
   player: Player;
   vehicles: Vehicle[];
   powerups: PowerUpItem[];
+  obstacles: Obstacle[];
   particles: Particle[];
   score: number;
   lives: number;
@@ -53,27 +104,32 @@ export interface GameState {
   roadOffset: number;
   baseSpeed: number;
   lanes: number[];
+  // Combo / near-miss
+  combo: number;
+  comboTimer: number;
+  maxCombo: number;
+  // Level-up flash
+  levelUpFlash: number;
+  levelUpText: string;
+  lastSpeedLevel: number;
+  // Boss
+  bossTimer: number;
+  bossActive: boolean;
+  bossWarning: number;
+  // Achievement tracking
+  wasHit: boolean;
+  tanksSlayed: number;
+  achievementsEarned: string[];
+  speedMultiplier: number;
+  // Identity
+  selectedCar: CarType;
+  isDailyChallenge: boolean;
 }
 
-const VEHICLE_TYPES = ['SEDAN', 'PICKUP', 'COP', 'BOXTRUCK', 'BUS', 'SPORTS'] as const;
-
-export const INITIAL_STATE: GameState = {
-  player: { x: 0, y: 0, width: 30, height: 50, isInvulnerable: false, invulnTimer: 0 },
-  vehicles: [],
-  powerups: [],
-  particles: [],
-  score: 0,
-  lives: 3,
-  distance: 0,
-  isGameOver: false,
-  activePowerUp: null,
-  powerUpTimer: 0,
-  powerUpsUsed: 0,
-  screenShake: 0,
-  roadOffset: 0,
-  baseSpeed: 5,
-  lanes: [],
-};
+const REGULAR_TYPES = ['SEDAN', 'PICKUP', 'COP', 'BOXTRUCK', 'BUS', 'SPORTS'] as const;
+const BOSS_INTERVAL_MS = 60000;
+const COMBO_DECAY_MS = 3000;
+const NEAR_MISS_EXTRA_PX = 22;
 
 export class GameEngine {
   private canvas: HTMLCanvasElement;
@@ -82,19 +138,86 @@ export class GameEngine {
   private lastTime: number = 0;
   private animationId: number = 0;
   private onGameOver: (state: GameState) => void;
-  private keys: Record<string, boolean> = {};
   private targetLane: number = 1;
+  private rng: () => number = Math.random;
+  private selectedCar: CarType;
+  private isDailyChallenge: boolean;
 
-  constructor(canvas: HTMLCanvasElement, onGameOver: (state: GameState) => void) {
+  constructor(
+    canvas: HTMLCanvasElement,
+    onGameOver: (state: GameState) => void,
+    options?: { isDailyChallenge?: boolean; selectedCar?: CarType }
+  ) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d')!;
     this.onGameOver = onGameOver;
-    this.state = JSON.parse(JSON.stringify(INITIAL_STATE));
+    this.selectedCar = options?.selectedCar ?? 'WAR_RUNNER';
+    this.isDailyChallenge = options?.isDailyChallenge ?? false;
+
+    if (this.isDailyChallenge) {
+      this.initDailyRNG();
+    }
+
+    const car = CAR_STATS[this.selectedCar];
+
+    this.state = {
+      player: {
+        x: 0, y: 0,
+        width: car.width,
+        height: car.height,
+        isInvulnerable: false,
+        invulnTimer: 0,
+        oilSlicked: false,
+        oilTimer: 0,
+      },
+      vehicles: [],
+      powerups: [],
+      obstacles: [],
+      particles: [],
+      score: 0,
+      lives: 3,
+      distance: 0,
+      isGameOver: false,
+      activePowerUp: null,
+      powerUpTimer: 0,
+      powerUpsUsed: 0,
+      screenShake: 0,
+      roadOffset: 0,
+      baseSpeed: 5,
+      lanes: [],
+      combo: 0,
+      comboTimer: 0,
+      maxCombo: 0,
+      levelUpFlash: 0,
+      levelUpText: '',
+      lastSpeedLevel: 1,
+      bossTimer: 0,
+      bossActive: false,
+      bossWarning: 0,
+      wasHit: false,
+      tanksSlayed: 0,
+      achievementsEarned: [],
+      speedMultiplier: 1,
+      selectedCar: this.selectedCar,
+      isDailyChallenge: this.isDailyChallenge,
+    };
+
     this.init();
   }
 
+  private initDailyRNG() {
+    const d = new Date();
+    let s = d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
+    this.rng = () => {
+      s |= 0;
+      s = (s + 0x6D2B79F5) | 0;
+      let t = Math.imul(s ^ (s >>> 15), 1 | s);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
   private init() {
-    // 3 lanes
     const laneWidth = this.canvas.width / 3;
     this.state.lanes = [laneWidth / 2, laneWidth * 1.5, laneWidth * 2.5];
     this.state.player.x = this.state.lanes[1];
@@ -103,8 +226,8 @@ export class GameEngine {
 
     window.addEventListener('keydown', this.handleKeyDown);
     window.addEventListener('keyup', this.handleKeyUp);
-    this.canvas.addEventListener('touchstart', this.handleTouch);
-    this.canvas.addEventListener('touchmove', this.handleTouch);
+    this.canvas.addEventListener('touchstart', this.handleTouch, { passive: false });
+    this.canvas.addEventListener('touchmove', this.handleTouch, { passive: false });
 
     playAudio('gameplay', true);
   }
@@ -119,7 +242,7 @@ export class GameEngine {
   }
 
   private handleKeyDown = (e: KeyboardEvent) => {
-    this.keys[e.code] = true;
+    if (this.state.player.oilSlicked) return;
     if (e.code === 'ArrowLeft' || e.code === 'KeyA') {
       this.targetLane = Math.max(0, this.targetLane - 1);
     } else if (e.code === 'ArrowRight' || e.code === 'KeyD') {
@@ -127,17 +250,15 @@ export class GameEngine {
     }
   };
 
-  private handleKeyUp = (e: KeyboardEvent) => {
-    this.keys[e.code] = false;
-  };
+  private handleKeyUp = (_e: KeyboardEvent) => {};
 
   private handleTouch = (e: TouchEvent) => {
     e.preventDefault();
+    if (this.state.player.oilSlicked) return;
     if (e.touches.length > 0) {
       const touchX = e.touches[0].clientX;
       const rect = this.canvas.getBoundingClientRect();
       const x = touchX - rect.left;
-      
       const laneWidth = this.canvas.width / 3;
       if (x < laneWidth) this.targetLane = 0;
       else if (x < laneWidth * 2) this.targetLane = 1;
@@ -152,111 +273,155 @@ export class GameEngine {
 
   private loop = (timestamp: number) => {
     if (this.state.isGameOver) return;
-
-    const dt = timestamp - this.lastTime;
+    const dt = Math.min(timestamp - this.lastTime, 50);
     this.lastTime = timestamp;
-
     this.update(dt);
     this.draw();
-
     if (!this.state.isGameOver) {
       this.animationId = requestAnimationFrame(this.loop);
     }
   };
 
+  private getSpeedLevel(distance: number) {
+    return Math.min(5, 1 + Math.floor(distance / 1000 / 15));
+  }
+
+  private getSpeedMultiplier(distance: number) {
+    return Math.min(3, 1 + (this.getSpeedLevel(distance) - 1) * 0.5);
+  }
+
   private update(dt: number) {
     const state = this.state;
-    
-    // Time-based speed multiplier
-    const survivalSeconds = state.distance / 1000;
-    const speedMultiplier = Math.min(3, 1 + Math.floor(survivalSeconds / 15) * 0.5);
-    let currentSpeed = state.baseSpeed * speedMultiplier;
 
-    if (state.activePowerUp === 'SLOWMO') {
-      currentSpeed *= 0.4;
+    // Speed
+    const newLevel = this.getSpeedLevel(state.distance);
+    const speedMult = this.getSpeedMultiplier(state.distance);
+    state.speedMultiplier = speedMult;
+
+    if (newLevel > state.lastSpeedLevel) {
+      state.lastSpeedLevel = newLevel;
+      state.levelUpFlash = 1800;
+      state.levelUpText = speedMult >= 3 ? 'MAX SPEED!' : 'SPEED UP!';
+      if (speedMult >= 3) this.grantAchievement('speed_demon');
     }
 
+    const carMod = CAR_STATS[this.selectedCar].speedMod;
+    let currentSpeed = state.baseSpeed * speedMult * carMod;
+    if (state.activePowerUp === 'SLOWMO') currentSpeed *= 0.4;
+
+    // Distance & score
     state.distance += currentSpeed * (dt / 16);
     const scoreMult = state.activePowerUp === 'SCORE_BLAST' ? 3 : 1;
-    state.score += (currentSpeed / 10) * scoreMult;
+    const comboBonus = 1 + Math.min(state.combo, 20) * 0.05;
+    state.score += (currentSpeed / 10) * scoreMult * comboBonus;
 
     // Road scroll
-    state.roadOffset = (state.roadOffset + currentSpeed) % 40;
+    state.roadOffset = (state.roadOffset + currentSpeed * 1.5) % 80;
 
     // Player movement
-    const targetX = state.lanes[this.targetLane];
-    state.player.x += (targetX - state.player.x) * 0.2; // Smooth glide
+    if (!state.player.oilSlicked) {
+      const targetX = state.lanes[this.targetLane];
+      state.player.x += (targetX - state.player.x) * 0.2;
+    } else {
+      // Slight drift when oiled
+      state.player.x += Math.sin(state.distance * 0.08) * 2;
+      state.player.x = Math.max(state.lanes[0], Math.min(state.lanes[2], state.player.x));
+    }
 
     // Timers
     if (state.activePowerUp) {
       state.powerUpTimer -= dt;
-      if (state.powerUpTimer <= 0) {
-        state.activePowerUp = null;
-      }
+      if (state.powerUpTimer <= 0) state.activePowerUp = null;
     }
-
     if (state.player.invulnTimer > 0) {
       state.player.invulnTimer -= dt;
       state.player.isInvulnerable = state.player.invulnTimer > 0;
     }
+    if (state.player.oilTimer > 0) {
+      state.player.oilTimer -= dt;
+      state.player.oilSlicked = state.player.oilTimer > 0;
+    }
+    if (state.screenShake > 0) state.screenShake = Math.max(0, state.screenShake - dt);
+    if (state.levelUpFlash > 0) state.levelUpFlash -= dt;
+    if (state.comboTimer > 0) {
+      state.comboTimer -= dt;
+      if (state.comboTimer <= 0) state.combo = 0;
+    }
 
-    if (state.screenShake > 0) {
-      state.screenShake = Math.max(0, state.screenShake - dt);
+    // Boss warning countdown
+    if (state.bossWarning > 0) {
+      state.bossWarning -= dt;
+      if (state.bossWarning <= 0 && !state.bossActive) {
+        this.spawnBoss(currentSpeed);
+      }
+    }
+
+    // Boss interval timer
+    if (!state.bossActive && state.bossWarning <= 0) {
+      state.bossTimer += dt;
+      if (state.bossTimer >= BOSS_INTERVAL_MS) {
+        state.bossTimer = 0;
+        state.bossWarning = 3000;
+        playAudio('shield');
+      }
     }
 
     // Spawn vehicles
-    if (Math.random() < 0.02 * speedMultiplier) {
-      const lane = Math.floor(Math.random() * 3);
-      const isTank = Math.random() < 0.01;
-      let type: Vehicle['type'] = isTank ? 'TANK' : VEHICLE_TYPES[Math.floor(Math.random() * VEHICLE_TYPES.length)];
-      
-      let width = 30, height = 50, speed = currentSpeed * 0.8;
-      if (type === 'BUS') { width = 45; height = 90; speed = currentSpeed * 0.6; }
-      if (type === 'SPORTS') { height = 45; speed = currentSpeed * 1.5; }
-      if (type === 'BOXTRUCK') { width = 35; height = 70; speed = currentSpeed * 0.7; }
-      if (type === 'TANK') { width = 50; height = 80; speed = currentSpeed * 0.4; }
-
-      const colors = ['#555', '#453c31', '#222', '#4b5320', '#cc0000', '#dcdcdc'];
-      const color = colors[Math.floor(Math.random() * colors.length)];
-
-      state.vehicles.push({
-        type,
-        x: state.lanes[lane],
-        y: -100,
-        width,
-        height,
-        color,
-        speed,
-        lane
-      });
+    if (this.rng() < 0.02 * speedMult) {
+      this.spawnVehicle(currentSpeed);
     }
 
     // Spawn powerups
-    if (Math.random() < 0.002) {
+    if (this.rng() < 0.002) {
       const types: PowerUpType[] = ['SHIELD', 'SLOWMO', 'SCORE_BLAST', 'EXTRA_LIFE'];
-      const type = types[Math.floor(Math.random() * types.length)];
-      const lane = Math.floor(Math.random() * 3);
-      state.powerups.push({
-        type,
-        x: state.lanes[lane],
-        y: -50,
-        width: 30,
-        height: 30
+      const type = types[Math.floor(this.rng() * types.length)];
+      const lane = Math.floor(this.rng() * 3);
+      state.powerups.push({ type, x: state.lanes[lane], y: -50, width: 30, height: 30 });
+    }
+
+    // Spawn obstacles (only after first 10 seconds)
+    if (state.distance > 10000 && this.rng() < 0.005 * speedMult) {
+      const type: ObstacleType = this.rng() < 0.5 ? 'OIL_SLICK' : 'DEBRIS';
+      const lane = Math.floor(this.rng() * 3);
+      state.obstacles.push({
+        type, x: state.lanes[lane], y: -80,
+        width: type === 'OIL_SLICK' ? 55 : 28,
+        height: type === 'OIL_SLICK' ? 28 : 22,
       });
     }
 
     // Update vehicles
     for (let i = state.vehicles.length - 1; i >= 0; i--) {
       const v = state.vehicles[i];
-      // Vehicles move down relative to player, so player speed + vehicle own speed
-      // Wait, top-down racer: road moves down. Traffic usually moves slower than player so they come down.
-      // If it's oncoming traffic, they move very fast down. Let's make them oncoming or slow moving.
       v.y += currentSpeed + v.speed * 0.5;
 
-      if (v.y > this.canvas.height + 100) {
-        if (v.type === 'TANK') state.score += 500; // Bonus for dodging tank
+      if (v.y > this.canvas.height + 150) {
+        if (v.type === 'TANK') {
+          state.score += 500;
+          state.tanksSlayed++;
+          if (state.tanksSlayed >= 3) this.grantAchievement('tank_slayer');
+        }
+        if (v.type === 'BOSS') {
+          state.score += 1500;
+          state.bossActive = false;
+        }
         state.vehicles.splice(i, 1);
         continue;
+      }
+
+      // Near-miss detection: vehicle just passed the player's midpoint
+      if (!v.passed && v.y > state.player.y + state.player.height / 2) {
+        v.passed = true;
+        const xDist = Math.abs(v.x - state.player.x);
+        const minSafe = (state.player.width + v.width) / 2 - 5;
+        const maxNearMiss = minSafe + NEAR_MISS_EXTRA_PX;
+        if (xDist > minSafe && xDist < maxNearMiss) {
+          state.combo++;
+          if (state.combo > state.maxCombo) state.maxCombo = state.combo;
+          state.comboTimer = COMBO_DECAY_MS;
+          if (state.combo >= 10) this.grantAchievement('combo_king');
+          if ('vibrate' in navigator) navigator.vibrate(25);
+        }
       }
 
       // Collision
@@ -269,15 +434,29 @@ export class GameEngine {
     for (let i = state.powerups.length - 1; i >= 0; i--) {
       const p = state.powerups[i];
       p.y += currentSpeed;
-
-      if (p.y > this.canvas.height + 50) {
-        state.powerups.splice(i, 1);
-        continue;
-      }
-
+      if (p.y > this.canvas.height + 50) { state.powerups.splice(i, 1); continue; }
       if (this.checkCollision(state.player, p)) {
         this.collectPowerUp(p.type);
         state.powerups.splice(i, 1);
+      }
+    }
+
+    // Update obstacles
+    for (let i = state.obstacles.length - 1; i >= 0; i--) {
+      const o = state.obstacles[i];
+      o.y += currentSpeed * 0.55;
+      if (o.y > this.canvas.height + 80) { state.obstacles.splice(i, 1); continue; }
+
+      if (!state.player.isInvulnerable && state.activePowerUp !== 'SHIELD' && this.checkCollision(state.player, o)) {
+        if (o.type === 'OIL_SLICK' && !state.player.oilSlicked) {
+          state.player.oilSlicked = true;
+          state.player.oilTimer = 2500;
+          state.obstacles.splice(i, 1);
+          if ('vibrate' in navigator) navigator.vibrate([40, 40, 40]);
+        } else if (o.type === 'DEBRIS') {
+          this.handleCrash();
+          state.obstacles.splice(i, 1);
+        }
       }
     }
 
@@ -285,30 +464,80 @@ export class GameEngine {
     for (let i = state.particles.length - 1; i >= 0; i--) {
       const p = state.particles[i];
       p.x += p.vx;
-      p.y += p.vy + currentSpeed;
+      p.y += p.vy + currentSpeed * 0.2;
       p.life -= dt;
-      if (p.life <= 0) {
-        state.particles.splice(i, 1);
-      }
+      if (p.life <= 0) state.particles.splice(i, 1);
     }
+
+    // Ongoing achievement checks
+    if (state.distance >= 60000) this.grantAchievement('road_warrior');
+    if (state.score >= 10000) this.grantAchievement('warboss');
+    if (state.powerUpsUsed >= 5) this.grantAchievement('powerup_addict');
+  }
+
+  private spawnVehicle(currentSpeed: number) {
+    const state = this.state;
+    const lane = Math.floor(this.rng() * 3);
+    const isTank = this.rng() < 0.01;
+    let type: VehicleType = isTank
+      ? 'TANK'
+      : REGULAR_TYPES[Math.floor(this.rng() * REGULAR_TYPES.length)];
+
+    let width = 30, height = 50, speed = currentSpeed * 0.8;
+    if (type === 'BUS')      { width = 45; height = 90; speed = currentSpeed * 0.6; }
+    if (type === 'SPORTS')   { height = 45; speed = currentSpeed * 1.5; }
+    if (type === 'BOXTRUCK') { width = 35; height = 70; speed = currentSpeed * 0.7; }
+    if (type === 'TANK')     { width = 50; height = 80; speed = currentSpeed * 0.4; }
+
+    const colors = ['#555', '#453c31', '#222', '#4b5320', '#cc0000', '#dcdcdc'];
+    const color = colors[Math.floor(this.rng() * colors.length)];
+
+    state.vehicles.push({ type, x: state.lanes[lane], y: -100, width, height, color, speed, lane, passed: false });
+  }
+
+  private spawnBoss(currentSpeed: number) {
+    const state = this.state;
+    state.bossActive = true;
+    const laneWidth = this.canvas.width / 3;
+    // Boss centers between lanes 0-1 or 1-2
+    const useLow = this.rng() < 0.5;
+    const centerX = useLow
+      ? (state.lanes[0] + state.lanes[1]) / 2
+      : (state.lanes[1] + state.lanes[2]) / 2;
+
+    state.vehicles.push({
+      type: 'BOSS',
+      x: centerX,
+      y: -160,
+      width: laneWidth * 1.85,
+      height: 120,
+      color: '#1a0a00',
+      speed: currentSpeed * 0.25,
+      lane: 1,
+      passed: false,
+    });
   }
 
   private checkCollision(r1: GameObject, r2: GameObject) {
-    // Make hitboxes slightly smaller than visual bounds
     const shrink = 5;
     return (
-      r1.x - r1.width/2 + shrink < r2.x + r2.width/2 - shrink &&
-      r1.x + r1.width/2 - shrink > r2.x - r2.width/2 + shrink &&
-      r1.y - r1.height/2 + shrink < r2.y + r2.height/2 - shrink &&
-      r1.y + r1.height/2 - shrink > r2.y - r2.height/2 + shrink
+      r1.x - r1.width / 2 + shrink < r2.x + r2.width / 2 - shrink &&
+      r1.x + r1.width / 2 - shrink > r2.x - r2.width / 2 + shrink &&
+      r1.y - r1.height / 2 + shrink < r2.y + r2.height / 2 - shrink &&
+      r1.y + r1.height / 2 - shrink > r2.y - r2.height / 2 + shrink
     );
   }
 
   private handleCrash() {
+    if (this.state.player.isInvulnerable) return;
     playAudio('crash');
     this.state.screenShake = 300;
+    this.state.combo = 0;
+    this.state.comboTimer = 0;
+    this.state.wasHit = true;
     this.createParticles(this.state.player.x, this.state.player.y, '#ff3300', 20);
-    
+    if ('vibrate' in navigator) navigator.vibrate([100, 50, 100]);
+
     this.state.lives--;
     if (this.state.lives <= 0) {
       this.gameOver();
@@ -320,13 +549,21 @@ export class GameEngine {
 
   private collectPowerUp(type: PowerUpType) {
     playAudio(type === 'SHIELD' ? 'shield' : 'powerup');
+    if ('vibrate' in navigator) navigator.vibrate(60);
     this.state.powerUpsUsed++;
-    
+
     if (type === 'EXTRA_LIFE') {
       this.state.lives = Math.min(5, this.state.lives + 1);
     } else {
       this.state.activePowerUp = type;
-      this.state.powerUpTimer = type === 'SHIELD' ? 5000 : type === 'SCORE_BLAST' ? 6000 : 4000;
+      const dur = type === 'SHIELD' ? 5000 : type === 'SCORE_BLAST' ? 6000 : 4000;
+      this.state.powerUpTimer = dur;
+    }
+  }
+
+  private grantAchievement(id: string) {
+    if (!this.state.achievementsEarned.includes(id)) {
+      this.state.achievementsEarned.push(id);
     }
   }
 
@@ -339,16 +576,19 @@ export class GameEngine {
         life: 500 + Math.random() * 500,
         maxLife: 1000,
         color,
-        size: 2 + Math.random() * 4
+        size: 2 + Math.random() * 4,
       });
     }
   }
 
   private gameOver() {
-    this.state.isGameOver = true;
+    const state = this.state;
+    state.isGameOver = true;
+    if (!state.wasHit) this.grantAchievement('untouchable');
+    if (state.lives >= 3) this.grantAchievement('survivor');
     playAudio('gameover');
     stopAudio('gameplay');
-    this.onGameOver(this.state);
+    this.onGameOver(state);
   }
 
   private draw() {
@@ -357,38 +597,24 @@ export class GameEngine {
 
     // Screen shake
     if (state.screenShake > 0) {
-      const dx = (Math.random() - 0.5) * 10;
-      const dy = (Math.random() - 0.5) * 10;
-      ctx.translate(dx, dy);
+      const i = (state.screenShake / 300) * 9;
+      ctx.translate((Math.random() - 0.5) * i, (Math.random() - 0.5) * i);
     }
 
-    // Background
-    ctx.fillStyle = '#111111';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    this.drawRoad(ctx, canvas);
 
-    // Road (dark concrete)
-    ctx.fillStyle = '#222222';
-    ctx.fillRect(20, 0, canvas.width - 40, canvas.height);
-
-    // Lane lines
-    ctx.strokeStyle = '#aaaaaa';
-    ctx.lineWidth = 4;
-    ctx.setLineDash([20, 20]);
-    
-    const laneWidth = canvas.width / 3;
-    for (let i = 1; i < 3; i++) {
-      ctx.beginPath();
-      ctx.moveTo(laneWidth * i, -40 + state.roadOffset);
-      ctx.lineTo(laneWidth * i, canvas.height);
-      ctx.stroke();
-    }
-    ctx.setLineDash([]);
+    // Obstacles
+    state.obstacles.forEach(o => {
+      ctx.save();
+      ctx.translate(o.x, o.y);
+      drawObstacle(ctx, o.type, o.width, o.height);
+      ctx.restore();
+    });
 
     // Vehicles
     state.vehicles.forEach(v => {
       ctx.save();
       ctx.translate(v.x, v.y);
-      // Face downwards
       ctx.rotate(Math.PI);
       drawVehicle(ctx, v.type, v.width, v.height, v.color);
       ctx.restore();
@@ -398,61 +624,220 @@ export class GameEngine {
     state.powerups.forEach(p => {
       ctx.save();
       ctx.translate(p.x, p.y);
-      if (p.type === 'SHIELD') ctx.fillStyle = '#00ffff';
-      if (p.type === 'SLOWMO') ctx.fillStyle = '#ffff00';
-      if (p.type === 'SCORE_BLAST') ctx.fillStyle = '#ffaa00';
-      if (p.type === 'EXTRA_LIFE') ctx.fillStyle = '#ff0000';
-      
+      let color = '#fff';
+      let emoji = '';
+      if (p.type === 'SHIELD')      { color = '#00ffff'; emoji = '🛡'; }
+      if (p.type === 'SLOWMO')      { color = '#ffff00'; emoji = '⏱'; }
+      if (p.type === 'SCORE_BLAST') { color = '#ffaa00'; emoji = '★'; }
+      if (p.type === 'EXTRA_LIFE')  { color = '#ff4444'; emoji = '♥'; }
+
+      const pulse = 0.7 + 0.3 * Math.sin(performance.now() * 0.005);
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 14 * pulse;
+      ctx.fillStyle = color;
       ctx.beginPath();
-      ctx.arc(0, 0, p.width/2, 0, Math.PI * 2);
+      ctx.arc(0, 0, p.width / 2, 0, Math.PI * 2);
       ctx.fill();
+      ctx.shadowBlur = 0;
       ctx.strokeStyle = '#fff';
       ctx.lineWidth = 2;
       ctx.stroke();
+      ctx.fillStyle = '#000';
+      ctx.font = '13px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(emoji, 0, 1);
       ctx.restore();
     });
 
-    // Player
+    // Exhaust / speed lines
+    this.drawExhaust(ctx, state);
+
+    // Player car
     if (!state.player.isInvulnerable || Math.floor(performance.now() / 100) % 2 === 0) {
       ctx.save();
       ctx.translate(state.player.x, state.player.y);
-      
-      // Shield effect
+
+      if (state.player.oilSlicked) {
+        ctx.shadowColor = '#8888ff';
+        ctx.shadowBlur = 20;
+      }
+
       if (state.activePowerUp === 'SHIELD') {
         ctx.strokeStyle = '#00ffff';
         ctx.lineWidth = 3;
+        ctx.shadowColor = '#00ffff';
+        ctx.shadowBlur = 15;
         ctx.beginPath();
         for (let i = 0; i < 6; i++) {
-          const angle = (i * Math.PI) / 3;
-          const px = Math.cos(angle) * 35;
-          const py = Math.sin(angle) * 35;
-          if (i === 0) ctx.moveTo(px, py);
-          else ctx.lineTo(px, py);
+          const angle = (i * Math.PI) / 3 + performance.now() * 0.001;
+          const px = Math.cos(angle) * 36;
+          const py = Math.sin(angle) * 36;
+          if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
         }
         ctx.closePath();
         ctx.stroke();
-        
-        ctx.fillStyle = 'rgba(0, 255, 255, 0.2)';
+        ctx.fillStyle = 'rgba(0,255,255,0.12)';
         ctx.fill();
+        ctx.shadowBlur = 0;
       }
 
-      drawVehicle(ctx, 'SEDAN', state.player.width, state.player.height, '#2b331f');
+      drawVehicle(ctx, this.selectedCar, state.player.width, state.player.height, CAR_STATS[this.selectedCar].color);
       ctx.restore();
     }
 
     // Particles
     state.particles.forEach(p => {
-      ctx.fillStyle = p.color;
       ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
+      ctx.fillStyle = p.color;
       ctx.fillRect(p.x, p.y, p.size, p.size);
     });
     ctx.globalAlpha = 1;
 
+    // Level-up flash
+    if (state.levelUpFlash > 0) {
+      const t = state.levelUpFlash / 1800;
+      const alpha = Math.sin(t * Math.PI) * 0.35;
+      ctx.fillStyle = `rgba(255, 130, 0, ${alpha})`;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      if (state.levelUpFlash > 1200) {
+        ctx.font = 'bold 30px "Russo One", sans-serif';
+        ctx.fillStyle = '#fff';
+        ctx.textAlign = 'center';
+        ctx.shadowColor = '#ff8800';
+        ctx.shadowBlur = 25;
+        ctx.fillText(state.levelUpText, canvas.width / 2, canvas.height / 2 - 10);
+        ctx.shadowBlur = 0;
+      }
+    }
+
+    // Boss warning
+    if (state.bossWarning > 0) {
+      const blink = Math.floor(performance.now() / 180) % 2 === 0;
+      if (blink) {
+        ctx.fillStyle = 'rgba(180, 0, 0, 0.28)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 28px "Russo One", sans-serif';
+      ctx.fillStyle = '#ff2222';
+      ctx.shadowColor = '#ff0000';
+      ctx.shadowBlur = 30;
+      ctx.fillText('⚠ WARBOSS INCOMING ⚠', canvas.width / 2, canvas.height / 2);
+      ctx.font = '16px "Roboto Mono", monospace';
+      ctx.fillStyle = '#ffaaaa';
+      ctx.shadowBlur = 0;
+      ctx.fillText('BRACE YOURSELF', canvas.width / 2, canvas.height / 2 + 36);
+    }
+
+    // Near-miss combo text
+    if (state.combo > 1) {
+      const alpha = Math.min(1, state.comboTimer / 800);
+      ctx.globalAlpha = alpha;
+      const sz = Math.min(24, 14 + state.combo);
+      ctx.font = `bold ${sz}px "Russo One", sans-serif`;
+      ctx.fillStyle = '#ffff44';
+      ctx.textAlign = 'center';
+      ctx.shadowColor = '#ff8800';
+      ctx.shadowBlur = 12;
+      ctx.fillText(`NEAR MISS ×${state.combo}!`, canvas.width / 2, canvas.height - 100);
+      ctx.shadowBlur = 0;
+      ctx.globalAlpha = 1;
+    }
+
     // HUD
-    const survivalSeconds = state.distance / 1000;
-    const speedMultiplier = Math.min(3, 1 + Math.floor(survivalSeconds / 15) * 0.5);
-    drawHUD(ctx, canvas.width, canvas.height, state, speedMultiplier);
+    const speedMult = this.getSpeedMultiplier(state.distance);
+    drawHUD(ctx, canvas.width, canvas.height, state, speedMult);
 
     ctx.restore();
+  }
+
+  private drawRoad(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement) {
+    const state = this.state;
+    const laneWidth = canvas.width / 3;
+
+    // Outer gutters (dark)
+    ctx.fillStyle = '#111';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Road surface
+    ctx.fillStyle = '#1d1d1d';
+    ctx.fillRect(12, 0, canvas.width - 24, canvas.height);
+
+    // Subtle horizontal grain rows (stable, not flickering)
+    ctx.globalAlpha = 0.025;
+    for (let r = 0; r < 5; r++) {
+      const y = ((r * 200 + state.roadOffset * 3) % canvas.height);
+      ctx.fillStyle = '#888';
+      ctx.fillRect(12, y, canvas.width - 24, 100);
+    }
+    ctx.globalAlpha = 1;
+
+    // Speed streak lines (long at high speed, scale with multiplier)
+    const speedMult = state.speedMultiplier;
+    const streakLen = 10 + speedMult * 30;
+    const streakAlpha = 0.06 + speedMult * 0.06;
+    ctx.strokeStyle = '#555';
+    ctx.lineWidth = 1;
+    ctx.globalAlpha = streakAlpha;
+    // 8 fixed X positions
+    const streakXs = [30, 65, 100, 140, 180, 230, 270, 310];
+    streakXs.forEach((sx, i) => {
+      const yBase = ((i * 150 + state.roadOffset * (2 + speedMult)) % canvas.height);
+      ctx.beginPath();
+      ctx.moveTo(sx, yBase);
+      ctx.lineTo(sx, yBase + streakLen);
+      ctx.stroke();
+    });
+    ctx.globalAlpha = 1;
+
+    // Edge guardrails with warning stripes
+    const stripeH = 40;
+    const stripeOffset = state.roadOffset * 2;
+    for (let y = -stripeH + (stripeOffset % (stripeH * 2)); y < canvas.height + stripeH; y += stripeH * 2) {
+      ctx.fillStyle = '#886600';
+      ctx.fillRect(0, y, 12, stripeH);
+      ctx.fillStyle = '#333';
+      ctx.fillRect(0, y + stripeH, 12, stripeH);
+      ctx.fillRect(canvas.width - 12, y, 12, stripeH);
+      ctx.fillStyle = '#886600';
+      ctx.fillRect(canvas.width - 12, y + stripeH, 12, stripeH);
+    }
+
+    // Lane dividers (dashed)
+    ctx.strokeStyle = '#3a3a3a';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([24, 24]);
+    ctx.lineDashOffset = -(state.roadOffset * 2);
+    for (let i = 1; i < 3; i++) {
+      ctx.beginPath();
+      ctx.moveTo(laneWidth * i, 0);
+      ctx.lineTo(laneWidth * i, canvas.height);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    ctx.lineDashOffset = 0;
+  }
+
+  private drawExhaust(ctx: CanvasRenderingContext2D, state: GameState) {
+    const spd = state.speedMultiplier;
+    if (spd < 1.2) return;
+    const alpha = Math.min(0.65, (spd - 1) * 0.4);
+    const lineLen = spd * 18;
+    const px = state.player.x;
+    const py = state.player.y + state.player.height / 2;
+    const hw = state.player.width * 0.28;
+
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = `rgba(200, 200, 200, ${alpha})`;
+    ctx.beginPath(); ctx.moveTo(px - hw, py); ctx.lineTo(px - hw, py + lineLen); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(px + hw, py); ctx.lineTo(px + hw, py + lineLen); ctx.stroke();
+
+    if (spd >= 2) {
+      ctx.strokeStyle = `rgba(255, 80, 0, ${alpha * 0.5})`;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px, py + lineLen * 0.65); ctx.stroke();
+    }
   }
 }

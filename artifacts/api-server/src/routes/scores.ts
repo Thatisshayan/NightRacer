@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import { scoresTable } from "@workspace/db";
-import { desc, sql } from "drizzle-orm";
+import { desc, sql, gte } from "drizzle-orm";
 import {
   SubmitScoreBody,
   GetLeaderboardQueryParams,
@@ -9,17 +9,40 @@ import {
 
 const router: IRouter = Router();
 
-// GET /scores — leaderboard
+// Max plausible score: baseSpeed(5) * maxSpeedMult(3) * maxScoreMult(3) / 10 per distance unit * generous factor
+// Score per distance ≈ 0.3 at theoretical max; we allow 1.5× headroom for combo bonuses
+const MAX_SCORE_PER_DISTANCE = 1.5;
+const MAX_ABSOLUTE_SCORE = 200_000; // absolute ceiling regardless of distance
+
+// GET /scores — leaderboard with optional period filter
 router.get("/scores", async (req, res) => {
   try {
     const query = GetLeaderboardQueryParams.parse({ limit: req.query.limit ?? 20 });
     const limit = Math.min(query.limit ?? 20, 100);
+    const period = (req.query.period as string | undefined) ?? "all";
 
-    const rows = await db
-      .select()
-      .from(scoresTable)
-      .orderBy(desc(scoresTable.score))
-      .limit(limit);
+    let baseQuery = db.select().from(scoresTable).orderBy(desc(scoresTable.score));
+
+    if (period === "daily") {
+      const startOfDay = new Date();
+      startOfDay.setHours(0, 0, 0, 0);
+      baseQuery = db
+        .select()
+        .from(scoresTable)
+        .where(gte(scoresTable.createdAt, startOfDay))
+        .orderBy(desc(scoresTable.score)) as typeof baseQuery;
+    } else if (period === "weekly") {
+      const startOfWeek = new Date();
+      startOfWeek.setDate(startOfWeek.getDate() - 7);
+      startOfWeek.setHours(0, 0, 0, 0);
+      baseQuery = db
+        .select()
+        .from(scoresTable)
+        .where(gte(scoresTable.createdAt, startOfWeek))
+        .orderBy(desc(scoresTable.score)) as typeof baseQuery;
+    }
+
+    const rows = await baseQuery.limit(limit);
 
     const leaderboard = rows.map((row, index) => ({
       id: row.id,
@@ -38,10 +61,21 @@ router.get("/scores", async (req, res) => {
   }
 });
 
-// POST /scores — submit score
+// POST /scores — submit score with server-side validation
 router.post("/scores", async (req, res) => {
   try {
     const body = SubmitScoreBody.parse(req.body);
+
+    // Server-side plausibility check
+    const maxAllowed = Math.min(
+      MAX_ABSOLUTE_SCORE,
+      body.distanceTraveled * MAX_SCORE_PER_DISTANCE + 5000 // 5000 buffer for tank/boss bonuses
+    );
+    if (body.score > maxAllowed) {
+      req.log.warn({ body }, "Score rejected: implausible value");
+      res.status(400).json({ error: "Score value is implausible" });
+      return;
+    }
 
     const [inserted] = await db
       .insert(scoresTable)
@@ -53,7 +87,6 @@ router.post("/scores", async (req, res) => {
       })
       .returning();
 
-    // Calculate rank
     const rankResult = await db
       .select({ count: sql<number>`count(*)` })
       .from(scoresTable)

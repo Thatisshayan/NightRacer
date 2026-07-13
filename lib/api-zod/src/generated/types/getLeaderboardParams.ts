@@ -5,7 +5,9 @@
  * Warboss Highway Game API
  * OpenAPI spec version: 0.1.0
  */
+import type { GetLeaderboardPeriod } from './getLeaderboardPeriod';
 
 export type GetLeaderboardParams = {
 limit?: number;
+period?: GetLeaderboardPeriod;
 };

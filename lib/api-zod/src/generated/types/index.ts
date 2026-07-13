@@ -8,6 +8,7 @@
 
 export * from './gameStats';
 export * from './getLeaderboardParams';
+export * from './getLeaderboardPeriod';
 export * from './healthStatus';
 export * from './score';
 export * from './scoreInput';

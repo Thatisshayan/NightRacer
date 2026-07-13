@@ -1,0 +1,28 @@
+Core Gameplay
+
+Daily Challenge Mode — fixed random seed each day so everyone runs the same traffic pattern; separate leaderboard for bragging rights
+Boss Encounters — every 60 seconds a "Warboss" vehicle fills 2 lanes and you have to time a gap, with a fanfare + screen flash
+Lane markers / road texture — currently a black void; adding a road surface, lane dividers, and edge barriers would sell the illusion much better
+Player car selection — 3–4 vehicle choices at the title screen, each with a subtle stat difference (e.g. wider hitbox but slower, or faster but fragile)
+Obstacle variety — oil slicks (spin-out), debris piles (stationary hazards), roadblocks
+🏆 Progression & Retention
+
+Daily / weekly leaderboard tabs — the global board gets stale fast; scoped boards keep players coming back
+Streaks — reward consecutive days played with a bonus multiplier
+Personal best tracking — stored in localStorage so the game shows your all-time best even before you check the leaderboard
+Achievements / medals — "Dodged 100 vehicles in one run", "Used no power-ups", "Survived 2 minutes", etc.
+✨ Juice & Feel
+
+Screen flash on level-up — currently the difficulty ramps silently; a brief flash + "SPEED UP!" text would sell the tension
+Combo multiplier — surviving near-misses (grazing a vehicle without hitting) builds a streak multiplier shown on the HUD
+Exhaust/speed lines — simple canvas lines trailing off the player car and blurring at high speed
+Road scroll speed tied to score — the road markings and edges should visually accelerate as the speed multiplier climbs
+🔒 Integrity & Social
+
+Server-side score validation — currently scores are fully client-submitted; a simple "max plausible score per second" check server-side would filter cheaters
+Share card — after game over, generate a shareable image (canvas toBlob) showing your score + a slogan, ready to screenshot or share
+📱 Mobile Polish
+
+Haptic feedback — navigator.vibrate() on collision and power-up collect
+Landscape lock warning — nudge players to stay portrait since the lanes are vertical
+Install as PWA — add a manifest.json and service worker so players can pin it to their home screen and play offline

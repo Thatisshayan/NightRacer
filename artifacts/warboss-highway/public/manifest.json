@@ -1,0 +1,19 @@
+{
+  "name": "Warboss Highway",
+  "short_name": "Warboss",
+  "description": "Dodge oncoming traffic. Survive the wasteland.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0a0a0a",
+  "theme_color": "#8b0000",
+  "categories": ["games"],
+  "icons": [
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

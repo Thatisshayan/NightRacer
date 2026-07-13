@@ -22,9 +22,11 @@ export const HealthCheckResponse = zod.object({
  * @summary Get top scores leaderboard
  */
 export const getLeaderboardQueryLimitDefault = 20;
+export const getLeaderboardQueryPeriodDefault = `all`;
 
 export const GetLeaderboardQueryParams = zod.object({
-  "limit": zod.coerce.number().default(getLeaderboardQueryLimitDefault)
+  "limit": zod.coerce.number().default(getLeaderboardQueryLimitDefault),
+  "period": zod.enum(['all', 'daily', 'weekly']).default(getLeaderboardQueryPeriodDefault)
 })
 
 export const GetLeaderboardResponseItem = zod.object({
