@@ -53,6 +53,8 @@ Thumbs.db
 !.env.example
 *.p8
 *.p12
+*.pem
+*.key
 *_credential*
 *credential*
 node_modules/

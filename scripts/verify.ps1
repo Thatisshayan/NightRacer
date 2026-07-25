@@ -37,12 +37,22 @@ if (Get-Command gitleaks -ErrorAction SilentlyContinue) {
 # ---------------------------------------------------------------- 2. doc-freshness
 Write-Host "== doc-freshness =="
 if (-not (Test-Path (Join-Path $RepoRoot 'README.md'))) { Err "doc-freshness" "README.md missing" }
-$newest = Get-ChildItem -Path (Join-Path $RepoRoot 'audits') -Recurse -Filter *.md -ErrorAction SilentlyContinue |
-  Where-Object { $_.FullName -notmatch '[\\/]audits[\\/]private[\\/]' } |
-  Sort-Object LastWriteTime -Descending | Select-Object -First 1
-if (-not $newest) { Err "doc-freshness" "no audit found under audits/" }
+# Use each file's last git commit time, not filesystem mtime — `actions/checkout`
+# (and any fresh clone) resets mtimes to checkout time, making an mtime-based
+# staleness check a no-op in CI.
+$auditFiles = Get-ChildItem -Path (Join-Path $RepoRoot 'audits') -Recurse -Filter *.md -ErrorAction SilentlyContinue |
+  Where-Object { $_.FullName -notmatch '[\\/]audits[\\/]private[\\/]' }
+$newestDate = $null
+foreach ($f in $auditFiles) {
+  $iso = (git log -1 --format=%cI -- $f.FullName 2>$null)
+  if ($iso) {
+    $d = [datetimeoffset]::Parse($iso)
+    if (-not $newestDate -or $d -gt $newestDate) { $newestDate = $d }
+  }
+}
+if (-not $newestDate) { Err "doc-freshness" "no audit found under audits/" }
 else {
-  $age = ([datetime]::Now - $newest.LastWriteTime).Days
+  $age = ([datetimeoffset]::Now - $newestDate).Days
   if ($age -gt 30) { Err "doc-freshness" "newest audit is $age days old (>30)" }
 }
 $baselinePath = Join-Path $RepoRoot 'docs/_baseline.json'
@@ -64,12 +74,15 @@ Write-Host "== build / test =="
 $PM = $null
 if (Test-Path (Join-Path $RepoRoot 'pnpm-lock.yaml')) { $PM = 'pnpm' }
 elseif (Test-Path (Join-Path $RepoRoot 'yarn.lock')) { $PM = 'yarn' }
+elseif (Test-Path (Join-Path $RepoRoot 'bun.lock')) { $PM = 'bun' }
 elseif (Test-Path (Join-Path $RepoRoot 'package-lock.json')) { $PM = 'npm' }
 
 function RunTimed($secs, $label, $cmd) {
-  $p = Start-Process -NoNewWindow -PassThru -Wait $cmd[0] $cmd[1..($cmd.Count-1)]
-  if ($p.ExitCode -eq 124) { Err $label "timed out after ${secs}s (likely network/install hang)" }
-  elseif ($p.ExitCode -ne 0) { Err $label "failed (rc=$($p.ExitCode))" }
+  $p = Start-Process -NoNewWindow -PassThru $cmd[0] -ArgumentList $cmd[1..($cmd.Count-1)]
+  if (-not $p.WaitForExit($secs * 1000)) {
+    Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+    Err $label "timed out after ${secs}s (likely network/install hang)"
+  } elseif ($p.ExitCode -ne 0) { Err $label "failed (rc=$($p.ExitCode))" }
   else { Notice $label "ok" }
 }
 
@@ -77,17 +90,18 @@ if ($PM) {
   switch ($PM) {
     'pnpm' { RunTimed 300 build @('pnpm','install','--frozen-lockfile') }
     'yarn' { RunTimed 300 build @('yarn','install','--frozen-lockfile') }
+    'bun'  { RunTimed 300 build @('bun','install','--frozen-lockfile') }
     'npm'  { RunTimed 300 build @('npm','ci') }
   }
   if (-not $failed) {
-    foreach ($m in @('npm','pnpm','yarn')) {
-      if (Get-Command $m -ErrorAction SilentlyContinue) {
-        $c = if ($m -eq 'npm') { 'npm run build --if-present' } elseif ($m -eq 'pnpm') { 'pnpm run build --if-present' } else { 'yarn build' }
-        Invoke-Expression $c >$null 2>&1; if ($LASTEXITCODE -eq 0) { Notice build "build ok" } else { Err build "build failed" }
-        $c = if ($m -eq 'npm') { 'npm test --if-present' } elseif ($m -eq 'pnpm') { 'pnpm test --if-present' } else { 'yarn test' }
-        Invoke-Expression $c >$null 2>&1; if ($LASTEXITCODE -eq 0) { Notice test "test ok" } else { Err test "test failed" }
-      }
+    $buildCmd, $testCmd = switch ($PM) {
+      'npm'  { 'npm run build --if-present', 'npm test --if-present' }
+      'pnpm' { 'pnpm run --if-present build', 'pnpm run --if-present test' }
+      'yarn' { 'yarn build', 'yarn test' }
+      'bun'  { 'bun run --if-present build', 'bun run --if-present test' }
     }
+    Invoke-Expression $buildCmd >$null 2>&1; if ($LASTEXITCODE -eq 0) { Notice build "build ok" } else { Err build "build failed" }
+    Invoke-Expression $testCmd >$null 2>&1; if ($LASTEXITCODE -eq 0) { Notice test "test ok" } else { Err test "test failed" }
   }
 } elseif ((Test-Path (Join-Path $RepoRoot 'pyproject.toml')) -or (Test-Path (Join-Path $RepoRoot 'requirements.txt'))) {
   if (Test-Path (Join-Path $RepoRoot 'requirements.txt')) { pip install -q -r (Join-Path $RepoRoot 'requirements.txt') }

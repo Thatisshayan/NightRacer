@@ -5,7 +5,7 @@
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$REPO_ROOT"
+cd "$REPO_ROOT" || exit 1
 
 FAIL=0
 notice() { echo "::notice title=$1::$2"; }
@@ -31,8 +31,10 @@ else
     --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=audits/private \
     --exclude-dir=.venv --exclude-dir=_repo_clone --exclude-dir=dist --exclude-dir=build \
     --exclude-dir=.cache --exclude-dir=coverage \
+    --exclude='*.env.example' --exclude='*.env.sample' \
     --include='*.json' --include='*.env' --include='*.ts' --include='*.js' --include='*.py' \
-    --include='*.yml' --include='*.yaml' --include='*.toml' --include='*.sh' . 2>/dev/null || true)
+    --include='*.yml' --include='*.yaml' --include='*.toml' --include='*.sh' --include='*.md' \
+    . 2>/dev/null || true)
   if [ -n "$hits" ]; then error "secret-scan" "possible hardcoded secrets in: $hits"; fi
 fi
 
@@ -45,14 +47,19 @@ if command -v markdown-link-check >/dev/null 2>&1; then
     -not -path './audits/private/*' -print0 2>/dev/null \
     | xargs -0 -r -n1 markdown-link-check || error "doc-freshness" "broken doc links"
 fi
-# audit age (≤ 30 days)
-newest=$(find audits -name '*.md' -not -path '*/private/*' -printf '%T@ %p\n' 2>/dev/null \
-  | sort -n | tail -1 | cut -d' ' -f1)
+# audit age (≤ 30 days) — use each file's last git commit time, not filesystem
+# mtime, since `actions/checkout` resets mtimes to checkout time on every run.
+newest=""
+while IFS= read -r f; do
+  ts=$(git log -1 --format=%ct -- "$f" 2>/dev/null || true)
+  [ -n "$ts" ] || continue
+  if [ -z "$newest" ] || [ "$ts" -gt "$newest" ]; then newest="$ts"; fi
+done < <(find audits -name '*.md' -not -path '*/private/*' 2>/dev/null)
 if [ -z "$newest" ]; then
   error "doc-freshness" "no audit found under audits/"
 else
   now=$(date +%s)
-  age=$(( (now - ${newest%.*}) / 86400 ))
+  age=$(( (now - newest) / 86400 ))
   if [ "$age" -gt 30 ]; then error "doc-freshness" "newest audit is $age days old (>30)"; fi
 fi
 # doc baseline
@@ -76,25 +83,39 @@ elif [ -f yarn.lock ]; then PM=yarn
 elif [ -f bun.lock ]; then PM=bun
 elif [ -f package-lock.json ]; then PM=npm
 fi
+# prefer GNU `timeout`; fall back to macOS `gtimeout` (coreutils); else run untimed.
+TIMEOUT_BIN=""
+if command -v timeout >/dev/null 2>&1; then TIMEOUT_BIN=timeout
+elif command -v gtimeout >/dev/null 2>&1; then TIMEOUT_BIN=gtimeout
+fi
 run_with_timeout() { # $1=seconds $2=label $3..=cmd
   local t="$1"; shift; local label="$1"; shift
-  local out; out=$(timeout "$t" "$@" 2>&1); local rc=$?
+  local out rc
+  if [ -n "$TIMEOUT_BIN" ]; then
+    out=$("$TIMEOUT_BIN" "$t" "$@" 2>&1); rc=$?
+  else
+    out=$("$@" 2>&1); rc=$?
+  fi
   if [ $rc -eq 124 ]; then error "$label" "timed out after ${t}s (likely network/install hang)"; return; fi
   if [ $rc -ne 0 ]; then error "$label" "failed (rc=$rc): $(printf '%s' "$out" | tail -3)"; return; fi
   notice "$label" "ok"
 }
 if [ -n "$PM" ]; then
   case "$PM" in
-    pnpm) run_with_timeout 300 build pnpm install --frozen-lockfile
-          pnpm run build --if-present 2>&1 | tail -3 ;;
+    pnpm) run_with_timeout 300 build pnpm install --frozen-lockfile ;;
     yarn) run_with_timeout 300 build yarn install --frozen-lockfile ;;
-    bun)  run_with_timeout 300 build bun install --frozen-lockfile
-          bun run build --if-present 2>&1 | tail -3 ;;
+    bun)  run_with_timeout 300 build bun install --frozen-lockfile ;;
     npm)  run_with_timeout 300 build npm ci ;;
   esac
   if [ $FAIL -eq 0 ]; then
-    (npm run build --if-present || pnpm run build --if-present || yarn build || bun run build --if-present) >/dev/null 2>&1 && notice build "build ok" || error build "build failed"
-    (npm test --if-present || pnpm test --if-present || yarn test || bun test --if-present) >/dev/null 2>&1 && notice test "test ok" || error test "test failed"
+    case "$PM" in
+      pnpm) pm_build="pnpm run --if-present build"; pm_test="pnpm run --if-present test" ;;
+      yarn) pm_build="yarn build"; pm_test="yarn test" ;;
+      bun)  pm_build="bun run --if-present build"; pm_test="bun run --if-present test" ;;
+      npm)  pm_build="npm run build --if-present"; pm_test="npm test --if-present" ;;
+    esac
+    $pm_build >/dev/null 2>&1 && notice build "build ok" || error build "build failed"
+    $pm_test >/dev/null 2>&1 && notice test "test ok" || error test "test failed"
   fi
 elif [ -f pyproject.toml ] || [ -f requirements.txt ]; then
   pip install -q -r requirements.txt 2>/dev/null || true

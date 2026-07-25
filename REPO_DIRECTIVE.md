@@ -13,7 +13,7 @@ is `NightRacer` but the product is **Warboss Highway** — keep both names mappe
 - We will NOT introduce a paid monetization, ads, or IAP layer.
 - We will NOT hand-edit the generated `lib/api-client-react` or `lib/api-zod` packages —
   those are Orval codegen outputs from `lib/api-spec/openapi.yaml`.
-- We will NOT bypass the pnpm `minimumReleaseAge` supply-chain guard (Rule 24 / workspace policy).
+- We will NOT bypass the pnpm `minimumReleaseAge` supply-chain guard (Rule 34 / workspace policy).
 
 ## Phases
 ### P1 — Playable core loop
@@ -52,6 +52,6 @@ is `NightRacer` but the product is **Warboss Highway** — keep both names mappe
 - [ ] T7 — Add a deploy-dry target (vercel/railway/eas) or record "none" in DEFERRED_WORK | traces-to: P3/S3/E3 | acceptance: deploy-dry stage is either green or explicitly deferred with reason
 
 ## Sentinel Constraints
-- auto-approve: lint/docs/governance-only changes on a branch (never main).
+- auto-label: lint/docs/governance-only changes on a branch may skip the internal Sentinel review step, but this never authorizes merging — Shayan's PR approval is still required for every merge (never main).
 - review-required: any change to `lib/api-spec/openapi.yaml`, `lib/db/src/schema`, game physics, or auth.
-- locked: `main` branch — no direct push (Rule 26). Seeded secrets/credentials never committed (Rule 14/18).
+- locked: `main` branch — no direct push (Rule 26). Seeded secrets/credentials never committed (Rule 19).
