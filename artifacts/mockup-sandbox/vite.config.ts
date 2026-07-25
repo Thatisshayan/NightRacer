@@ -5,23 +5,28 @@ import path from "path";
 import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 import { mockupPreviewPlugin } from "./mockupPreviewPlugin";
 
+// PORT/BASE_PATH are only meaningful for the dev/preview server (Replit
+// injects them at runtime); a plain `vite build` (e.g. in CI) never binds a
+// server, so don't require them there.
+const isServe = process.argv[2] !== "build";
+
 const rawPort = process.env.PORT;
 
-if (!rawPort) {
+if (isServe && !rawPort) {
   throw new Error(
     "PORT environment variable is required but was not provided.",
   );
 }
 
-const port = Number(rawPort);
+const port = rawPort ? Number(rawPort) : 5173;
 
-if (Number.isNaN(port) || port <= 0) {
+if (rawPort && (Number.isNaN(port) || port <= 0)) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
 const basePath = process.env.BASE_PATH;
 
-if (!basePath) {
+if (isServe && !basePath) {
   throw new Error(
     "BASE_PATH environment variable is required but was not provided.",
   );

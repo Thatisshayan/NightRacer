@@ -1,0 +1,51 @@
+name: governance-gate
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches-ignore: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    name: gate (secret-scan, doc-freshness, build, test, deploy-dry)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        if: ${{ hashFiles('pnpm-lock.yaml') != '' }}
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        if: ${{ hashFiles('package.json') != '' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: ${{ hashFiles('pnpm-lock.yaml') != '' && 'pnpm' || 'npm' }}
+
+      - name: Setup Python
+        if: ${{ hashFiles('requirements.txt', 'pyproject.toml') != '' }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install gitleaks
+        run: |
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz \
+            | tar -xz -C /usr/local/bin gitleaks
+          gitleaks version
+
+      - name: Install markdown-link-check
+        run: npm install -g markdown-link-check@3.13.6
+
+      - name: Run governance verification
+        run: bash scripts/verify.sh
