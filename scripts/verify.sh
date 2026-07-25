@@ -69,10 +69,11 @@ fi
 
 # ---------------------------------------------------------------- 3. build / test
 echo "== build / test =="
-# pick the package manager from lockfiles (respect pnpm/yarn, don't assume npm)
+# pick the package manager from lockfiles (respect pnpm/yarn/bun, don't assume npm)
 PM=""
 if [ -f pnpm-lock.yaml ]; then PM=pnpm
 elif [ -f yarn.lock ]; then PM=yarn
+elif [ -f bun.lock ]; then PM=bun
 elif [ -f package-lock.json ]; then PM=npm
 fi
 run_with_timeout() { # $1=seconds $2=label $3..=cmd
@@ -87,11 +88,13 @@ if [ -n "$PM" ]; then
     pnpm) run_with_timeout 300 build pnpm install --frozen-lockfile
           pnpm run build --if-present 2>&1 | tail -3 ;;
     yarn) run_with_timeout 300 build yarn install --frozen-lockfile ;;
+    bun)  run_with_timeout 300 build bun install --frozen-lockfile
+          bun run build --if-present 2>&1 | tail -3 ;;
     npm)  run_with_timeout 300 build npm ci ;;
   esac
   if [ $FAIL -eq 0 ]; then
-    (npm run build --if-present || pnpm run build --if-present || yarn build) >/dev/null 2>&1 && notice build "build ok" || error build "build failed"
-    (npm test --if-present || pnpm test --if-present || yarn test) >/dev/null 2>&1 && notice test "test ok" || error test "test failed"
+    (npm run build --if-present || pnpm run build --if-present || yarn build || bun run build --if-present) >/dev/null 2>&1 && notice build "build ok" || error build "build failed"
+    (npm test --if-present || pnpm test --if-present || yarn test || bun test --if-present) >/dev/null 2>&1 && notice test "test ok" || error test "test failed"
   fi
 elif [ -f pyproject.toml ] || [ -f requirements.txt ]; then
   pip install -q -r requirements.txt 2>/dev/null || true
