@@ -114,8 +114,10 @@ if [ -n "$PM" ]; then
       bun)  pm_build="bun run --if-present build"; pm_test="bun run --if-present test" ;;
       npm)  pm_build="npm run build --if-present"; pm_test="npm test --if-present" ;;
     esac
-    $pm_build >/dev/null 2>&1 && notice build "build ok" || error build "build failed"
-    $pm_test >/dev/null 2>&1 && notice test "test ok" || error test "test failed"
+    build_out=$($pm_build 2>&1) && notice build "build ok" \
+      || error build "build failed: $(printf '%s' "$build_out" | tail -20)"
+    test_out=$($pm_test 2>&1) && notice test "test ok" \
+      || error test "test failed: $(printf '%s' "$test_out" | tail -20)"
   fi
 elif [ -f pyproject.toml ] || [ -f requirements.txt ]; then
   pip install -q -r requirements.txt 2>/dev/null || true
