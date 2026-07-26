@@ -35,6 +35,8 @@ export const GetLeaderboardResponseItem = zod.object({
   "score": zod.number(),
   "powerupsUsed": zod.number(),
   "distanceTraveled": zod.number(),
+  "car": zod.string().nullish(),
+  "dailyMode": zod.boolean(),
   "rank": zod.number().nullish(),
   "createdAt": zod.string()
 })
@@ -59,7 +61,9 @@ export const SubmitScoreBody = zod.object({
   "playerName": zod.string().min(1).max(submitScoreBodyPlayerNameMax),
   "score": zod.number().min(submitScoreBodyScoreMin),
   "powerupsUsed": zod.number().min(submitScoreBodyPowerupsUsedMin),
-  "distanceTraveled": zod.number().min(submitScoreBodyDistanceTraveledMin)
+  "distanceTraveled": zod.number().min(submitScoreBodyDistanceTraveledMin),
+  "car": zod.string().nullish(),
+  "dailyMode": zod.boolean()
 })
 
 export const SubmitScoreResponse = zod.object({
@@ -68,6 +72,8 @@ export const SubmitScoreResponse = zod.object({
   "score": zod.number(),
   "powerupsUsed": zod.number(),
   "distanceTraveled": zod.number(),
+  "car": zod.string().nullish(),
+  "dailyMode": zod.boolean(),
   "rank": zod.number().nullish(),
   "createdAt": zod.string()
 })

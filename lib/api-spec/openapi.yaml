@@ -114,6 +114,11 @@ components:
           type: integer
         distanceTraveled:
           type: integer
+        car:
+          type: string
+          nullable: true
+        dailyMode:
+          type: boolean
         rank:
           type: ["integer", "null"]
         createdAt:
@@ -124,6 +129,7 @@ components:
         - score
         - powerupsUsed
         - distanceTraveled
+        - dailyMode
         - createdAt
 
     ScoreInput:
@@ -142,11 +148,17 @@ components:
         distanceTraveled:
           type: integer
           minimum: 0
+        car:
+          type: string
+          nullable: true
+        dailyMode:
+          type: boolean
       required:
         - playerName
         - score
         - powerupsUsed
         - distanceTraveled
+        - dailyMode
 
     GameStats:
       type: object

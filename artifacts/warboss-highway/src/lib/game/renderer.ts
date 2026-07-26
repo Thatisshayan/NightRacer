@@ -94,6 +94,7 @@ export const drawHUD = (
 
     const maxDur = state.activePowerUp === 'SHIELD' ? 5000 : state.activePowerUp === 'SCORE_BLAST' ? 6000 : 4000;
     const barFill = Math.max(0, (state.powerUpTimer / maxDur) * 140);
+    const timerSeconds = Math.max(0, Math.ceil(state.powerUpTimer / 1000));
 
     ctx.fillStyle = color;
     ctx.font = '16px "Russo One", sans-serif';
@@ -104,7 +105,50 @@ export const drawHUD = (
     ctx.fillRect(20, height - 26, 140, 8);
     ctx.fillStyle = color;
     ctx.fillRect(20, height - 26, barFill, 8);
+
+    ctx.font = '12px "Roboto Mono", monospace';
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'left';
+    ctx.fillText(`${timerSeconds}s`, 168, height - 28);
   }
+
+  // Speedometer gauge (bottom right)
+  const cx = width - 48;
+  const cy = height - 48;
+  const radius = 36;
+  const speedRatio = Math.min(1, speedMultiplier / 3);
+  const startAngle = Math.PI * 0.75;
+  const endAngle = Math.PI * 2.25;
+  const fillAngle = startAngle + (endAngle - startAngle) * speedRatio;
+
+  // Background arc
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, startAngle, endAngle);
+  ctx.lineWidth = 6;
+  ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+  ctx.stroke();
+
+  // Fill arc
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, startAngle, fillAngle);
+  const speedColor = speedMultiplier >= 2.5 ? '#ff3333' : speedMultiplier >= 1.8 ? '#ffaa00' : '#55ffaa';
+  ctx.strokeStyle = speedColor;
+  ctx.lineCap = 'round';
+  ctx.shadowColor = speedColor;
+  ctx.shadowBlur = 12;
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+  ctx.lineCap = 'butt';
+
+  // Speed text
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 14px "Roboto Mono", monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(`${speedMultiplier.toFixed(1)}×`, cx, cy + 2);
+  ctx.font = '8px "Roboto Mono", monospace';
+  ctx.fillStyle = '#888';
+  ctx.fillText('SPD', cx, cy - 14);
 
   ctx.restore();
 };

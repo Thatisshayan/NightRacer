@@ -18,4 +18,6 @@ export interface ScoreInput {
   powerupsUsed: number;
   /** @minimum 0 */
   distanceTraveled: number;
+  car?: string | null;
+  dailyMode: boolean;
 }

@@ -15,6 +15,8 @@ export interface Score {
   score: number;
   powerupsUsed: number;
   distanceTraveled: number;
+  car?: string | null;
+  dailyMode: boolean;
   /** @nullable */
   rank?: number | null;
   createdAt: string;
@@ -32,6 +34,8 @@ export interface ScoreInput {
   powerupsUsed: number;
   /** @minimum 0 */
   distanceTraveled: number;
+  car?: string | null;
+  dailyMode: boolean;
 }
 
 export interface GameStats {

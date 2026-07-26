@@ -1,5 +1,7 @@
 import { playAudio, stopAudio } from './audio';
 import { drawVehicle, drawHUD, drawObstacle } from './renderer';
+import { Settings } from './settings';
+import { DailyModifier } from './daily';
 
 export type PowerUpType = 'SHIELD' | 'SLOWMO' | 'SCORE_BLAST' | 'EXTRA_LIFE';
 export type CarType = 'RATTLETRAP' | 'WAR_RUNNER' | 'DEATHSLED';
@@ -150,6 +152,10 @@ export class GameEngine {
   private touchOffset: { x: number; y: number } = { x: 0, y: 0 };
   private isDragging: boolean = false;
   private joystickEnabled: boolean = false;
+  private isPaused: boolean = false;
+  private onPauseChange?: (paused: boolean) => void;
+  private upgrades: { speed: number; armor: number; handling: number };
+  private dailyModifier: DailyModifier;
   private joystick = {
     active: false,
     cx: 0, cy: 0,
@@ -169,7 +175,7 @@ export class GameEngine {
   constructor(
     canvas: HTMLCanvasElement,
     onGameOver: (state: GameState) => void,
-    options?: { isDailyChallenge?: boolean; selectedCar?: CarType; joystickEnabled?: boolean }
+    options?: { isDailyChallenge?: boolean; selectedCar?: CarType; joystickEnabled?: boolean; onPauseChange?: (paused: boolean) => void; upgrades?: { speed: number; armor: number; handling: number }; dailyModifier?: DailyModifier }
   ) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d')!;
@@ -177,6 +183,9 @@ export class GameEngine {
     this.selectedCar = options?.selectedCar ?? 'WAR_RUNNER';
     this.isDailyChallenge = options?.isDailyChallenge ?? false;
     this.joystickEnabled = options?.joystickEnabled ?? false;
+    this.onPauseChange = options?.onPauseChange;
+    this.upgrades = options?.upgrades ?? { speed: 0, armor: 0, handling: 0 };
+    this.dailyModifier = options?.dailyModifier ?? { name: 'NONE', description: 'Standard rules.', speedMult: 1, spawnMult: 1, scoreMult: 1, obstacleMult: 1, scrapBonus: 0 };
 
     if (this.isDailyChallenge) {
       this.initDailyRNG();
@@ -367,11 +376,30 @@ export class GameEngine {
     this.animationId = requestAnimationFrame(this.loop);
   }
 
+  public pause() {
+    if (this.isPaused || this.state.isGameOver) return;
+    this.isPaused = true;
+    this.onPauseChange?.(true);
+  }
+
+  public resume() {
+    if (!this.isPaused || this.state.isGameOver) return;
+    this.isPaused = false;
+    this.lastTime = performance.now();
+    this.onPauseChange?.(false);
+  }
+
+  public getPaused() {
+    return this.isPaused;
+  }
+
   private loop = (timestamp: number) => {
     if (this.state.isGameOver) return;
     const dt = Math.min(timestamp - this.lastTime, 50);
     this.lastTime = timestamp;
-    this.update(dt);
+    if (!this.isPaused) {
+      this.update(dt);
+    }
     this.draw();
     if (!this.state.isGameOver) {
       this.animationId = requestAnimationFrame(this.loop);
@@ -421,8 +449,8 @@ export class GameEngine {
       if (speedMult >= 3) this.grantAchievement('speed_demon');
     }
 
-    const carMod = CAR_STATS[this.selectedCar].speedMod;
-    let currentSpeed = state.baseSpeed * speedMult * carMod;
+    const carMod = CAR_STATS[this.selectedCar].speedMod * (1 + this.upgrades.speed * 0.03);
+    let currentSpeed = state.baseSpeed * speedMult * carMod * this.dailyModifier.speedMult;
     if (state.activePowerUp === 'SLOWMO') currentSpeed *= 0.4;
 
     // Forward / back speed feel (up = faster, down = slower)
@@ -436,7 +464,7 @@ export class GameEngine {
     state.distance += currentSpeed * (dt / 16);
     const scoreMult = state.activePowerUp === 'SCORE_BLAST' ? 3 : 1;
     const comboBonus = 1 + Math.min(state.combo, 20) * 0.05;
-    state.score += (currentSpeed / 10) * scoreMult * comboBonus;
+    state.score += (currentSpeed / 10) * scoreMult * comboBonus * this.dailyModifier.scoreMult;
 
     // Road scroll
     state.roadOffset = (state.roadOffset + currentSpeed * 1.5) % 80;
@@ -446,7 +474,7 @@ export class GameEngine {
       const len = Math.sqrt(dx * dx + dy * dy);
       if (len > 0) {
         // Base speed tuned so diagonal doesn't outrun horizontal/vertical
-        const moveSpeed = 0.42 * (dt / 16);
+        const moveSpeed = 0.42 * (1 + this.upgrades.handling * 0.08) * (dt / 16);
         state.player.x += (dx / len) * moveSpeed;
         state.player.y += (dy / len) * moveSpeed;
       }
@@ -504,7 +532,7 @@ export class GameEngine {
     }
 
     // Spawn vehicles (scale up with distance to counter top-camping)
-    const spawnRate = 0.02 * speedMult * Math.min(2.2, 1 + state.distance / 18000);
+    const spawnRate = 0.02 * speedMult * Math.min(2.2, 1 + state.distance / 18000) * this.dailyModifier.spawnMult;
     if (this.rng() < spawnRate) {
       this.spawnVehicle(currentSpeed);
     }
@@ -522,7 +550,7 @@ export class GameEngine {
     }
 
     // Spawn obstacles (only after first 10 seconds)
-    if (state.distance > 10000 && this.rng() < 0.005 * speedMult) {
+    if (state.distance > 10000 && this.rng() < 0.005 * speedMult * this.dailyModifier.obstacleMult) {
       const type: ObstacleType = this.rng() < 0.5 ? 'OIL_SLICK' : 'DEBRIS';
       const lane = Math.floor(this.rng() * 3);
       state.obstacles.push({
@@ -675,6 +703,13 @@ export class GameEngine {
 
   private handleCrash() {
     if (this.state.player.isInvulnerable) return;
+    if (this.upgrades.armor > 0 && Math.random() < this.upgrades.armor * 0.1) {
+      this.state.player.isInvulnerable = true;
+      this.state.player.invulnTimer = 1500;
+      this.createParticles(this.state.player.x, this.state.player.y, '#ffaa00', 10);
+      if ('vibrate' in navigator) navigator.vibrate(60);
+      return;
+    }
     playAudio('crash');
     this.state.screenShake = this.reducedMotion ? 0 : 300;
     this.state.combo = 0;

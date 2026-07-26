@@ -123,6 +123,7 @@ export default function Leaderboard() {
                   <tr className="bg-secondary/50 font-mono text-xs text-muted-foreground border-b border-border">
                     <th className="p-4 font-bold">RANK</th>
                     <th className="p-4 font-bold">CALLSIGN</th>
+                    <th className="p-4 font-bold text-center hidden md:table-cell">RIDE</th>
                     <th className="p-4 font-bold text-right">SCORE</th>
                     <th className="p-4 font-bold text-right">DIST (m)</th>
                     <th className="p-4 font-bold text-center hidden md:table-cell">PWR</th>
@@ -135,6 +136,7 @@ export default function Leaderboard() {
                       <tr key={i} className="border-b border-border/50">
                         <td className="p-4"><Skeleton className="h-8 w-8" /></td>
                         <td className="p-4"><Skeleton className="h-4 w-24" /></td>
+                        <td className="p-4 text-center hidden md:table-cell"><Skeleton className="h-4 w-16 mx-auto" /></td>
                         <td className="p-4 text-right"><Skeleton className="h-4 w-16 ml-auto" /></td>
                         <td className="p-4 text-right"><Skeleton className="h-4 w-12 ml-auto" /></td>
                         <td className="p-4 text-center hidden md:table-cell"><Skeleton className="h-4 w-6 mx-auto" /></td>
@@ -170,6 +172,14 @@ export default function Leaderboard() {
                         <td className="p-4 font-bold text-foreground uppercase truncate max-w-[150px]">
                           {score.playerName}
                         </td>
+                        <td className="p-4 text-center text-muted-foreground hidden md:table-cell">
+                          <span className="inline-flex items-center gap-1">
+                            {score.car || 'UNKNOWN'}
+                            {score.dailyMode && (
+                              <span className="text-[10px] text-green-400 font-bold ml-1">◆</span>
+                            )}
+                          </span>
+                        </td>
                         <td className="p-4 text-right font-bold text-primary group-hover:text-primary/80 transition-colors">
                           {score.score.toLocaleString()}
                         </td>
@@ -187,7 +197,7 @@ export default function Leaderboard() {
                     })
                   ) : (
                     <tr>
-                      <td colSpan={6} className="p-8 text-center text-muted-foreground">
+                      <td colSpan={7} className="p-8 text-center text-muted-foreground">
                         {period === 'daily'
                           ? 'NO OPERATORS TODAY. BE THE FIRST.'
                           : period === 'weekly'

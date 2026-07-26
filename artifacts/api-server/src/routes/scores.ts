@@ -50,6 +50,8 @@ router.get("/scores", async (req, res) => {
       score: row.score,
       powerupsUsed: row.powerupsUsed,
       distanceTraveled: row.distanceTraveled,
+      car: row.car,
+      dailyMode: row.dailyMode,
       rank: index + 1,
       createdAt: row.createdAt.toISOString(),
     }));
@@ -84,6 +86,8 @@ router.post("/scores", async (req, res) => {
         score: body.score,
         powerupsUsed: body.powerupsUsed,
         distanceTraveled: body.distanceTraveled,
+        car: body.car ?? null,
+        dailyMode: body.dailyMode,
       })
       .returning();
 
@@ -100,6 +104,8 @@ router.post("/scores", async (req, res) => {
       score: inserted.score,
       powerupsUsed: inserted.powerupsUsed,
       distanceTraveled: inserted.distanceTraveled,
+      car: inserted.car,
+      dailyMode: inserted.dailyMode,
       rank,
       createdAt: inserted.createdAt.toISOString(),
     });
