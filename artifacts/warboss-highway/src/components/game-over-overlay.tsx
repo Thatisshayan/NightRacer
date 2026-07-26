@@ -125,8 +125,11 @@ export function GameOverOverlay({
         },
       },
       {
-        onSuccess: () => {
-          setLocation('/leaderboard');
+        onSuccess: (created) => {
+          // Carry the newly created row's id so the leaderboard can
+          // highlight/scroll to it instead of dead-ending into an unrelated
+          // page load right after the player's one moment of payoff.
+          setLocation(`/leaderboard?highlight=${created.id}`);
         },
         onError: () => {
           toast({
