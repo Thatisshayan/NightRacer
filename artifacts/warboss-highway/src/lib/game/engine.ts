@@ -149,6 +149,14 @@ export class GameEngine {
   private keys: Set<string> = new Set();
   private touchOffset: { x: number; y: number } = { x: 0, y: 0 };
   private isDragging: boolean = false;
+  private joystickEnabled: boolean = false;
+  private joystick = {
+    active: false,
+    cx: 0, cy: 0,
+    nx: 0, ny: 0,
+  };
+  private cameraY: number = 0;
+  private initialPlayerY: number = 0;
   // prefers-reduced-motion: screen shake is a known motion-sickness trigger,
   // so it's disabled entirely under reduced motion. The hit still registers
   // via the existing particle burst + invulnerability flicker, which aren't
@@ -161,13 +169,14 @@ export class GameEngine {
   constructor(
     canvas: HTMLCanvasElement,
     onGameOver: (state: GameState) => void,
-    options?: { isDailyChallenge?: boolean; selectedCar?: CarType }
+    options?: { isDailyChallenge?: boolean; selectedCar?: CarType; joystickEnabled?: boolean }
   ) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d')!;
     this.onGameOver = onGameOver;
     this.selectedCar = options?.selectedCar ?? 'WAR_RUNNER';
     this.isDailyChallenge = options?.isDailyChallenge ?? false;
+    this.joystickEnabled = options?.joystickEnabled ?? false;
 
     if (this.isDailyChallenge) {
       this.initDailyRNG();
@@ -239,6 +248,12 @@ export class GameEngine {
     this.state.lanes = [laneWidth / 2, laneWidth * 1.5, laneWidth * 2.5];
     this.state.player.x = this.state.lanes[1];
     this.state.player.y = this.canvas.height - 80;
+    this.initialPlayerY = this.state.player.y;
+    this.cameraY = this.state.player.y;
+    this.joystick.cx = 70;
+    this.joystick.cy = this.canvas.height - 80;
+    this.joystick.nx = this.joystick.cx;
+    this.joystick.ny = this.joystick.cy;
 
     window.addEventListener('keydown', this.handleKeyDown);
     window.addEventListener('keyup', this.handleKeyUp);
@@ -274,30 +289,70 @@ export class GameEngine {
       const rect = this.canvas.getBoundingClientRect();
       const scaleX = this.canvas.width / rect.width;
       const scaleY = this.canvas.height / rect.height;
-      this.touchOffset.x = (touch.clientX - rect.left) * scaleX - this.state.player.x;
-      this.touchOffset.y = (touch.clientY - rect.top) * scaleY - this.state.player.y;
-      this.isDragging = true;
+      const tx = (touch.clientX - rect.left) * scaleX;
+      const ty = (touch.clientY - rect.top) * scaleY;
+
+      if (this.joystickEnabled) {
+        const dx = tx - this.joystick.cx;
+        const dy = ty - this.joystick.cy;
+        if (Math.sqrt(dx * dx + dy * dy) <= 70) {
+          this.joystick.active = true;
+          this.updateJoystickKnob(tx, ty);
+          return;
+        }
+      }
+
+      this.touchOffset.x = tx - this.state.player.x;
+      this.touchOffset.y = ty - this.state.player.y;
+      this.isDragging = !this.state.player.oilSlicked;
     }
   };
 
   private handleTouchMove = (e: TouchEvent) => {
     e.preventDefault();
-    if (!this.isDragging || this.state.player.oilSlicked) return;
     if (e.touches.length > 0) {
       const touch = e.touches[0];
       const rect = this.canvas.getBoundingClientRect();
       const scaleX = this.canvas.width / rect.width;
       const scaleY = this.canvas.height / rect.height;
-      this.state.player.x = (touch.clientX - rect.left) * scaleX - this.touchOffset.x;
-      this.state.player.y = (touch.clientY - rect.top) * scaleY - this.touchOffset.y;
-      this.clampPlayerPosition();
+      const tx = (touch.clientX - rect.left) * scaleX;
+      const ty = (touch.clientY - rect.top) * scaleY;
+
+      if (this.joystick.active) {
+        this.updateJoystickKnob(tx, ty);
+        return;
+      }
+
+      if (this.isDragging && !this.state.player.oilSlicked) {
+        this.state.player.x = tx - this.touchOffset.x;
+        this.state.player.y = ty - this.touchOffset.y;
+        this.clampPlayerPosition();
+      }
     }
   };
 
   private handleTouchEnd = (e: TouchEvent) => {
     e.preventDefault();
     this.isDragging = false;
+    this.joystick.active = false;
+    this.joystick.nx = this.joystick.cx;
+    this.joystick.ny = this.joystick.cy;
   };
+
+  private updateJoystickKnob(tx: number, ty: number) {
+    const maxR = 40;
+    const dx = tx - this.joystick.cx;
+    const dy = ty - this.joystick.cy;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist <= maxR) {
+      this.joystick.nx = tx;
+      this.joystick.ny = ty;
+    } else {
+      const ratio = maxR / dist;
+      this.joystick.nx = this.joystick.cx + dx * ratio;
+      this.joystick.ny = this.joystick.cy + dy * ratio;
+    }
+  }
 
   private clampPlayerPosition() {
     const player = this.state.player;
@@ -334,6 +389,26 @@ export class GameEngine {
   private update(dt: number) {
     const state = this.state;
 
+    // Input vector (keys + joystick)
+    let dx = 0;
+    let dy = 0;
+    if (!state.player.oilSlicked) {
+      if (this.keys.has('ArrowLeft') || this.keys.has('KeyA')) dx -= 1;
+      if (this.keys.has('ArrowRight') || this.keys.has('KeyD')) dx += 1;
+      if (this.keys.has('ArrowUp') || this.keys.has('KeyW')) dy -= 1;
+      if (this.keys.has('ArrowDown') || this.keys.has('KeyS')) dy += 1;
+
+      if (this.joystickEnabled && this.joystick.active) {
+        const jdx = this.joystick.nx - this.joystick.cx;
+        const jdy = this.joystick.ny - this.joystick.cy;
+        const jlen = Math.sqrt(jdx * jdx + jdy * jdy);
+        if (jlen > 4) {
+          dx = jdx / jlen;
+          dy = jdy / jlen;
+        }
+      }
+    }
+
     // Speed
     const newLevel = this.getSpeedLevel(state.distance);
     const speedMult = this.getSpeedMultiplier(state.distance);
@@ -350,6 +425,13 @@ export class GameEngine {
     let currentSpeed = state.baseSpeed * speedMult * carMod;
     if (state.activePowerUp === 'SLOWMO') currentSpeed *= 0.4;
 
+    // Forward / back speed feel (up = faster, down = slower)
+    if (!state.player.oilSlicked) {
+      if (dy < 0) currentSpeed *= 1.2;
+      else if (dy > 0) currentSpeed *= 0.78;
+    }
+    currentSpeed = Math.max(1.5, currentSpeed);
+
     // Distance & score
     state.distance += currentSpeed * (dt / 16);
     const scoreMult = state.activePowerUp === 'SCORE_BLAST' ? 3 : 1;
@@ -359,15 +441,8 @@ export class GameEngine {
     // Road scroll
     state.roadOffset = (state.roadOffset + currentSpeed * 1.5) % 80;
 
-    // Player movement (360° with keys / touch drag)
+    // Player movement
     if (!state.player.oilSlicked) {
-      let dx = 0;
-      let dy = 0;
-      if (this.keys.has('ArrowLeft') || this.keys.has('KeyA')) dx -= 1;
-      if (this.keys.has('ArrowRight') || this.keys.has('KeyD')) dx += 1;
-      if (this.keys.has('ArrowUp') || this.keys.has('KeyW')) dy -= 1;
-      if (this.keys.has('ArrowDown') || this.keys.has('KeyS')) dy += 1;
-
       const len = Math.sqrt(dx * dx + dy * dy);
       if (len > 0) {
         // Base speed tuned so diagonal doesn't outrun horizontal/vertical
@@ -381,6 +456,12 @@ export class GameEngine {
       state.player.x += Math.sin(state.distance * 0.08) * 2;
       this.clampPlayerPosition();
     }
+
+    // Camera follow — car drifts within the frame for a bigger sense of speed
+    const targetCameraY = (state.player.y - this.initialPlayerY) * 0.65;
+    const cameraMax = this.canvas.height * 0.18;
+    const clampedTarget = Math.max(-cameraMax, Math.min(cameraMax, targetCameraY));
+    this.cameraY += (clampedTarget - this.cameraY) * 0.12;
 
     // Timers
     if (state.activePowerUp) {
@@ -422,8 +503,13 @@ export class GameEngine {
       }
     }
 
-    // Spawn vehicles
-    if (this.rng() < 0.02 * speedMult) {
+    // Spawn vehicles (scale up with distance to counter top-camping)
+    const spawnRate = 0.02 * speedMult * Math.min(2.2, 1 + state.distance / 18000);
+    if (this.rng() < spawnRate) {
+      this.spawnVehicle(currentSpeed);
+    }
+    // Occasional pairs at higher distances
+    if (state.distance > 25000 && this.rng() < spawnRate * 0.25) {
       this.spawnVehicle(currentSpeed);
     }
 
@@ -660,6 +746,10 @@ export class GameEngine {
       ctx.translate((Math.random() - 0.5) * i, (Math.random() - 0.5) * i);
     }
 
+    // Camera follow — car drifts within the frame for a bigger sense of speed
+    ctx.save();
+    ctx.translate(0, -this.cameraY);
+
     this.drawRoad(ctx, canvas);
 
     // Obstacles
@@ -753,6 +843,8 @@ export class GameEngine {
     });
     ctx.globalAlpha = 1;
 
+    ctx.restore(); // end camera follow
+
     // Level-up flash
     if (state.levelUpFlash > 0) {
       const t = state.levelUpFlash / 1800;
@@ -810,6 +902,9 @@ export class GameEngine {
     drawHUD(ctx, canvas.width, canvas.height, state, speedMult);
 
     ctx.restore();
+
+    // Virtual joystick
+    this.drawJoystick(ctx);
   }
 
   private drawRoad(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement) {
@@ -898,5 +993,32 @@ export class GameEngine {
       ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px, py + lineLen * 0.65); ctx.stroke();
     }
+  }
+
+  private drawJoystick(ctx: CanvasRenderingContext2D) {
+    if (!this.joystickEnabled || this.state.isGameOver) return;
+    const { cx, cy, nx, ny } = this.joystick;
+    ctx.save();
+    ctx.globalAlpha = 0.55;
+
+    // Base
+    ctx.beginPath();
+    ctx.arc(cx, cy, 50, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Knob
+    ctx.beginPath();
+    ctx.arc(nx, ny, 18, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.restore();
   }
 }

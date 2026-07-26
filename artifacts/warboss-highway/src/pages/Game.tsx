@@ -105,6 +105,9 @@ export default function Game() {
   const [isMuted, setIsMuted] = useState(getMuted());
   const [selectedCar, setSelectedCar] = useState<CarType>('WAR_RUNNER');
   const [isDailyChallenge, setIsDailyChallenge] = useState(false);
+  const [joystickEnabled, setJoystickEnabled] = useState(() =>
+    typeof window !== 'undefined' && localStorage.getItem('warboss_joystick_enabled') === 'true'
+  );
   const [streak, setStreak] = useState(0);
   const [personalBest, setPersonalBest] = useState(0);
   const [newRecord, setNewRecord] = useState(false);
@@ -161,10 +164,10 @@ export default function Game() {
         setGameOverState(state);
         setScreen('gameover');
       },
-      { isDailyChallenge, selectedCar }
+      { isDailyChallenge, selectedCar, joystickEnabled }
     );
     engineRef.current.start();
-  }, [isDailyChallenge, selectedCar]);
+  }, [isDailyChallenge, selectedCar, joystickEnabled]);
 
   const handleToggleMute = () => setIsMuted(toggleMute());
 
@@ -304,6 +307,31 @@ export default function Game() {
                   <span className="text-green-400 font-bold">◆ DAILY CHALLENGE</span>
                 ) : (
                   'DAILY CHALLENGE'
+                )}
+              </span>
+            </motion.div>
+
+            {/* Virtual joystick toggle */}
+            <motion.div variants={titleItemVariants} className="flex items-center gap-3 mt-1">
+              <button
+                onClick={() => {
+                  setJoystickEnabled((v) => {
+                    const next = !v;
+                    localStorage.setItem('warboss_joystick_enabled', String(next));
+                    return next;
+                  });
+                }}
+                className={`relative w-12 h-6 rounded-none border-2 transition-all active:scale-[0.94] motion-reduce:active:scale-100 ${
+                  joystickEnabled ? 'border-blue-500 bg-blue-900/40' : 'border-border bg-card/30'
+                }`}
+              >
+                <span className={`absolute top-0.5 w-4 h-4 bg-white transition-all ${joystickEnabled ? 'left-6' : 'left-0.5'}`} />
+              </button>
+              <span className="font-mono text-xs text-muted-foreground">
+                {joystickEnabled ? (
+                  <span className="text-blue-400 font-bold">VIRTUAL JOYSTICK</span>
+                ) : (
+                  'VIRTUAL JOYSTICK'
                 )}
               </span>
             </motion.div>
