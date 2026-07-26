@@ -233,7 +233,7 @@ export default function Game() {
               </h1>
               <h2 className="text-4xl font-black text-white tracking-widest">HIGHWAY</h2>
               <p className="text-muted-foreground font-mono text-xs mt-2">
-                Dodge oncoming traffic. Survive the wasteland.
+                WASD / Arrows to drive freely. Dodge oncoming traffic.
               </p>
             </motion.div>
 

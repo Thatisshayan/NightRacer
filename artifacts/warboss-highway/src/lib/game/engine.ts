@@ -21,7 +21,7 @@ export const CAR_STATS: Record<CarType, CarStats> = {
     width: 40,
     height: 62,
     speedMod: 0.85,
-    color: '#5a3a1a',
+    color: '#a86b32',
     label: 'RATTLETRAP',
     desc: 'Wide & sturdy. Slower to react.',
     stats: 'SPD ██░░░  ARM █████',
@@ -30,7 +30,7 @@ export const CAR_STATS: Record<CarType, CarStats> = {
     width: 30,
     height: 50,
     speedMod: 1.0,
-    color: '#2b331f',
+    color: '#5e7a45',
     label: 'WAR-RUNNER',
     desc: 'Balanced. The classic choice.',
     stats: 'SPD ███░░  ARM ███░░',
@@ -39,7 +39,7 @@ export const CAR_STATS: Record<CarType, CarStats> = {
     width: 22,
     height: 46,
     speedMod: 1.15,
-    color: '#1a1a2e',
+    color: '#3d6db8',
     label: 'DEATHSLED',
     desc: 'Narrow & fast. High risk.',
     stats: 'SPD █████  ARM █░░░░',
@@ -143,10 +143,12 @@ export class GameEngine {
   private lastTime: number = 0;
   private animationId: number = 0;
   private onGameOver: (state: GameState) => void;
-  private targetLane: number = 1;
   private rng: () => number = Math.random;
   private selectedCar: CarType;
   private isDailyChallenge: boolean;
+  private keys: Set<string> = new Set();
+  private touchOffset: { x: number; y: number } = { x: 0, y: 0 };
+  private isDragging: boolean = false;
   // prefers-reduced-motion: screen shake is a known motion-sickness trigger,
   // so it's disabled entirely under reduced motion. The hit still registers
   // via the existing particle burst + invulnerability flicker, which aren't
@@ -237,12 +239,12 @@ export class GameEngine {
     this.state.lanes = [laneWidth / 2, laneWidth * 1.5, laneWidth * 2.5];
     this.state.player.x = this.state.lanes[1];
     this.state.player.y = this.canvas.height - 80;
-    this.targetLane = 1;
 
     window.addEventListener('keydown', this.handleKeyDown);
     window.addEventListener('keyup', this.handleKeyUp);
-    this.canvas.addEventListener('touchstart', this.handleTouch, { passive: false });
-    this.canvas.addEventListener('touchmove', this.handleTouch, { passive: false });
+    this.canvas.addEventListener('touchstart', this.handleTouchStart, { passive: false });
+    this.canvas.addEventListener('touchmove', this.handleTouchMove, { passive: false });
+    this.canvas.addEventListener('touchend', this.handleTouchEnd, { passive: false });
 
     playAudio('gameplay', true);
   }
@@ -250,36 +252,60 @@ export class GameEngine {
   public cleanup() {
     window.removeEventListener('keydown', this.handleKeyDown);
     window.removeEventListener('keyup', this.handleKeyUp);
-    this.canvas.removeEventListener('touchstart', this.handleTouch);
-    this.canvas.removeEventListener('touchmove', this.handleTouch);
+    this.canvas.removeEventListener('touchstart', this.handleTouchStart);
+    this.canvas.removeEventListener('touchmove', this.handleTouchMove);
+    this.canvas.removeEventListener('touchend', this.handleTouchEnd);
     cancelAnimationFrame(this.animationId);
     stopAudio('gameplay');
   }
 
   private handleKeyDown = (e: KeyboardEvent) => {
-    if (this.state.player.oilSlicked) return;
-    if (e.code === 'ArrowLeft' || e.code === 'KeyA') {
-      this.targetLane = Math.max(0, this.targetLane - 1);
-    } else if (e.code === 'ArrowRight' || e.code === 'KeyD') {
-      this.targetLane = Math.min(2, this.targetLane + 1);
-    }
+    this.keys.add(e.code);
   };
 
-  private handleKeyUp = (_e: KeyboardEvent) => {};
+  private handleKeyUp = (e: KeyboardEvent) => {
+    this.keys.delete(e.code);
+  };
 
-  private handleTouch = (e: TouchEvent) => {
+  private handleTouchStart = (e: TouchEvent) => {
     e.preventDefault();
-    if (this.state.player.oilSlicked) return;
     if (e.touches.length > 0) {
-      const touchX = e.touches[0].clientX;
+      const touch = e.touches[0];
       const rect = this.canvas.getBoundingClientRect();
-      const x = touchX - rect.left;
-      const laneWidth = this.canvas.width / 3;
-      if (x < laneWidth) this.targetLane = 0;
-      else if (x < laneWidth * 2) this.targetLane = 1;
-      else this.targetLane = 2;
+      const scaleX = this.canvas.width / rect.width;
+      const scaleY = this.canvas.height / rect.height;
+      this.touchOffset.x = (touch.clientX - rect.left) * scaleX - this.state.player.x;
+      this.touchOffset.y = (touch.clientY - rect.top) * scaleY - this.state.player.y;
+      this.isDragging = true;
     }
   };
+
+  private handleTouchMove = (e: TouchEvent) => {
+    e.preventDefault();
+    if (!this.isDragging || this.state.player.oilSlicked) return;
+    if (e.touches.length > 0) {
+      const touch = e.touches[0];
+      const rect = this.canvas.getBoundingClientRect();
+      const scaleX = this.canvas.width / rect.width;
+      const scaleY = this.canvas.height / rect.height;
+      this.state.player.x = (touch.clientX - rect.left) * scaleX - this.touchOffset.x;
+      this.state.player.y = (touch.clientY - rect.top) * scaleY - this.touchOffset.y;
+      this.clampPlayerPosition();
+    }
+  };
+
+  private handleTouchEnd = (e: TouchEvent) => {
+    e.preventDefault();
+    this.isDragging = false;
+  };
+
+  private clampPlayerPosition() {
+    const player = this.state.player;
+    const roadLeft = 18 + player.width / 2;
+    const roadRight = this.canvas.width - 18 - player.width / 2;
+    player.x = Math.max(roadLeft, Math.min(roadRight, player.x));
+    player.y = Math.max(player.height / 2 + 10, Math.min(this.canvas.height - 60, player.y));
+  }
 
   public start() {
     this.lastTime = performance.now();
@@ -333,14 +359,27 @@ export class GameEngine {
     // Road scroll
     state.roadOffset = (state.roadOffset + currentSpeed * 1.5) % 80;
 
-    // Player movement
+    // Player movement (360° with keys / touch drag)
     if (!state.player.oilSlicked) {
-      const targetX = state.lanes[this.targetLane];
-      state.player.x += (targetX - state.player.x) * 0.2;
+      let dx = 0;
+      let dy = 0;
+      if (this.keys.has('ArrowLeft') || this.keys.has('KeyA')) dx -= 1;
+      if (this.keys.has('ArrowRight') || this.keys.has('KeyD')) dx += 1;
+      if (this.keys.has('ArrowUp') || this.keys.has('KeyW')) dy -= 1;
+      if (this.keys.has('ArrowDown') || this.keys.has('KeyS')) dy += 1;
+
+      const len = Math.sqrt(dx * dx + dy * dy);
+      if (len > 0) {
+        // Base speed tuned so diagonal doesn't outrun horizontal/vertical
+        const moveSpeed = 0.42 * (dt / 16);
+        state.player.x += (dx / len) * moveSpeed;
+        state.player.y += (dy / len) * moveSpeed;
+      }
+      this.clampPlayerPosition();
     } else {
       // Slight drift when oiled
       state.player.x += Math.sin(state.distance * 0.08) * 2;
-      state.player.x = Math.max(state.lanes[0], Math.min(state.lanes[2], state.player.x));
+      this.clampPlayerPosition();
     }
 
     // Timers
@@ -781,8 +820,8 @@ export class GameEngine {
     ctx.fillStyle = '#111';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Road surface
-    ctx.fillStyle = '#1d1d1d';
+    // Road surface — lifted and cooled vs. vehicle colors so cars pop
+    ctx.fillStyle = '#2a2c34';
     ctx.fillRect(12, 0, canvas.width - 24, canvas.height);
 
     // Subtle horizontal grain rows (stable, not flickering)
