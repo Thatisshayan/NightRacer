@@ -108,6 +108,10 @@ export interface GameState {
   combo: number;
   comboTimer: number;
   maxCombo: number;
+  // HUD juice: counts down from POP_DURATION_MS on a trigger; renderer scales
+  // the score/combo text based on how far through the decay it is.
+  scorePop: number;
+  comboPop: number;
   // Level-up flash
   levelUpFlash: number;
   levelUpText: string;
@@ -129,6 +133,7 @@ export interface GameState {
 const REGULAR_TYPES = ['SEDAN', 'PICKUP', 'COP', 'BOXTRUCK', 'BUS', 'SPORTS'] as const;
 const BOSS_INTERVAL_MS = 60000;
 const COMBO_DECAY_MS = 3000;
+export const POP_DURATION_MS = 220;
 const NEAR_MISS_EXTRA_PX = 22;
 
 export class GameEngine {
@@ -142,6 +147,14 @@ export class GameEngine {
   private rng: () => number = Math.random;
   private selectedCar: CarType;
   private isDailyChallenge: boolean;
+  // prefers-reduced-motion: screen shake is a known motion-sickness trigger,
+  // so it's disabled entirely under reduced motion. The hit still registers
+  // via the existing particle burst + invulnerability flicker, which aren't
+  // camera-shake-based and are left untouched.
+  private reducedMotion: boolean =
+    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      : false;
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -188,6 +201,8 @@ export class GameEngine {
       combo: 0,
       comboTimer: 0,
       maxCombo: 0,
+      scorePop: 0,
+      comboPop: 0,
       levelUpFlash: 0,
       levelUpText: '',
       lastSpeedLevel: 1,
@@ -343,6 +358,8 @@ export class GameEngine {
     }
     if (state.screenShake > 0) state.screenShake = Math.max(0, state.screenShake - dt);
     if (state.levelUpFlash > 0) state.levelUpFlash -= dt;
+    if (state.scorePop > 0) state.scorePop = Math.max(0, state.scorePop - dt);
+    if (state.comboPop > 0) state.comboPop = Math.max(0, state.comboPop - dt);
     if (state.comboTimer > 0) {
       state.comboTimer -= dt;
       if (state.comboTimer <= 0) state.combo = 0;
@@ -398,11 +415,13 @@ export class GameEngine {
       if (v.y > this.canvas.height + 150) {
         if (v.type === 'TANK') {
           state.score += 500;
+          state.scorePop = POP_DURATION_MS;
           state.tanksSlayed++;
           if (state.tanksSlayed >= 3) this.grantAchievement('tank_slayer');
         }
         if (v.type === 'BOSS') {
           state.score += 1500;
+          state.scorePop = POP_DURATION_MS;
           state.bossActive = false;
         }
         state.vehicles.splice(i, 1);
@@ -417,6 +436,7 @@ export class GameEngine {
         const maxNearMiss = minSafe + NEAR_MISS_EXTRA_PX;
         if (xDist > minSafe && xDist < maxNearMiss) {
           state.combo++;
+          state.comboPop = POP_DURATION_MS;
           if (state.combo > state.maxCombo) state.maxCombo = state.combo;
           state.comboTimer = COMBO_DECAY_MS;
           if (state.combo >= 10) this.grantAchievement('combo_king');
@@ -531,7 +551,7 @@ export class GameEngine {
   private handleCrash() {
     if (this.state.player.isInvulnerable) return;
     playAudio('crash');
-    this.state.screenShake = 300;
+    this.state.screenShake = this.reducedMotion ? 0 : 300;
     this.state.combo = 0;
     this.state.comboTimer = 0;
     this.state.wasHit = true;

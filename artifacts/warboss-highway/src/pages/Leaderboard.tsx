@@ -1,11 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useGetLeaderboard, useGetGameStats } from '@workspace/api-client-react';
 import { format } from 'date-fns';
-import { Link } from 'wouter';
+import { Link, useSearchParams } from 'wouter';
 import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Trophy, Activity, Target, Zap } from 'lucide-react';
 import { playAudio, stopAudio } from '@/lib/game/audio';
-import { useEffect } from 'react';
 
 type Period = 'all' | 'daily' | 'weekly';
 
@@ -17,6 +17,10 @@ const PERIOD_LABELS: Record<Period, string> = {
 
 export default function Leaderboard() {
   const [period, setPeriod] = useState<Period>('all');
+  const [searchParams] = useSearchParams();
+  const highlightId = searchParams.get('highlight');
+  const highlightRef = useRef<HTMLTableRowElement>(null);
+  const hasScrolledToHighlight = useRef(false);
 
   const { data: scores, isLoading: isScoresLoading } = useGetLeaderboard({
     limit: 50,
@@ -28,6 +32,16 @@ export default function Leaderboard() {
     stopAudio('gameplay');
     playAudio('menu', true);
   }, []);
+
+  // Scroll to the just-submitted score once its row is actually in the DOM
+  // (only fires once per arrival — re-sorting/refetching shouldn't re-scroll).
+  useEffect(() => {
+    if (!highlightId || hasScrolledToHighlight.current) return;
+    if (highlightRef.current) {
+      highlightRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      hasScrolledToHighlight.current = true;
+    }
+  }, [highlightId, scores]);
 
   return (
     <div className="min-h-[100dvh] w-full bg-background text-foreground py-8 px-4 font-sans">
@@ -58,22 +72,22 @@ export default function Leaderboard() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <StatCard
               label="TOTAL DEPLOYMENTS"
-              value={isStatsLoading ? '...' : stats?.totalGamesPlayed?.toLocaleString()}
+              value={isStatsLoading ? undefined : stats?.totalGamesPlayed?.toLocaleString()}
               icon={<Target className="w-4 h-4 text-muted-foreground" />}
             />
             <StatCard
               label="HIGHEST SCORE"
-              value={isStatsLoading ? '...' : stats?.highestScore?.toLocaleString()}
+              value={isStatsLoading ? undefined : stats?.highestScore?.toLocaleString()}
               icon={<Trophy className="w-4 h-4 text-accent" />}
             />
             <StatCard
               label="AVERAGE SCORE"
-              value={isStatsLoading ? '...' : Math.floor(stats?.averageScore || 0).toLocaleString()}
+              value={isStatsLoading ? undefined : Math.floor(stats?.averageScore || 0).toLocaleString()}
               icon={<Activity className="w-4 h-4 text-muted-foreground" />}
             />
             <StatCard
               label="POWER-UPS BURNED"
-              value={isStatsLoading ? '...' : stats?.totalPowerupsUsed?.toLocaleString()}
+              value={isStatsLoading ? undefined : stats?.totalPowerupsUsed?.toLocaleString()}
               icon={<Zap className="w-4 h-4 text-accent" />}
             />
           </div>
@@ -90,7 +104,7 @@ export default function Leaderboard() {
                 <button
                   key={p}
                   onClick={() => setPeriod(p)}
-                  className={`px-3 py-1.5 text-xs font-mono font-bold tracking-widest transition-colors ${
+                  className={`px-3 py-1.5 text-xs font-mono font-bold tracking-widest transition-[background-color,color,transform] duration-150 active:scale-[0.94] motion-reduce:active:scale-100 ${
                     period === p
                       ? 'bg-primary text-primary-foreground'
                       : 'bg-card text-muted-foreground hover:bg-secondary'
@@ -117,16 +131,26 @@ export default function Leaderboard() {
                 </thead>
                 <tbody className="font-mono text-sm">
                   {isScoresLoading ? (
-                    <tr>
-                      <td colSpan={6} className="p-8 text-center text-muted-foreground">
-                        DECRYPTING DATA...
-                      </td>
-                    </tr>
+                    Array.from({ length: 6 }).map((_, i) => (
+                      <tr key={i} className="border-b border-border/50">
+                        <td className="p-4"><Skeleton className="h-8 w-8" /></td>
+                        <td className="p-4"><Skeleton className="h-4 w-24" /></td>
+                        <td className="p-4 text-right"><Skeleton className="h-4 w-16 ml-auto" /></td>
+                        <td className="p-4 text-right"><Skeleton className="h-4 w-12 ml-auto" /></td>
+                        <td className="p-4 text-center hidden md:table-cell"><Skeleton className="h-4 w-6 mx-auto" /></td>
+                        <td className="p-4 text-right hidden sm:table-cell"><Skeleton className="h-4 w-20 ml-auto" /></td>
+                      </tr>
+                    ))
                   ) : scores && scores.length > 0 ? (
-                    scores.map((score, index) => (
+                    scores.map((score, index) => {
+                      const isHighlighted = highlightId !== null && String(score.id) === highlightId;
+                      return (
                       <tr
                         key={score.id}
-                        className="border-b border-border/50 hover:bg-white/5 transition-colors group"
+                        ref={isHighlighted ? highlightRef : undefined}
+                        className={`border-b border-border/50 hover:bg-white/5 transition-colors group ${
+                          isHighlighted ? 'bg-accent/15 animate-[pulse_1.5s_ease-in-out_2]' : ''
+                        }`}
                       >
                         <td className="p-4 font-black">
                           <span
@@ -159,7 +183,8 @@ export default function Leaderboard() {
                           {format(new Date(score.createdAt), 'MMM dd, yyyy')}
                         </td>
                       </tr>
-                    ))
+                      );
+                    })
                   ) : (
                     <tr>
                       <td colSpan={6} className="p-8 text-center text-muted-foreground">
@@ -198,7 +223,9 @@ function StatCard({
         </span>
         {icon}
       </div>
-      <div className="text-xl sm:text-2xl font-black text-foreground truncate">{value}</div>
+      <div className="text-xl sm:text-2xl font-black text-foreground truncate">
+        {value === undefined ? <Skeleton className="h-6 w-16" /> : value}
+      </div>
     </div>
   );
 }

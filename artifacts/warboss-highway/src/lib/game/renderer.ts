@@ -1,4 +1,12 @@
-import { type GameState, type ObstacleType } from './engine';
+import { type GameState, type ObstacleType, POP_DURATION_MS } from './engine';
+
+// Ease-out pop scale: peaks right when a `*Pop` timer is (re)triggered, decays
+// back to 1 over POP_DURATION_MS. Mirrors the screen-shake/level-up-flash
+// pattern already used for hit/level-up feedback, applied to score/combo text.
+const popScale = (popMs: number, peak: number) => {
+  const t = Math.max(0, Math.min(1, popMs / POP_DURATION_MS));
+  return 1 + (peak - 1) * t * t;
+};
 
 export const drawHUD = (
   ctx: CanvasRenderingContext2D,
@@ -13,23 +21,32 @@ export const drawHUD = (
   ctx.fillStyle = 'rgba(0,0,0,0.55)';
   ctx.fillRect(0, 0, width, 72);
 
-  // Score
+  // Score (pops on TANK/BOSS kills — see engine.ts scorePop)
+  ctx.save();
+  ctx.translate(15, 34);
+  ctx.scale(popScale(state.scorePop, 1.3), popScale(state.scorePop, 1.3));
   ctx.font = '24px "Russo One", sans-serif';
   ctx.fillStyle = state.activePowerUp === 'SCORE_BLAST' ? '#ffaa00' : '#ffffff';
   ctx.textAlign = 'left';
-  ctx.fillText(`SCORE: ${Math.floor(state.score)}`, 15, 34);
+  ctx.fillText(`SCORE: ${Math.floor(state.score)}`, 0, 0);
+  ctx.restore();
 
   // Distance & speed
   ctx.font = '13px "Roboto Mono", monospace';
   ctx.fillStyle = '#888';
+  ctx.textAlign = 'left';
   ctx.fillText(`DIST: ${Math.floor(state.distance)}m  SPD: ${speedMultiplier.toFixed(1)}×`, 15, 58);
 
-  // Combo counter (top center)
+  // Combo counter (top center, pops on each near-miss — see engine.ts comboPop)
   if (state.combo > 1) {
+    ctx.save();
+    ctx.translate(width / 2, 34);
+    ctx.scale(popScale(state.comboPop, 1.5), popScale(state.comboPop, 1.5));
     ctx.font = '13px "Roboto Mono", monospace';
     ctx.fillStyle = '#ffee22';
     ctx.textAlign = 'center';
-    ctx.fillText(`COMBO ×${state.combo}`, width / 2, 34);
+    ctx.fillText(`COMBO ×${state.combo}`, 0, 0);
+    ctx.restore();
   }
 
   // Daily challenge badge

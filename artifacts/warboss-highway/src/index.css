@@ -65,6 +65,14 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+
+  /* Fluid micro type scale (scales with viewport instead of needing several
+     fixed px steps) — used by dense HUD-adjacent UI like the car-select
+     cards, which previously stacked three separate fixed sizes
+     (10px/8px/7px) into a barely-legible cluster on small phone screens.
+     Two steps: a slightly heavier "label" size and a lighter "body" size. */
+  --text-micro-label: clamp(0.5rem, 0.47rem + 0.15vw, 0.625rem);
+  --text-micro-body: clamp(0.4375rem, 0.41rem + 0.13vw, 0.5rem);
 }
 
 :root {
@@ -169,5 +177,22 @@
     content: attr(data-placeholder);
     color: hsl(var(--muted-foreground));
     pointer-events: none;
+  }
+}
+
+/* Global prefers-reduced-motion guard for CSS transitions/keyframes (Tailwind's
+   animate-pulse, hover-elevate, button active:scale, etc). This does NOT cover
+   the canvas game-loop's own motion (screen shake, particle bursts) — those are
+   plain JS and are gated separately via GameEngine's own matchMedia check
+   (see lib/game/engine.ts) — nor framer-motion animations, which check
+   useReducedMotion() individually where used. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
