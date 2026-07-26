@@ -19,12 +19,18 @@ high-score leaderboard backed by a persistent full-stack backend.
 - **Audio**: HTML5 Audio API + AI-generated tracks
 
 ## Run & Operate
+- `bash scripts/dev-db.sh` — spin up a local Postgres 16 (Docker) and push the schema; writes `.env` with `DATABASE_URL`
 - `pnpm --filter @workspace/api-server run dev` — API server (port 5000)
+- `PORT=5173 BASE_PATH=/ pnpm --filter @workspace/warboss-highway run dev` — game frontend
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks + Zod schemas from OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` (Postgres connection string)
+- Required env: `DATABASE_URL` (Postgres connection string). Copy `.env.example` to `.env` and fill it in
+  (or just run `scripts/dev-db.sh`, which does this for you).
+- **Windows (git-bash) gotcha:** MSYS auto-converts a bare `/` in an env value into a Windows path,
+  which breaks `BASE_PATH=/`. Prefix the frontend dev/build command with `MSYS_NO_PATHCONV=1` on Windows, e.g.
+  `MSYS_NO_PATHCONV=1 PORT=5173 BASE_PATH=/ pnpm --filter @workspace/warboss-highway run dev`.
 
 ## Where things live
 - `artifacts/warboss-highway/` — React + Vite frontend game (canvas + HUD)

@@ -49,3 +49,26 @@ jobs:
 
       - name: Run governance verification
         run: bash scripts/verify.sh
+
+  windows-smoke:
+    name: windows-smoke (pnpm install + build on win32-x64)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install + build (native win32-x64 optional deps must resolve)
+        run: pwsh scripts/verify.ps1
