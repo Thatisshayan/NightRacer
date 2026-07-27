@@ -65,3 +65,5 @@ build/
 .vs/
 desktop.ini
 audits/private/
+.vercel
+.env*

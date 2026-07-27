@@ -15,7 +15,16 @@ async function buildAll() {
   await rm(distDir, { recursive: true, force: true });
 
   await esbuild({
-    entryPoints: [path.resolve(artifactDir, "src/index.ts")],
+    // src/app.ts is bundled alongside src/index.ts so Vercel's serverless
+    // function adapter (api/index.mjs at the repo root) can import a
+    // pre-bundled Express app (dist/app.mjs) that doesn't call app.listen(),
+    // using the same esbuild config/plugins/externals as the long-running
+    // server build instead of Vercel's generic function bundler tracing
+    // pino's worker-thread transports itself.
+    entryPoints: [
+      path.resolve(artifactDir, "src/index.ts"),
+      path.resolve(artifactDir, "src/app.ts"),
+    ],
     platform: "node",
     bundle: true,
     format: "esm",
