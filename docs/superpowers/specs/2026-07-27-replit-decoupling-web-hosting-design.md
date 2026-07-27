@@ -64,6 +64,16 @@ dynamic worker-thread loading) is never invoked in this deployment. Not a real r
 - `get_runtime_errors` on the live project: one benign warning only (`pg` deprecation
   notice about `sslmode=require` being aliased to `verify-full` in a future major version —
   pre-existing, not introduced by this change, not worth acting on now).
+- **Preview/Production database isolation** (CodeRabbit finding, initially deferred, then
+  resolved once Neon CLI access became available): created a `preview` branch
+  (`br-winter-fire-auu4ym5e`) on the `nightracer` Neon project and set its own connection
+  string as the Preview-only `DATABASE_URL` (removing the previously-shared Production
+  one). Verified isolation directly at the database layer rather than assuming it: inserted
+  a marker row into the preview branch, then queried Production's `scores` table directly —
+  came back empty. Preview deploys can no longer touch Production data.
+- `vercel build --yes` (the corrected form of the deploy-dry check — the original
+  `--dry-run` isn't a real flag, caught by CodeRabbit review and independently confirmed
+  via `vercel build --help`) run locally against the linked project — succeeded.
 
 ## Not in scope / not done here
 
@@ -80,17 +90,7 @@ dynamic worker-thread loading) is never invoked in this deployment. Not a real r
   `cartographer` and `dev-banner`, are already gated behind `REPL_ID !== undefined` and are
   no-ops off Replit). This one isn't gated — it's a dev-only error overlay, harmless in a
   production build, but still a live Replit-specific dependency. Not removed here.
-- **Preview deploys share the production database.** `DATABASE_URL` was set identically for
-  both Production and Preview (same Neon connection string) — flagged by CodeRabbit as a
-  real issue: a PR preview deploy can write test data into (or query) the real production
-  leaderboard through any write route. The correct fix is a separate Neon branch (Neon
-  supports instant branching for exactly this) with its own connection string set as the
-  Preview-only `DATABASE_URL`. Not done in this PR because it needs the Neon API key again
-  (not retained after sub-project 1, by design — see that spec's note on secret handling),
-  and creating it wasn't worth blocking this merge on. Resume by creating a `preview`
-  branch on the `nightracer` Neon project and running
-  `vercel env rm DATABASE_URL preview && vercel env add DATABASE_URL preview` with that
-  branch's connection string.
-- No staging environment/branch distinct from Preview deploys was set up.
+- No staging environment/branch distinct from Preview deploys was set up (Preview now has
+  its own isolated database — see below — which covers most of what a staging DB would).
 - Frontend `dist/public/assets/index-*.js` is ~546 kB minified (Vite's build warned about
   chunk size) — pre-existing, not introduced by this change, not addressed here.

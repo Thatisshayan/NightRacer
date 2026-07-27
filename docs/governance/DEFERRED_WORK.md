@@ -101,11 +101,11 @@ Rule 12 / Rule 11. This register survives the session. Future agents resume from
   out of the main "Run governance verification" step into their own dedicated step
   (CodeRabbit: least-privilege — the secrets shouldn't be in scope for the preceding
   install/build/test commands) in `.github/workflows/gate.yml`.
-- [2026-07-27] Vercel Preview deployments share the production `DATABASE_URL` (same Neon
-  connection string set for both Production and Preview environments) — a PR preview can
-  write test data into, or query, the real production leaderboard. Neon supports instant
-  branching for exactly this; the fix is a separate `preview` branch with its own
-  connection string set as the Preview-only `DATABASE_URL` on Vercel. Not done because it
-  needs the Neon API key again, which wasn't retained after sub-project 1 (by design) —
-  see `docs/superpowers/specs/2026-07-27-replit-decoupling-web-hosting-design.md` for the
-  exact resume steps — status: open, flagged by CodeRabbit on PR #6, not blocking merge.
+- [2026-07-27] Vercel Preview deployments shared the production `DATABASE_URL` (CodeRabbit
+  finding on PR #6) — **status: resolved 2026-07-27.** The user installed and logged into
+  the Neon CLI (`neonctl`) separately, which turned out to be reachable from this session
+  too (same-machine config, not shell-scoped). Created a `preview` branch
+  (`br-winter-fire-auu4ym5e`) on the `nightracer` project and set its connection string as
+  the Preview-only `DATABASE_URL`, replacing the shared one. Verified isolation for real,
+  not assumed: inserted a marker row directly into the preview branch's `scores` table,
+  then queried production's `scores` table directly — came back empty.
