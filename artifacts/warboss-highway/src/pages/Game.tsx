@@ -232,8 +232,12 @@ export default function Game() {
   }, [screen, selectedCar, prefersReducedMotion]);
 
   // Cleanup on unmount
+  const unmountedRef = useRef(false);
   useEffect(() => {
-    return () => { engineRef.current?.cleanup(); };
+    return () => {
+      unmountedRef.current = true;
+      engineRef.current?.cleanup();
+    };
   }, []);
 
   // Pause/resume keyboard shortcut
@@ -324,9 +328,10 @@ export default function Game() {
       import('@/lib/game/pixi-renderer').then(({ PixiRenderer }) =>
         PixiRenderer.create(host, 420, 800)
       ).then((renderer) => {
-        // Bail if the engine was torn down (restart/unmount) while the
-        // Pixi bundle/app was still loading.
-        if (engineRef.current !== engine) { renderer.destroy(); return; }
+        // Bail if the engine was torn down (restart) or the component
+        // unmounted while the Pixi bundle/app was still loading — otherwise
+        // this would attach to (or leak) a renderer nothing owns anymore.
+        if (unmountedRef.current || engineRef.current !== engine) { renderer.destroy(); return; }
         engine.attachRenderer(renderer);
       }).catch((err) => console.error('[pixi-debug] failed to attach Pixi renderer', err));
     }
@@ -385,12 +390,17 @@ export default function Game() {
         {/* Pixi (WebGL) renderer host — dev-only behind ?renderer=pixi until
             the rewrite reaches parity. Sits over the Canvas 2D element and
             is pointer-events-none so input still reaches the canvas, which
-            owns all touch/keyboard listeners regardless of active renderer. */}
+            owns all touch/keyboard listeners regardless of active renderer.
+            Stays visible through 'gameover' too (not just 'playing') since
+            attachRenderer() clears the Canvas 2D surface underneath and the
+            engine stops calling draw() — hiding this on death would expose a
+            blank layer instead of the frozen crash frame the game-over
+            overlay is meant to fade in over. */}
         {usePixiRenderer && (
           <div
             ref={pixiHostRef}
             className="absolute inset-0 pointer-events-none"
-            style={{ display: screen === 'playing' ? 'block' : 'none' }}
+            style={{ display: screen !== 'title' ? 'block' : 'none' }}
           />
         )}
 

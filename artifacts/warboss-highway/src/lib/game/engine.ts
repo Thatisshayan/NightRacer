@@ -8,6 +8,15 @@ export type CarType = 'RATTLETRAP' | 'WAR_RUNNER' | 'DEATHSLED' | 'SCRAPQUEEN' |
 export type VehicleType = 'SEDAN' | 'PICKUP' | 'COP' | 'BOXTRUCK' | 'BUS' | 'SPORTS' | 'TANK' | 'BOSS';
 export type ObstacleType = 'OIL_SLICK' | 'DEBRIS';
 
+// Single source of truth for timed power-up durations, shared with the HUD
+// overlay (game-hud-overlay.tsx) so its progress-bar fill can't drift out of
+// sync with the actual timer set in collectPowerUp() below.
+export const POWERUP_DURATION_MS: Record<Exclude<PowerUpType, 'EXTRA_LIFE'>, number> = {
+  SHIELD: 5000,
+  SLOWMO: 4000,
+  SCORE_BLAST: 6000,
+};
+
 // Structural interface only — kept free of any pixi.js import so engine.ts
 // never pulls the Pixi bundle in statically (Game.tsx loads it via a lazy
 // `import('pixi.js')` and hands the engine an instance through
@@ -432,7 +441,7 @@ export class GameEngine {
   // which reads this every frame via its own rAF loop instead of React
   // state, to avoid re-rendering the component tree at 60fps. Callers must
   // not mutate the returned object.
-  public getState(): GameState {
+  public getState(): Readonly<GameState> {
     return this.state;
   }
 
@@ -799,8 +808,7 @@ export class GameEngine {
       this.state.lives = Math.min(5, this.state.lives + 1);
     } else {
       this.state.activePowerUp = type;
-      const dur = type === 'SHIELD' ? 5000 : type === 'SCORE_BLAST' ? 6000 : 4000;
-      this.state.powerUpTimer = dur;
+      this.state.powerUpTimer = POWERUP_DURATION_MS[type];
     }
   }
 

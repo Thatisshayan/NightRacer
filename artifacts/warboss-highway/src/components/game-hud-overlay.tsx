@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { GameEngine, POP_DURATION_MS } from '@/lib/game/engine';
+import { GameEngine, POP_DURATION_MS, POWERUP_DURATION_MS, type PowerUpType } from '@/lib/game/engine';
 
 // Ease-out pop scale — mirrors the old Canvas 2D renderer.ts helper of the
 // same name, now driving a CSS transform instead of a ctx.scale().
@@ -8,10 +8,14 @@ const popScale = (popMs: number, peak: number) => {
   return 1 + (peak - 1) * t * t;
 };
 
-const POWERUP_META: Record<string, { color: string; label: string; maxDurationMs: number }> = {
-  SHIELD: { color: '#00ffff', label: '\u{1F6E1} SHIELD', maxDurationMs: 5000 },
-  SLOWMO: { color: '#ffff00', label: '⏱ SLOW-MO', maxDurationMs: 4000 },
-  SCORE_BLAST: { color: '#ffaa00', label: '★ SCORE BLAST', maxDurationMs: 6000 },
+// Keyed off Exclude<PowerUpType, 'EXTRA_LIFE'> (via POWERUP_DURATION_MS) so
+// a lookup for an unsupported variant is a compile error, not a silent
+// `undefined` at runtime. EXTRA_LIFE never sets activePowerUp — see
+// GameEngine.collectPowerUp().
+const POWERUP_META: Record<keyof typeof POWERUP_DURATION_MS, { color: string; label: string }> = {
+  SHIELD: { color: '#00ffff', label: '\u{1F6E1} SHIELD' },
+  SLOWMO: { color: '#ffff00', label: '⏱ SLOW-MO' },
+  SCORE_BLAST: { color: '#ffaa00', label: '★ SCORE BLAST' },
 };
 
 // Renders the score/combo/lives/power-up bar/speedometer HUD, plus the
@@ -74,12 +78,18 @@ export function GameHudOverlay({ engine }: { engine: GameEngine }) {
         oilWarningRef.current.style.display = state.player.oilSlicked ? 'block' : 'none';
       }
 
-      const powerUp = state.activePowerUp && state.powerUpTimer > 0 ? state.activePowerUp : null;
+      // EXTRA_LIFE is applied instantly in collectPowerUp() and never sets
+      // activePowerUp, but the type is still PowerUpType | null here — guard
+      // it explicitly rather than relying on that invariant staying true.
+      const powerUp: Exclude<PowerUpType, 'EXTRA_LIFE'> | null =
+        state.activePowerUp && state.activePowerUp !== 'EXTRA_LIFE' && state.powerUpTimer > 0
+          ? state.activePowerUp
+          : null;
       if (powerUpBarRef.current) {
         powerUpBarRef.current.style.display = powerUp ? 'block' : 'none';
         if (powerUp) {
           const meta = POWERUP_META[powerUp];
-          const barFill = Math.max(0, (state.powerUpTimer / meta.maxDurationMs) * 100);
+          const barFill = Math.max(0, (state.powerUpTimer / POWERUP_DURATION_MS[powerUp]) * 100);
           const seconds = Math.max(0, Math.ceil(state.powerUpTimer / 1000));
           if (powerUpLabelRef.current) {
             powerUpLabelRef.current.textContent = meta.label;

@@ -118,7 +118,7 @@ export class PixiRenderer implements GameRenderer {
     if (this.quality === 'high') {
       this.exhaustLayer.filters = [new GlowFilter({ distance: 10, outerStrength: 2, color: 0xffaa33, quality: 0.2 })];
       this.shieldLayer.filters = [new GlowFilter({ distance: 12, outerStrength: 2, color: 0x00ffff, quality: 0.2 })];
-      this.motionBlur = new MotionBlurFilter({ velocity: [0, 0], kernelSize: 5 });
+      this.motionBlur = new MotionBlurFilter({ velocity: { x: 0, y: 0 }, kernelSize: 5 });
       this.worldContainer.filters = [this.motionBlur];
     }
 
@@ -221,6 +221,18 @@ export class PixiRenderer implements GameRenderer {
   }
 
   destroy() {
+    // generateTexture()'d textures aren't owned by the scene graph, so
+    // app.destroy({children: true}) won't reclaim their GPU memory on its
+    // own — destroy them explicitly (each restart otherwise regenerates a
+    // fresh set via generatePlaceholderTextures without freeing the old one).
+    for (const texture of Object.values(this.textures.playerCars)) texture.destroy(true);
+    for (const texture of Object.values(this.textures.powerups)) texture.destroy(true);
+    this.textures.roadTile.destroy(true);
+    this.textures.enemyVehicle.destroy(true);
+    this.textures.oilSlick.destroy(true);
+    this.textures.debris.destroy(true);
+    this.textures.softGlow.destroy(true);
+
     this.app.destroy(true, { children: true });
   }
 }
