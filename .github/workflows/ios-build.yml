@@ -90,6 +90,11 @@ jobs:
           mkdir -p "$PROFILE_DIR"
           echo "$IOS_PROVISIONING_PROFILE_BASE64" | base64 --decode -o "$PROFILE_DIR/warboss-highway.mobileprovision"
 
+          echo "--- identities available for codesigning ---"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+          echo "--- provisioning profile contents ---"
+          security cms -D -i "$PROFILE_DIR/warboss-highway.mobileprovision"
+
       - name: Install CocoaPods dependencies
         # expo prebuild generates the .xcodeproj + Podfile but not the
         # .xcworkspace - that only exists once CocoaPods links the pods in.
@@ -128,6 +133,12 @@ jobs:
             CODE_SIGN_IDENTITY="iPhone Distribution" \
             PROVISIONING_PROFILE_SPECIFIER="Warboss Highway App Store" \
             archive
+
+          echo "--- archive Info.plist (signing metadata) ---"
+          /usr/libexec/PlistBuddy -c "Print" "$RUNNER_TEMP/WarbossHighway.xcarchive/Info.plist" || true
+          echo "--- entitlements actually applied to the built app ---"
+          APP_PATH="$(find "$RUNNER_TEMP/WarbossHighway.xcarchive/Products/Applications" -maxdepth 1 -name '*.app' | head -1)"
+          codesign -d --entitlements :- "$APP_PATH" || true
 
       - name: Export IPA
         run: |
