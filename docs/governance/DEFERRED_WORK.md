@@ -11,9 +11,13 @@ Rule 12 / Rule 11. This register survives the session. Future agents resume from
   deferred because provisioning a DB is an infra/credentials decision, not a code fix —
   `scripts/dev-db.sh` was added to automate provisioning (Postgres 16 container +
   `pnpm --filter @workspace/db run push` + `.env` write) on any machine with Docker, but
-  it was never run/verified end-to-end in this environment (no Docker here) — resume by
-  running `bash scripts/dev-db.sh` on a Docker-capable machine and confirming
-  `pnpm --filter @workspace/api-server run dev` boots — status: script added, unverified.
+  it was never run/verified end-to-end in this environment (no Docker here) —
+  **status: resolved 2026-07-27** — replaced with a hosted Neon Postgres project
+  (`nightracer`, part of the Replit-decoupling effort) used for dev/staging/prod alike,
+  no Docker needed; `scripts/dev-db.sh` deleted. Verified end-to-end: schema pushed via
+  `pnpm --filter @workspace/db run push`, `api-server` built and booted against it, and
+  `GET /api/scores` round-tripped a real query (`200 []`) — see
+  `docs/superpowers/specs/2026-07-27-replit-decoupling-database-design.md`.
 - [2026-07-25] No `.env.example` in repo despite `DATABASE_URL` being a required env var
   — resolved: added `.env.example` with `DATABASE_URL=` documented — status: done.
 - [2026-07-26] UI motion audit follow-up (`audits/2026-07-25_Claude_UIDesignMotion_Audit.md`,

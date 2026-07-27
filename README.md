@@ -28,16 +28,16 @@ for those platforms and builds will fail. If macOS/arm64 support is needed, add 
 platform to `supportedArchitectures` and add a matching CI smoke job first.
 
 ## Run & Operate
-- `bash scripts/dev-db.sh` — spin up a local Postgres 16 (Docker) and push the schema; writes `.env` with `DATABASE_URL`
-  (set `FORCE_RECREATE=1` to destroy + recreate the container if `DB_PORT`/`DB_USER`/`DB_PASSWORD`/`DB_NAME` changed since it was created)
+- Database: Postgres is hosted on [Neon](https://console.neon.tech) (project `nightracer`) — used for local dev,
+  staging, and prod alike. No local/Docker Postgres needed. Copy `.env.example` to `.env` and fill in
+  `DATABASE_URL` with your Neon connection string (dashboard → project → Connection Details → pooled connection).
 - `pnpm --filter @workspace/api-server run dev` — API server (port 5000)
 - `PORT=5173 BASE_PATH=/ pnpm --filter @workspace/warboss-highway run dev` — game frontend
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks + Zod schemas from OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` (Postgres connection string). Copy `.env.example` to `.env` and fill it in
-  (or just run `scripts/dev-db.sh`, which does this for you).
+- Required env: `DATABASE_URL` (Neon Postgres connection string). Copy `.env.example` to `.env` and fill it in.
 - **Windows (git-bash) gotcha:** MSYS auto-converts a bare `/` in an env value into a Windows path,
   which breaks `BASE_PATH=/`. Prefix the frontend dev/build command with `MSYS_NO_PATHCONV=1` on Windows, e.g.
   `MSYS_NO_PATHCONV=1 PORT=5173 BASE_PATH=/ pnpm --filter @workspace/warboss-highway run dev`.
