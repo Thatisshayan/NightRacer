@@ -158,9 +158,13 @@ export default function Game() {
     const H = canvas.height;
     let roadY = 0;
     let rafId = 0;
+    let lastTs = 0;
+    const PIXELS_PER_SECOND = 180;
 
     const draw = (ts: number) => {
-      roadY = (roadY + 3) % 60;
+      const dt = lastTs ? (ts - lastTs) / 1000 : 0;
+      lastTs = ts;
+      roadY = (roadY + dt * PIXELS_PER_SECOND) % 60;
 
       // Dark road
       ctx.fillStyle = '#111';
@@ -211,12 +215,12 @@ export default function Game() {
       ctx.fillStyle = vig;
       ctx.fillRect(0, 0, W, H);
 
-      rafId = requestAnimationFrame(draw);
+      if (!prefersReducedMotion) rafId = requestAnimationFrame(draw);
     };
 
     rafId = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(rafId);
-  }, [screen, selectedCar]);
+  }, [screen, selectedCar, prefersReducedMotion]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -443,12 +447,18 @@ export default function Game() {
                 {carTypes.map((car) => (
                   <button
                     key={car}
+                    type="button"
                     onClick={() => setSelectedCar(car)}
                     aria-label={CAR_STATS[car].label}
-                    className={`w-2 h-2 rounded-none transition-all ${
-                      selectedCar === car ? 'bg-primary scale-125' : 'bg-muted-foreground/40 hover:bg-muted-foreground/70'
-                    }`}
-                  />
+                    aria-current={selectedCar === car ? 'true' : undefined}
+                    className="w-6 h-6 flex items-center justify-center"
+                  >
+                    <span
+                      className={`block w-2 h-2 transition-all ${
+                        selectedCar === car ? 'bg-primary scale-125' : 'bg-muted-foreground/40 hover:bg-muted-foreground/70'
+                      }`}
+                    />
+                  </button>
                 ))}
               </div>
             </motion.div>

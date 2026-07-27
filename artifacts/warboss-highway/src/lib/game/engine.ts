@@ -52,7 +52,7 @@ export const CAR_STATS: Record<CarType, CarStats> = {
     speedMod: 0.72,
     color: '#7a4a8a',
     label: 'SCRAPQUEEN',
-    desc: 'Armoured behemoth. Absorbs one hit.',
+    desc: 'Armoured behemoth. Slow but built like a tank.',
     stats: 'SPD █░░░░  ARM █████',
   },
   PHANTOM: {
@@ -181,6 +181,7 @@ export class GameEngine {
   };
   private cameraY: number = 0;
   private initialPlayerY: number = 0;
+  private grainPattern: CanvasPattern | null = null;
   // prefers-reduced-motion: screen shake is a known motion-sickness trigger,
   // so it's disabled entirely under reduced motion. The hit still registers
   // via the existing particle burst + invulnerability flicker, which aren't
@@ -1042,19 +1043,34 @@ export class GameEngine {
     ctx.fillStyle = roadGrad;
     ctx.fillRect(12, 0, W - 24, H);
 
-    // Fine asphalt grain — deterministic dots, no flicker
-    ctx.globalAlpha = 0.022;
+    // Fine asphalt grain — deterministic dots, baked into a tiled pattern once
+    // instead of ~6k fillRect calls/frame.
     const gs = 7;
-    const go = Math.floor(state.roadOffset * 1.5) % gs;
-    for (let y = -gs + go; y < H + gs; y += gs) {
-      for (let x = 16; x < W - 16; x += gs) {
-        if (((x * 7 + y * 13) & 3) === 0) {
-          ctx.fillStyle = '#fff';
-          ctx.fillRect(x, y, 1, 1);
+    if (!this.grainPattern) {
+      const tileSize = gs * 16;
+      const tile = document.createElement('canvas');
+      tile.width = tileSize;
+      tile.height = tileSize;
+      const tctx = tile.getContext('2d')!;
+      tctx.fillStyle = '#fff';
+      for (let y = 0; y < tileSize; y += gs) {
+        for (let x = 0; x < tileSize; x += gs) {
+          if (((x * 7 + y * 13) & 3) === 0) {
+            tctx.fillRect(x, y, 1, 1);
+          }
         }
       }
+      this.grainPattern = ctx.createPattern(tile, 'repeat');
     }
-    ctx.globalAlpha = 1;
+    if (this.grainPattern) {
+      ctx.globalAlpha = 0.022;
+      ctx.save();
+      ctx.translate(0, Math.floor(state.roadOffset * 1.5) % gs);
+      ctx.fillStyle = this.grainPattern;
+      ctx.fillRect(16, -gs, W - 32, H + gs * 2);
+      ctx.restore();
+      ctx.globalAlpha = 1;
+    }
 
     // === SPEED STREAKS — gradient fade, scale with speed ===
     if (speedMult > 1.05) {

@@ -165,7 +165,6 @@ const startMusic = (type: 'menu' | 'gameplay') => {
   pad1.connect(filter);
   pad2.connect(filter);
   filter.connect(musicGain);
-  lfo.connect(lfoGain);
 
   pad1.start();
   pad2.start();
@@ -202,18 +201,15 @@ export const stopAudio = (type: string) => {
 };
 
 // `type` is unused (kept for call-site compat — only one music channel now).
+// Suspends the whole audio graph rather than just fading the music gain, so
+// SFX triggered while "paused" stay silent too instead of still audibly firing.
 export const pauseAudio = (_type?: string) => {
-  if (musicGain) {
-    const ac = getCtx();
-    musicGain.gain.setValueAtTime(0.0001, ac.currentTime);
-  }
+  if (ctx && ctx.state === 'running') ctx.suspend();
 };
 
 export const resumeAudio = (_type?: string) => {
-  if (musicGain && !isMuted) {
-    const ac = getCtx();
-    musicGain.gain.setValueAtTime(0.07, ac.currentTime);
-  }
+  if (isMuted) return;
+  if (ctx && ctx.state === 'suspended') ctx.resume();
 };
 
 export const toggleMute = (): boolean => {
