@@ -5,11 +5,17 @@ on:
     branches: [main]
     paths:
       - 'artifacts/warboss-highway-mobile/**'
+      - 'lib/api-client-react/**'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
       - '.github/workflows/ios-build.yml'
   push:
     branches: [main]
     paths:
       - 'artifacts/warboss-highway-mobile/**'
+      - 'lib/api-client-react/**'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
       - '.github/workflows/ios-build.yml'
   workflow_dispatch: {}
 
@@ -131,10 +137,13 @@ jobs:
           echo "Discovered workspace=$WORKSPACE_PATH scheme=$SCHEME (project name matched: $PROJECT_NAME)"
 
       - name: Archive (xcodebuild, no EAS/Fastlane)
+        env:
+          DISCOVERED_WORKSPACE: ${{ steps.xc.outputs.workspace }}
+          DISCOVERED_SCHEME: ${{ steps.xc.outputs.scheme }}
         run: |
           set -euo pipefail
-          xcodebuild -workspace "${{ steps.xc.outputs.workspace }}" \
-            -scheme "${{ steps.xc.outputs.scheme }}" \
+          xcodebuild -workspace "$DISCOVERED_WORKSPACE" \
+            -scheme "$DISCOVERED_SCHEME" \
             -configuration Release \
             -archivePath "$RUNNER_TEMP/WarbossHighway.xcarchive" \
             -destination 'generic/platform=iOS' \
@@ -187,7 +196,7 @@ jobs:
         run: |
           set -euo pipefail
           KEY_PATH="$RUNNER_TEMP/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8"
-          echo "$APP_STORE_CONNECT_API_KEY_P8" > "$KEY_PATH"
+          (umask 077 && echo "$APP_STORE_CONNECT_API_KEY_P8" > "$KEY_PATH")
 
           UPLOAD_PLIST_PATH="$RUNNER_TEMP/exportOptionsUpload.plist"
           /usr/libexec/PlistBuddy -c "Add :method string app-store-connect" "$UPLOAD_PLIST_PATH"
