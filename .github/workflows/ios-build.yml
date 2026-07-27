@@ -114,11 +114,21 @@ jobs:
             ls -la ios
             exit 1
           fi
-          SCHEME="$(xcodebuild -list -workspace "$WORKSPACE_PATH" -json \
-            | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d);console.log(j.workspace.schemes.find(s=>!s.includes('Tests'))||j.workspace.schemes[0]);})")"
+          # Expo/CocoaPods workspaces list a scheme per pod library
+          # (e.g. "EXConstants") alongside the actual app scheme - picking
+          # the first non-Tests one is wrong, it grabs a static library with
+          # zero valid export methods. The app scheme's name matches the
+          # .xcodeproj basename Expo generated (same as $WORKSPACE_PATH's
+          # basename), so match on that specifically instead of guessing.
+          PROJECT_NAME="$(basename "$WORKSPACE_PATH" .xcworkspace)"
+          SCHEME_JSON="$(xcodebuild -list -workspace "$WORKSPACE_PATH" -json)"
+          echo "--- all schemes in workspace ---"
+          echo "$SCHEME_JSON" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{console.log(JSON.parse(d).workspace.schemes);})"
+          SCHEME="$(echo "$SCHEME_JSON" \
+            | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d);const want='$PROJECT_NAME';const s=j.workspace.schemes.includes(want)?want:j.workspace.schemes.find(s=>!s.includes('Tests'));console.log(s);})")"
           echo "workspace=$WORKSPACE_PATH" >> "$GITHUB_OUTPUT"
           echo "scheme=$SCHEME" >> "$GITHUB_OUTPUT"
-          echo "Discovered workspace=$WORKSPACE_PATH scheme=$SCHEME"
+          echo "Discovered workspace=$WORKSPACE_PATH scheme=$SCHEME (project name matched: $PROJECT_NAME)"
 
       - name: Archive (xcodebuild, no EAS/Fastlane)
         run: |
