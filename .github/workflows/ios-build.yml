@@ -110,16 +110,10 @@ jobs:
       - name: Export IPA
         run: |
           set -euo pipefail
-          cat > "$RUNNER_TEMP/exportOptions.plist" <<'PLIST'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>method</key><string>app-store</string>
-            <key>signingStyle</key><string>manual</string>
-          </dict>
-          </plist>
-          PLIST
+          PLIST_PATH="$RUNNER_TEMP/exportOptions.plist"
+          /usr/libexec/PlistBuddy -c "Add :method string app-store" "$PLIST_PATH"
+          /usr/libexec/PlistBuddy -c "Add :signingStyle string manual" "$PLIST_PATH"
+          cat "$PLIST_PATH"
           xcodebuild -exportArchive \
             -archivePath "$RUNNER_TEMP/WarbossHighway.xcarchive" \
             -exportOptionsPlist "$RUNNER_TEMP/exportOptions.plist" \
@@ -148,17 +142,11 @@ jobs:
           KEY_PATH="$RUNNER_TEMP/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8"
           echo "$APP_STORE_CONNECT_API_KEY_P8" > "$KEY_PATH"
 
-          cat > "$RUNNER_TEMP/exportOptionsUpload.plist" <<'PLIST'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>method</key><string>app-store</string>
-            <key>signingStyle</key><string>manual</string>
-            <key>destination</key><string>upload</string>
-          </dict>
-          </plist>
-          PLIST
+          UPLOAD_PLIST_PATH="$RUNNER_TEMP/exportOptionsUpload.plist"
+          /usr/libexec/PlistBuddy -c "Add :method string app-store" "$UPLOAD_PLIST_PATH"
+          /usr/libexec/PlistBuddy -c "Add :signingStyle string manual" "$UPLOAD_PLIST_PATH"
+          /usr/libexec/PlistBuddy -c "Add :destination string upload" "$UPLOAD_PLIST_PATH"
+          cat "$UPLOAD_PLIST_PATH"
 
           xcodebuild -exportArchive \
             -archivePath "$RUNNER_TEMP/WarbossHighway.xcarchive" \
