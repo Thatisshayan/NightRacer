@@ -68,14 +68,30 @@ jobs:
           mkdir -p "$PROFILE_DIR"
           echo "$IOS_PROVISIONING_PROFILE_BASE64" | base64 --decode -o "$PROFILE_DIR/warboss-highway.mobileprovision"
 
-      - name: Archive (xcodebuild, no EAS/Fastlane)
-        # Emitted by `expo prebuild` from app.json's `name`/`slug` — if this
-        # workspace/scheme name is wrong, `xcodebuild -list` in the failure
-        # logs will show the actual names to fix this with.
+      - name: Discover workspace + scheme
+        # Don't hardcode the name expo prebuild gives the Xcode project —
+        # it's derived from app.json's `name`, sanitization rules aren't
+        # worth tracking by hand. Discover it for real instead.
+        id: xc
         run: |
           set -euo pipefail
-          xcodebuild -workspace ios/warbosshighway.xcworkspace \
-            -scheme warbosshighway \
+          WORKSPACE_PATH="$(find ios -maxdepth 1 -name '*.xcworkspace' | head -1)"
+          if [ -z "$WORKSPACE_PATH" ]; then
+            echo "::error::No .xcworkspace found under ios/ after expo prebuild"
+            ls -la ios
+            exit 1
+          fi
+          SCHEME="$(xcodebuild -list -workspace "$WORKSPACE_PATH" -json \
+            | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d);console.log(j.workspace.schemes.find(s=>!s.includes('Tests'))||j.workspace.schemes[0]);})")"
+          echo "workspace=$WORKSPACE_PATH" >> "$GITHUB_OUTPUT"
+          echo "scheme=$SCHEME" >> "$GITHUB_OUTPUT"
+          echo "Discovered workspace=$WORKSPACE_PATH scheme=$SCHEME"
+
+      - name: Archive (xcodebuild, no EAS/Fastlane)
+        run: |
+          set -euo pipefail
+          xcodebuild -workspace "${{ steps.xc.outputs.workspace }}" \
+            -scheme "${{ steps.xc.outputs.scheme }}" \
             -configuration Release \
             -archivePath "$RUNNER_TEMP/WarbossHighway.xcarchive" \
             -destination 'generic/platform=iOS' \
