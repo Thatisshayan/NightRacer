@@ -68,6 +68,12 @@ jobs:
           mkdir -p "$PROFILE_DIR"
           echo "$IOS_PROVISIONING_PROFILE_BASE64" | base64 --decode -o "$PROFILE_DIR/warboss-highway.mobileprovision"
 
+      - name: Install CocoaPods dependencies
+        # expo prebuild generates the .xcodeproj + Podfile but not the
+        # .xcworkspace - that only exists once CocoaPods links the pods in.
+        working-directory: artifacts/warboss-highway-mobile/ios
+        run: pod install --repo-update
+
       - name: Discover workspace + scheme
         # Don't hardcode the name expo prebuild gives the Xcode project —
         # it's derived from app.json's `name`, sanitization rules aren't
