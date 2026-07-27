@@ -35,7 +35,13 @@ export const Settings = {
 
   getSelectedCar(): CarType {
     const value = getItem('selected_car') as CarType | null;
-    if (value === 'RATTLETRAP' || value === 'WAR_RUNNER' || value === 'DEATHSLED') {
+    if (
+      value === 'RATTLETRAP' ||
+      value === 'WAR_RUNNER' ||
+      value === 'DEATHSLED' ||
+      value === 'SCRAPQUEEN' ||
+      value === 'PHANTOM'
+    ) {
       return value;
     }
     return 'WAR_RUNNER';
