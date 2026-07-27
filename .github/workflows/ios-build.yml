@@ -30,6 +30,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Select newest available Xcode
+        # macos-15's default Xcode (16.4) only ships the iOS 18.5 SDK, but
+        # App Store Connect now requires apps built with the iOS 26 SDK
+        # (Xcode 26+) for upload - confirmed by a real failed upload attempt,
+        # not assumed. GitHub's macOS runners preinstall multiple Xcode
+        # versions under /Applications; select the newest instead of
+        # hardcoding a version that will go stale. Runs at the repo root
+        # (not the job's default mobile-package working-directory) since
+        # it doesn't touch any project files.
+        working-directory: .
+        run: |
+          set -euo pipefail
+          echo "--- available Xcode installs ---"
+          ls -d /Applications/Xcode*.app
+          NEWEST="$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+          echo "Selecting: $NEWEST"
+          sudo xcode-select -s "$NEWEST/Contents/Developer"
+          xcodebuild -version
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
