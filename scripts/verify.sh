@@ -9,7 +9,19 @@ cd "$REPO_ROOT" || exit 1
 
 FAIL=0
 notice() { echo "::notice title=$1::$2"; }
-error()  { echo "::error title=$1::$2"; FAIL=1; }
+# GitHub's ::error:: workflow-command annotation silently truncates long or
+# multi-line values, which was swallowing the actual failure reason for
+# build/test errors. Print the full detail as plain stdout (no such limit)
+# and only pass a short single-line summary to the annotation itself.
+error() {
+  local title="$1" detail="$2" short
+  echo "---- ERROR [$title] ----"
+  printf '%s\n' "$detail"
+  echo "---- END ERROR [$title] ----"
+  short=$(printf '%s' "$detail" | tr '\n' ' ' | cut -c1-200)
+  echo "::error title=$title::$short"
+  FAIL=1
+}
 
 # ---------------------------------------------------------------- 1. secret-scan
 echo "== secret-scan =="
