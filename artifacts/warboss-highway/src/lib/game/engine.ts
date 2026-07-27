@@ -4,7 +4,7 @@ import { Settings } from './settings';
 import { DailyModifier } from './daily';
 
 export type PowerUpType = 'SHIELD' | 'SLOWMO' | 'SCORE_BLAST' | 'EXTRA_LIFE';
-export type CarType = 'RATTLETRAP' | 'WAR_RUNNER' | 'DEATHSLED';
+export type CarType = 'RATTLETRAP' | 'WAR_RUNNER' | 'DEATHSLED' | 'SCRAPQUEEN' | 'PHANTOM';
 export type VehicleType = 'SEDAN' | 'PICKUP' | 'COP' | 'BOXTRUCK' | 'BUS' | 'SPORTS' | 'TANK' | 'BOSS';
 export type ObstacleType = 'OIL_SLICK' | 'DEBRIS';
 
@@ -45,6 +45,24 @@ export const CAR_STATS: Record<CarType, CarStats> = {
     label: 'DEATHSLED',
     desc: 'Narrow & fast. High risk.',
     stats: 'SPD █████  ARM █░░░░',
+  },
+  SCRAPQUEEN: {
+    width: 46,
+    height: 70,
+    speedMod: 0.72,
+    color: '#7a4a8a',
+    label: 'SCRAPQUEEN',
+    desc: 'Armoured behemoth. Absorbs one hit.',
+    stats: 'SPD █░░░░  ARM █████',
+  },
+  PHANTOM: {
+    width: 16,
+    height: 42,
+    speedMod: 1.35,
+    color: '#00ffcc',
+    label: 'PHANTOM',
+    desc: 'Ghost-thin. Blink and you miss it.',
+    stats: 'SPD █████  ARM ░░░░░',
   },
 };
 
