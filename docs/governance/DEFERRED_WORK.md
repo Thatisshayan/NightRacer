@@ -87,3 +87,25 @@ Rule 12 / Rule 11. This register survives the session. Future agents resume from
   typecheck + build succeeded only, not that gameplay behavior was verified by anything
   automated — resume by adding at least smoke tests around `GameEngine` (spawn/collision/
   scoring logic) and the `audio.ts` public API shape — status: open, not started.
+- [2026-07-27] `scripts/verify.sh`/`verify.ps1` deploy-dry check for `vercel.json` —
+  **status: resolved 2026-07-27.** The user provided a `VERCEL_TOKEN` (this session
+  couldn't mint one itself — `vercel tokens add` returned 403 under its app-scoped OAuth);
+  set as a GitHub Actions repo secret along with `VERCEL_ORG_ID`/`VERCEL_PROJECT_ID`.
+  Along the way, CodeRabbit review on PR #6 caught that the original fix used
+  `vercel build --dry-run`, which isn't a real flag (verified independently: `vercel build
+  --help` lists no such option) — replaced with `vercel build --yes`, and switched from a
+  bare `vercel` invocation to `npx --yes vercel@latest` since the CLI is only installed
+  globally on this dev machine, not a repo dependency — CI would have had no `vercel`
+  binary on PATH at all. Both fixes verified locally end-to-end before pushing (real
+  `vercel build --yes` success against the linked project). Also moved the Vercel secrets
+  out of the main "Run governance verification" step into their own dedicated step
+  (CodeRabbit: least-privilege — the secrets shouldn't be in scope for the preceding
+  install/build/test commands) in `.github/workflows/gate.yml`.
+- [2026-07-27] Vercel Preview deployments shared the production `DATABASE_URL` (CodeRabbit
+  finding on PR #6) — **status: resolved 2026-07-27.** The user installed and logged into
+  the Neon CLI (`neonctl`) separately, which turned out to be reachable from this session
+  too (same-machine config, not shell-scoped). Created a `preview` branch
+  (`br-winter-fire-auu4ym5e`) on the `nightracer` project and set its connection string as
+  the Preview-only `DATABASE_URL`, replacing the shared one. Verified isolation for real,
+  not assumed: inserted a marker row directly into the preview branch's `scores` table,
+  then queried production's `scores` table directly — came back empty.

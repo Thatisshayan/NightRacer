@@ -15,7 +15,16 @@ async function buildAll() {
   await rm(distDir, { recursive: true, force: true });
 
   await esbuild({
-    entryPoints: [path.resolve(artifactDir, "src/index.ts")],
+    // src/app.ts is bundled alongside src/index.ts so Vercel's serverless
+    // function adapter (api/index.mjs at the repo root) can import a
+    // pre-bundled Express app (dist/app.mjs) that doesn't call app.listen(),
+    // using the same esbuild config/plugins/externals as the long-running
+    // server build instead of Vercel's generic function bundler tracing
+    // pino's worker-thread transports itself.
+    entryPoints: [
+      path.resolve(artifactDir, "src/index.ts"),
+      path.resolve(artifactDir, "src/app.ts"),
+    ],
     platform: "node",
     bundle: true,
     format: "esm",
@@ -103,8 +112,12 @@ async function buildAll() {
     ],
     sourcemap: "linked",
     plugins: [
-      // pino relies on workers to handle logging, instead of externalizing it we use a plugin to handle it
-      esbuildPluginPino({ transports: ["pino-pretty"] })
+      // pino relies on workers to handle logging, instead of externalizing it we use a plugin to handle it.
+      // logger.ts only configures the pino-pretty transport when NODE_ENV !== 'production', so skip bundling
+      // it in production builds (e.g. the Vercel serverless function) — it would never be loaded at runtime.
+      esbuildPluginPino({
+        transports: process.env.NODE_ENV === "production" ? [] : ["pino-pretty"],
+      }),
     ],
     // Make sure packages that are cjs only (e.g. express) but are bundled continue to work in our esm output file
     banner: {

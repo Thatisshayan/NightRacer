@@ -48,9 +48,6 @@ Thumbs.db
 .cache/
 .local/
 # --- Repo Governance additions (merged into .gitignore by apply script) ---
-.env
-.env.*
-!.env.example
 *.p8
 *.p12
 *.pem
@@ -65,3 +62,6 @@ build/
 .vs/
 desktop.ini
 audits/private/
+.vercel
+.env*
+!.env.example
