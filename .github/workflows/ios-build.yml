@@ -155,9 +155,11 @@ jobs:
         run: |
           set -euo pipefail
           PLIST_PATH="$RUNNER_TEMP/exportOptions.plist"
-          /usr/libexec/PlistBuddy -c "Add :method string app-store" "$PLIST_PATH"
+          /usr/libexec/PlistBuddy -c "Add :method string app-store-connect" "$PLIST_PATH"
           /usr/libexec/PlistBuddy -c "Add :signingStyle string manual" "$PLIST_PATH"
           /usr/libexec/PlistBuddy -c "Add :teamID string 9Y6GYPM3K5" "$PLIST_PATH"
+          /usr/libexec/PlistBuddy -c "Add :provisioningProfiles dict" "$PLIST_PATH"
+          /usr/libexec/PlistBuddy -c "Add :provisioningProfiles:com.warbosshighway.app string 'Warboss Highway App Store'" "$PLIST_PATH"
           cat "$PLIST_PATH"
           xcodebuild -exportArchive \
             -archivePath "$RUNNER_TEMP/WarbossHighway.xcarchive" \
@@ -188,9 +190,11 @@ jobs:
           echo "$APP_STORE_CONNECT_API_KEY_P8" > "$KEY_PATH"
 
           UPLOAD_PLIST_PATH="$RUNNER_TEMP/exportOptionsUpload.plist"
-          /usr/libexec/PlistBuddy -c "Add :method string app-store" "$UPLOAD_PLIST_PATH"
+          /usr/libexec/PlistBuddy -c "Add :method string app-store-connect" "$UPLOAD_PLIST_PATH"
           /usr/libexec/PlistBuddy -c "Add :signingStyle string manual" "$UPLOAD_PLIST_PATH"
           /usr/libexec/PlistBuddy -c "Add :teamID string 9Y6GYPM3K5" "$UPLOAD_PLIST_PATH"
+          /usr/libexec/PlistBuddy -c "Add :provisioningProfiles dict" "$UPLOAD_PLIST_PATH"
+          /usr/libexec/PlistBuddy -c "Add :provisioningProfiles:com.warbosshighway.app string 'Warboss Highway App Store'" "$UPLOAD_PLIST_PATH"
           /usr/libexec/PlistBuddy -c "Add :destination string upload" "$UPLOAD_PLIST_PATH"
           cat "$UPLOAD_PLIST_PATH"
 
