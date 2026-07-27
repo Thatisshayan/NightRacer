@@ -142,6 +142,7 @@ jobs:
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="iPhone Distribution" \
             PROVISIONING_PROFILE_SPECIFIER="Warboss Highway App Store" \
+            DEVELOPMENT_TEAM=9Y6GYPM3K5 \
             archive
 
           echo "--- archive Info.plist (signing metadata) ---"
@@ -156,6 +157,7 @@ jobs:
           PLIST_PATH="$RUNNER_TEMP/exportOptions.plist"
           /usr/libexec/PlistBuddy -c "Add :method string app-store" "$PLIST_PATH"
           /usr/libexec/PlistBuddy -c "Add :signingStyle string manual" "$PLIST_PATH"
+          /usr/libexec/PlistBuddy -c "Add :teamID string 9Y6GYPM3K5" "$PLIST_PATH"
           cat "$PLIST_PATH"
           xcodebuild -exportArchive \
             -archivePath "$RUNNER_TEMP/WarbossHighway.xcarchive" \
@@ -188,6 +190,7 @@ jobs:
           UPLOAD_PLIST_PATH="$RUNNER_TEMP/exportOptionsUpload.plist"
           /usr/libexec/PlistBuddy -c "Add :method string app-store" "$UPLOAD_PLIST_PATH"
           /usr/libexec/PlistBuddy -c "Add :signingStyle string manual" "$UPLOAD_PLIST_PATH"
+          /usr/libexec/PlistBuddy -c "Add :teamID string 9Y6GYPM3K5" "$UPLOAD_PLIST_PATH"
           /usr/libexec/PlistBuddy -c "Add :destination string upload" "$UPLOAD_PLIST_PATH"
           cat "$UPLOAD_PLIST_PATH"
 
