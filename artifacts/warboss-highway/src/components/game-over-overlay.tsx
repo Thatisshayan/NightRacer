@@ -16,6 +16,7 @@ interface GameOverOverlayProps {
   isDailyChallenge: boolean;
   personalBest: number;
   isNewRecord: boolean;
+  scrapEarned: number;
   onRestart: () => void;
   onBack: () => void;
 }
@@ -101,6 +102,7 @@ export function GameOverOverlay({
   isDailyChallenge,
   personalBest,
   isNewRecord,
+  scrapEarned,
   onRestart,
   onBack,
 }: GameOverOverlayProps) {
@@ -122,6 +124,8 @@ export function GameOverOverlay({
           score: Math.floor(score),
           distanceTraveled: Math.floor(distance),
           powerupsUsed,
+          car: selectedCar,
+          dailyMode: isDailyChallenge,
         },
       },
       {
@@ -142,6 +146,16 @@ export function GameOverOverlay({
     );
   };
 
+  const dataURLToBlob = (dataUrl: string) => {
+    const arr = dataUrl.split(',');
+    const mime = arr[0].match(/:(.*?);/)?.[1] || 'image/png';
+    const bstr = atob(arr[1]);
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while (n--) u8arr[n] = bstr.charCodeAt(n);
+    return new Blob([u8arr], { type: mime });
+  };
+
   const handleShare = () => {
     const name = playerName.trim() || 'WARBOSS';
     const url = generateShareCard(score, distance, name, selectedCar, isDailyChallenge);
@@ -150,6 +164,41 @@ export function GameOverOverlay({
     setTimeout(() => {
       if (shareRef.current) shareRef.current.click();
     }, 50);
+  };
+
+  const handleShareNative = async () => {
+    const name = playerName.trim() || 'WARBOSS';
+    const url = generateShareCard(score, distance, name, selectedCar, isDailyChallenge);
+    const fileName = `warboss-${Math.floor(score)}.png`;
+    const file = new File([dataURLToBlob(url)], fileName, { type: 'image/png' });
+
+    try {
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          title: `WARBOSS HIGHWAY — ${Math.floor(score).toLocaleString()} points`,
+          text: `I survived ${Math.floor(distance).toLocaleString()}m in WARBOSS HIGHWAY!`,
+          files: [file],
+        });
+        return;
+      }
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        // User canceled the native share sheet — respect that, don't fall through.
+        return;
+      }
+      // Share failed for another reason — fall through to clipboard fallback
+    }
+
+    try {
+      await navigator.clipboard.write([
+        new ClipboardItem({ 'image/png': file }),
+      ]);
+      toast({ title: 'Copied', description: 'Score card copied to clipboard.' });
+    } catch {
+      // Final fallback: download
+      setShareUrl(url);
+      setTimeout(() => shareRef.current?.click(), 50);
+    }
   };
 
   return (
@@ -191,6 +240,10 @@ export function GameOverOverlay({
                 <span className="text-sm text-green-400 font-bold">◆ DAILY</span>
               </div>
             )}
+            <div className="flex justify-between items-center border-b border-border/50 pb-2">
+              <span className="text-muted-foreground text-sm">SCRAP EARNED</span>
+              <span className="text-lg text-accent font-bold">+{scrapEarned.toLocaleString()}</span>
+            </div>
           </div>
 
           {/* Achievements earned this run */}
@@ -249,14 +302,24 @@ export function GameOverOverlay({
           </form>
 
           {/* Share card */}
-          <Button
-            type="button"
-            variant="outline"
-            onClick={handleShare}
-            className="w-full h-10 border-border/60 text-sm font-mono mt-2"
-          >
-            📸 SAVE SCORE CARD
-          </Button>
+          <div className="grid grid-cols-2 gap-2 mt-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleShareNative}
+              className="h-10 border-border/60 text-sm font-mono"
+            >
+              🔗 SHARE
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleShare}
+              className="h-10 border-border/60 text-sm font-mono"
+            >
+              📸 SAVE
+            </Button>
+          </div>
 
           {/* Hidden download link for share card */}
           {shareUrl && (

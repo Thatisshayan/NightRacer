@@ -2,9 +2,11 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { GameEngine, GameState, CarType, CAR_STATS } from '@/lib/game/engine';
 import { GameOverOverlay } from '@/components/game-over-overlay';
-import { playAudio, stopAudio, toggleMute, getMuted } from '@/lib/game/audio';
-import { Volume2, VolumeX } from 'lucide-react';
+import { playAudio, stopAudio, toggleMute, getMuted, pauseAudio, resumeAudio } from '@/lib/game/audio';
+import { Settings } from '@/lib/game/settings';
+import { Volume2, VolumeX, Pause, Play, RotateCcw, Home, Settings2, Gamepad2, HelpCircle, X, Wrench, ArrowUp, Shield, Gauge } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { getDailyModifier } from '@/lib/game/daily';
 
 // Enter/move curve from the ui-animation skill's easing defaults.
 const ENTER_EASE = [0.22, 1, 0.36, 1] as const;
@@ -103,8 +105,15 @@ export default function Game() {
   const [screen, setScreen] = useState<Screen>('title');
   const [gameOverState, setGameOverState] = useState<GameState | null>(null);
   const [isMuted, setIsMuted] = useState(getMuted());
-  const [selectedCar, setSelectedCar] = useState<CarType>('WAR_RUNNER');
-  const [isDailyChallenge, setIsDailyChallenge] = useState(false);
+  const [selectedCar, setSelectedCar] = useState<CarType>(Settings.getSelectedCar());
+  const [isDailyChallenge, setIsDailyChallenge] = useState(Settings.getDailyChallenge());
+  const [joystickEnabled, setJoystickEnabled] = useState(Settings.getJoystickEnabled());
+  const [showTutorial, setShowTutorial] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [dailyModifier] = useState(() => getDailyModifier());
+  const [scrap, setScrap] = useState(() => Settings.getScrap());
+  const [upgrades, setUpgrades] = useState(() => Settings.getUpgrades(Settings.getSelectedCar()));
+  const [scrapEarned, setScrapEarned] = useState(0);
   const [streak, setStreak] = useState(0);
   const [personalBest, setPersonalBest] = useState(0);
   const [newRecord, setNewRecord] = useState(false);
@@ -133,15 +142,60 @@ export default function Game() {
     }
   }, [screen]);
 
-  // Update PB when car changes
-  useEffect(() => {
-    setPersonalBest(getPB(selectedCar));
-  }, [selectedCar]);
+  // Persist settings whenever they change
+  useEffect(() => { Settings.setSelectedCar(selectedCar); setPersonalBest(getPB(selectedCar)); }, [selectedCar]);
+  useEffect(() => { Settings.setDailyChallenge(isDailyChallenge); }, [isDailyChallenge]);
+  useEffect(() => { Settings.setJoystickEnabled(joystickEnabled); }, [joystickEnabled]);
+  useEffect(() => { Settings.setMuted(isMuted); }, [isMuted]);
+  useEffect(() => { setUpgrades(Settings.getUpgrades(selectedCar)); }, [selectedCar]);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => { engineRef.current?.cleanup(); };
   }, []);
+
+  // Pause/resume keyboard shortcut
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (screen !== 'playing') return;
+      if (e.code === 'Escape' || e.code === 'KeyP') {
+        e.preventDefault();
+        togglePause();
+      }
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [screen]);
+
+  // Show tutorial on first title visit
+  useEffect(() => {
+    if (screen === 'title' && !Settings.getTutorialSeen()) {
+      setShowTutorial(true);
+    }
+  }, [screen]);
+
+  const togglePause = useCallback(() => {
+    if (!engineRef.current) return;
+    if (engineRef.current.getPaused()) {
+      engineRef.current.resume();
+      resumeAudio('gameplay');
+      setIsPaused(false);
+    } else {
+      engineRef.current.pause();
+      pauseAudio('gameplay');
+      setIsPaused(true);
+    }
+  }, []);
+
+  const purchaseUpgrade = useCallback((type: 'speed' | 'armor' | 'handling') => {
+    const current = upgrades[type];
+    if (current >= 5 || scrap < 100) return;
+    const next = { ...upgrades, [type]: current + 1 } as typeof upgrades;
+    Settings.setUpgrades(selectedCar, next);
+    Settings.setScrap(scrap - 100);
+    setUpgrades(next);
+    setScrap(Settings.getScrap());
+  }, [upgrades, scrap, selectedCar]);
 
   const startGame = useCallback(() => {
     if (!canvasRef.current) return;
@@ -156,15 +210,31 @@ export default function Game() {
       canvasRef.current,
       (state) => {
         const isNew = updatePB(selectedCar, state.score);
+        const earned = Math.floor(state.score / 100) + (isDailyChallenge ? Math.floor(state.score * dailyModifier.scrapBonus) : 0);
+        Settings.addScrap(earned);
+        setScrap(Settings.getScrap());
+        setScrapEarned(earned);
         setNewRecord(isNew);
         setPersonalBest(getPB(selectedCar));
         setGameOverState(state);
+        setIsPaused(false);
         setScreen('gameover');
       },
-      { isDailyChallenge, selectedCar }
+      {
+        isDailyChallenge,
+        selectedCar,
+        joystickEnabled,
+        onPauseChange: (paused) => {
+          setIsPaused(paused);
+          if (paused) pauseAudio('gameplay');
+          else resumeAudio('gameplay');
+        },
+        upgrades,
+        dailyModifier: isDailyChallenge ? dailyModifier : { name: 'NONE', description: 'Standard rules.', speedMult: 1, spawnMult: 1, scoreMult: 1, obstacleMult: 1, scrapBonus: 0 },
+      }
     );
     engineRef.current.start();
-  }, [isDailyChallenge, selectedCar]);
+  }, [isDailyChallenge, selectedCar, joystickEnabled]);
 
   const handleToggleMute = () => setIsMuted(toggleMute());
 
@@ -233,7 +303,7 @@ export default function Game() {
               </h1>
               <h2 className="text-4xl font-black text-white tracking-widest">HIGHWAY</h2>
               <p className="text-muted-foreground font-mono text-xs mt-2">
-                Dodge oncoming traffic. Survive the wasteland.
+                WASD / Arrows to drive freely. Dodge oncoming traffic.
               </p>
             </motion.div>
 
@@ -308,6 +378,70 @@ export default function Game() {
               </span>
             </motion.div>
 
+            {isDailyChallenge && (
+              <motion.div variants={titleItemVariants} className="w-full border border-green-500/40 bg-green-900/20 p-3 text-center">
+                <p className="text-green-400 font-black text-xs tracking-widest mb-1">{dailyModifier.name}</p>
+                <p className="text-green-200/80 text-[10px] font-mono leading-tight">{dailyModifier.description}</p>
+              </motion.div>
+            )}
+
+            {/* Virtual joystick toggle */}
+            <motion.div variants={titleItemVariants} className="flex items-center gap-3 mt-1">
+              <button
+                onClick={() => setJoystickEnabled((v) => !v)}
+                className={`relative w-12 h-6 rounded-none border-2 transition-all active:scale-[0.94] motion-reduce:active:scale-100 ${
+                  joystickEnabled ? 'border-blue-500 bg-blue-900/40' : 'border-border bg-card/30'
+                }`}
+              >
+                <span className={`absolute top-0.5 w-4 h-4 bg-white transition-all ${joystickEnabled ? 'left-6' : 'left-0.5'}`} />
+              </button>
+              <span className="font-mono text-xs text-muted-foreground">
+                {joystickEnabled ? (
+                  <span className="text-blue-400 font-bold">VIRTUAL JOYSTICK</span>
+                ) : (
+                  'VIRTUAL JOYSTICK'
+                )}
+              </span>
+            </motion.div>
+
+            {/* Upgrades / Garage */}
+            <motion.div variants={titleItemVariants} className="w-full space-y-2 mt-2">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-mono text-muted-foreground tracking-widest uppercase">Garage</p>
+                <p className="text-xs font-mono text-accent font-bold">SCRAP: {scrap.toLocaleString()}</p>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  onClick={() => purchaseUpgrade('speed')}
+                  disabled={scrap < 100 || upgrades.speed >= 5}
+                  className={`flex flex-col items-center p-2 border-2 transition-all active:scale-[0.94] motion-reduce:active:scale-100 ${scrap >= 100 && upgrades.speed < 5 ? 'border-accent bg-accent/10 hover:bg-accent/20' : 'border-border bg-card/30 opacity-60'}`}
+                >
+                  <Gauge className="w-3 h-3 mb-1" />
+                  <span className="text-[10px] font-mono font-bold">SPEED</span>
+                  <span className="text-[10px] font-mono text-muted-foreground">Lv {upgrades.speed}/5</span>
+                </button>
+                <button
+                  onClick={() => purchaseUpgrade('armor')}
+                  disabled={scrap < 100 || upgrades.armor >= 5}
+                  className={`flex flex-col items-center p-2 border-2 transition-all active:scale-[0.94] motion-reduce:active:scale-100 ${scrap >= 100 && upgrades.armor < 5 ? 'border-accent bg-accent/10 hover:bg-accent/20' : 'border-border bg-card/30 opacity-60'}`}
+                >
+                  <Shield className="w-3 h-3 mb-1" />
+                  <span className="text-[10px] font-mono font-bold">ARMOR</span>
+                  <span className="text-[10px] font-mono text-muted-foreground">Lv {upgrades.armor}/5</span>
+                </button>
+                <button
+                  onClick={() => purchaseUpgrade('handling')}
+                  disabled={scrap < 100 || upgrades.handling >= 5}
+                  className={`flex flex-col items-center p-2 border-2 transition-all active:scale-[0.94] motion-reduce:active:scale-100 ${scrap >= 100 && upgrades.handling < 5 ? 'border-accent bg-accent/10 hover:bg-accent/20' : 'border-border bg-card/30 opacity-60'}`}
+                >
+                  <ArrowUp className="w-3 h-3 mb-1" />
+                  <span className="text-[10px] font-mono font-bold">HANDLING</span>
+                  <span className="text-[10px] font-mono text-muted-foreground">Lv {upgrades.handling}/5</span>
+                </button>
+              </div>
+              <p className="text-[10px] font-mono text-muted-foreground text-center">100 scrap per upgrade. Upgrades are per vehicle.</p>
+            </motion.div>
+
             {/* Start */}
             <Button
               asChild
@@ -354,6 +488,7 @@ export default function Game() {
               isDailyChallenge={gameOverState.isDailyChallenge}
               personalBest={personalBest}
               isNewRecord={newRecord}
+              scrapEarned={scrapEarned}
               onRestart={startGame}
               onBack={() => { stopAudio('gameplay'); setScreen('title'); }}
             />
@@ -368,6 +503,122 @@ export default function Game() {
         >
           {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
         </button>
+
+        {/* Pause button */}
+        {screen === 'playing' && (
+          <button
+            onClick={togglePause}
+            className="absolute top-4 left-4 z-20 p-2 bg-black/50 text-white rounded-full border border-border/50 hover:bg-black/80 transition-[background-color,transform] duration-150 active:scale-90 motion-reduce:active:scale-100"
+          >
+            {isPaused ? <Play className="w-5 h-5" /> : <Pause className="w-5 h-5" />}
+          </button>
+        )}
+
+        {/* Pause overlay */}
+        <AnimatePresence>
+          {isPaused && screen === 'playing' && (
+            <motion.div
+              key="pause"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: prefersReducedMotion ? 0 : 0.2 }}
+              className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/85 p-6"
+            >
+              <h2 className="text-4xl font-black text-white tracking-widest mb-8 drop-shadow-[0_0_15px_rgba(220,38,38,0.6)]">
+                PAUSED
+              </h2>
+              <div className="w-full max-w-xs space-y-3">
+                <Button
+                  onClick={togglePause}
+                  className="w-full h-14 text-lg font-black tracking-widest bg-primary hover:bg-primary/80 text-primary-foreground rounded-none border-2 border-primary"
+                >
+                  <Play className="w-5 h-5 mr-2" /> RESUME
+                </Button>
+                <Button
+                  onClick={() => { engineRef.current?.cleanup(); setIsPaused(false); startGame(); }}
+                  variant="outline"
+                  className="w-full h-12 rounded-none border-border font-mono text-sm hover:bg-secondary"
+                >
+                  <RotateCcw className="w-4 h-4 mr-2" /> RESTART
+                </Button>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => setIsMuted(toggleMute())}
+                    className="flex items-center justify-center gap-2 h-12 border-2 border-border bg-card/50 hover:bg-card text-xs font-mono font-bold text-white uppercase"
+                  >
+                    {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+                    {isMuted ? 'SOUND OFF' : 'SOUND ON'}
+                  </button>
+                  <button
+                    onClick={() => setJoystickEnabled((v) => !v)}
+                    className="flex items-center justify-center gap-2 h-12 border-2 border-border bg-card/50 hover:bg-card text-xs font-mono font-bold text-white uppercase"
+                  >
+                    <Gamepad2 className="w-4 h-4" />
+                    {joystickEnabled ? 'JOYSTICK ON' : 'JOYSTICK OFF'}
+                  </button>
+                </div>
+                <Button
+                  onClick={() => { engineRef.current?.cleanup(); setIsPaused(false); stopAudio('gameplay'); setScreen('title'); }}
+                  variant="outline"
+                  className="w-full h-12 rounded-none border-border font-mono text-sm hover:bg-secondary"
+                >
+                  <Home className="w-4 h-4 mr-2" /> EXIT TO MENU
+                </Button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Tutorial overlay */}
+        <AnimatePresence>
+          {showTutorial && screen === 'title' && (
+            <motion.div
+              key="tutorial"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: prefersReducedMotion ? 0 : 0.25, ease: ENTER_EASE }}
+              className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-black/92 p-6"
+            >
+              <div className="w-full max-w-sm space-y-5">
+                <div className="text-center">
+                  <h2 className="text-3xl font-black text-primary tracking-tighter mb-1">WARBOSS ACADEMY</h2>
+                  <p className="text-muted-foreground font-mono text-xs">BASIC SURVIVAL TRAINING</p>
+                </div>
+                <div className="space-y-4">
+                  <div className="flex items-start gap-3 border border-border p-3 bg-card/50">
+                    <div className="text-2xl">🎮</div>
+                    <div>
+                      <p className="font-bold text-sm text-white">DRIVE FREE</p>
+                      <p className="text-xs text-muted-foreground">WASD / Arrows or drag to move. Up speeds you up, down slows you down.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3 border border-border p-3 bg-card/50">
+                    <div className="text-2xl">⚡</div>
+                    <div>
+                      <p className="font-bold text-sm text-white">NEAR-MISS COMBOS</p>
+                      <p className="text-xs text-muted-foreground">Pass close to vehicles without hitting them to build combos and score.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3 border border-border p-3 bg-card/50">
+                    <div className="text-2xl">🛡</div>
+                    <div>
+                      <p className="font-bold text-sm text-white">POWER-UPS</p>
+                      <p className="text-xs text-muted-foreground">Grab shields, slow-mo, score blast, and extra lives.</p>
+                    </div>
+                  </div>
+                </div>
+                <Button
+                  onClick={() => { setShowTutorial(false); Settings.setTutorialSeen(true); }}
+                  className="w-full h-14 text-lg font-black tracking-widest bg-primary hover:bg-primary/80 text-primary-foreground rounded-none border-2 border-primary"
+                >
+                  GOT IT
+                </Button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );

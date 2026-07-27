@@ -101,9 +101,11 @@ if ($PM) {
       'bun'  { 'bun run --if-present build', 'bun run --if-present test' }
     }
     $buildOut = Invoke-Expression $buildCmd 2>&1 | Out-String
-    if ($LASTEXITCODE -eq 0) { Notice build "build ok" } else { Err build "build failed: $($buildOut.Substring(0, [Math]::Min(2000,$buildOut.Length)))" }
+    $buildExit = $LASTEXITCODE
+    if ($buildExit -eq 0) { Notice build "build ok" } else { Err build "build failed (rc=$buildExit): $($buildOut.Substring([Math]::Max(0,$buildOut.Length-4000)))" }
     $testOut = Invoke-Expression $testCmd 2>&1 | Out-String
-    if ($LASTEXITCODE -eq 0) { Notice test "test ok" } else { Err test "test failed: $($testOut.Substring(0, [Math]::Min(2000,$testOut.Length)))" }
+    $testExit = $LASTEXITCODE
+    if ($testExit -eq 0) { Notice test "test ok" } else { Err test "test failed (rc=$testExit): $($testOut.Substring([Math]::Max(0,$testOut.Length-4000)))" }
   }
 } elseif ((Test-Path (Join-Path $RepoRoot 'pyproject.toml')) -or (Test-Path (Join-Path $RepoRoot 'requirements.txt'))) {
   if (Test-Path (Join-Path $RepoRoot 'requirements.txt')) { pip install -q -r (Join-Path $RepoRoot 'requirements.txt') }

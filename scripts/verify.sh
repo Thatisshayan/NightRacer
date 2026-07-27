@@ -9,7 +9,19 @@ cd "$REPO_ROOT" || exit 1
 
 FAIL=0
 notice() { echo "::notice title=$1::$2"; }
-error()  { echo "::error title=$1::$2"; FAIL=1; }
+# GitHub's ::error:: workflow-command annotation silently truncates long or
+# multi-line values, which was swallowing the actual failure reason for
+# build/test errors. Print the full detail as plain stdout (no such limit)
+# and only pass a short single-line summary to the annotation itself.
+error() {
+  local title="$1" detail="$2" short
+  echo "---- ERROR [$title] ----"
+  printf '%s\n' "$detail"
+  echo "---- END ERROR [$title] ----"
+  short=$(printf '%s' "$detail" | tr '\n' ' ' | cut -c1-200)
+  echo "::error title=$title::$short"
+  FAIL=1
+}
 
 # ---------------------------------------------------------------- 1. secret-scan
 echo "== secret-scan =="
@@ -114,10 +126,18 @@ if [ -n "$PM" ]; then
       bun)  pm_build="bun run --if-present build"; pm_test="bun run --if-present test" ;;
       npm)  pm_build="npm run build --if-present"; pm_test="npm test --if-present" ;;
     esac
-    build_out=$($pm_build 2>&1) && notice build "build ok" \
-      || error build "build failed: $(printf '%s' "$build_out" | tail -20)"
-    test_out=$($pm_test 2>&1) && notice test "test ok" \
-      || error test "test failed: $(printf '%s' "$test_out" | tail -20)"
+    build_out=$($pm_build 2>&1); build_rc=$?
+    if [ $build_rc -eq 0 ]; then
+      notice build "build ok"
+    else
+      error build "build failed (rc=$build_rc): $(printf '%s' "$build_out" | tail -40)"
+    fi
+    test_out=$($pm_test 2>&1); test_rc=$?
+    if [ $test_rc -eq 0 ]; then
+      notice test "test ok"
+    else
+      error test "test failed (rc=$test_rc): $(printf '%s' "$test_out" | tail -40)"
+    fi
   fi
 elif [ -f pyproject.toml ] || [ -f requirements.txt ]; then
   pip install -q -r requirements.txt 2>/dev/null || true
