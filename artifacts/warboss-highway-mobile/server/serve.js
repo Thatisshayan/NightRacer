@@ -65,27 +65,46 @@ function serveManifest(platform, res) {
   res.end(manifest);
 }
 
+const HOST_PATTERN = /^[A-Za-z0-9.-]+(:\d+)?$/;
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"'`]/g, (c) => `&#${c.charCodeAt(0)};`);
+}
+
 function serveLandingPage(req, res, landingPageTemplate, appName) {
   const forwardedProto = req.headers['x-forwarded-proto'];
-  const protocol = forwardedProto || 'https';
-  const host = req.headers['x-forwarded-host'] || req.headers['host'];
-  const baseUrl = `${protocol}://${host}`;
-  const expsUrl = `${host}`;
+  const protocol = forwardedProto === 'http' ? 'http' : 'https';
+  const rawHost = req.headers['x-forwarded-host'] || req.headers['host'] || '';
+  if (!HOST_PATTERN.test(rawHost)) {
+    res.writeHead(400);
+    res.end('Bad Request');
+    return;
+  }
+  const baseUrl = `${protocol}://${rawHost}`;
+  const expsUrl = `${rawHost}`;
 
   const html = landingPageTemplate
-    .replace(/BASE_URL_PLACEHOLDER/g, baseUrl)
-    .replace(/EXPS_URL_PLACEHOLDER/g, expsUrl)
-    .replace(/APP_NAME_PLACEHOLDER/g, appName);
+    .replace(/BASE_URL_PLACEHOLDER/g, () => escapeHtml(baseUrl))
+    .replace(/EXPS_URL_PLACEHOLDER/g, () => escapeHtml(expsUrl))
+    .replace(/APP_NAME_PLACEHOLDER/g, () => escapeHtml(appName));
 
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
   res.end(html);
 }
 
 function serveStaticFile(urlPath, res) {
-  const safePath = path.normalize(urlPath).replace(/^(\.\.(\/|\\|$))+/, '');
+  let decoded;
+  try {
+    decoded = decodeURIComponent(urlPath);
+  } catch {
+    res.writeHead(400);
+    res.end('Bad Request');
+    return;
+  }
+  const safePath = path.normalize(decoded).replace(/^(\.\.(\/|\\|$))+/, '');
   const filePath = path.join(STATIC_ROOT, safePath);
 
-  if (!filePath.startsWith(STATIC_ROOT)) {
+  if (filePath !== STATIC_ROOT && !filePath.startsWith(STATIC_ROOT + path.sep)) {
     res.writeHead(403);
     res.end('Forbidden');
     return;
@@ -99,19 +118,32 @@ function serveStaticFile(urlPath, res) {
 
   const ext = path.extname(filePath).toLowerCase();
   const contentType = MIME_TYPES[ext] || 'application/octet-stream';
-  const content = fs.readFileSync(filePath);
-  res.writeHead(200, { 'content-type': contentType });
-  res.end(content);
+  res.writeHead(200, {
+    'content-type': contentType,
+    'content-length': fs.statSync(filePath).size,
+  });
+  fs.createReadStream(filePath)
+    .on('error', () => res.destroy())
+    .pipe(res);
 }
 
 const landingPageTemplate = fs.readFileSync(TEMPLATE_PATH, 'utf-8');
 const appName = getAppName();
 
 const server = http.createServer((req, res) => {
-  const url = new URL(req.url || '/', `http://${req.headers.host}`);
-  let pathname = url.pathname;
+  let pathname;
+  try {
+    pathname = new URL(req.url || '/', 'http://localhost').pathname;
+  } catch {
+    res.writeHead(400);
+    res.end('Bad Request');
+    return;
+  }
 
-  if (basePath && pathname.startsWith(basePath)) {
+  if (
+    basePath &&
+    (pathname === basePath || pathname.startsWith(basePath + '/'))
+  ) {
     pathname = pathname.slice(basePath.length) || '/';
   }
 

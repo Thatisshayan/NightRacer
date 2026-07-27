@@ -55,6 +55,9 @@ export const submitScoreBodyPowerupsUsedMin = 0;
 
 export const submitScoreBodyDistanceTraveledMin = 0;
 
+export const submitScoreBodyCarMin = 1;
+
+export const submitScoreBodyCarMax = 20;
 
 
 export const SubmitScoreBody = zod.object({
@@ -62,7 +65,7 @@ export const SubmitScoreBody = zod.object({
   "score": zod.number().min(submitScoreBodyScoreMin),
   "powerupsUsed": zod.number().min(submitScoreBodyPowerupsUsedMin),
   "distanceTraveled": zod.number().min(submitScoreBodyDistanceTraveledMin),
-  "car": zod.string().nullish(),
+  "car": zod.string().min(submitScoreBodyCarMin).max(submitScoreBodyCarMax).nullish(),
   "dailyMode": zod.boolean()
 })
 

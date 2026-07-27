@@ -8,12 +8,21 @@ function getKey(key: string): string {
 
 function getItem(key: string): string | null {
   if (typeof window === 'undefined') return null;
-  return localStorage.getItem(getKey(key));
+  try {
+    return localStorage.getItem(getKey(key));
+  } catch {
+    // storage can throw in private-browsing/sandboxed/embedded contexts
+    return null;
+  }
 }
 
 function setItem(key: string, value: string): void {
   if (typeof window === 'undefined') return;
-  localStorage.setItem(getKey(key), value);
+  try {
+    localStorage.setItem(getKey(key), value);
+  } catch {
+    // best-effort persistence; in-memory state remains the source of truth
+  }
 }
 
 export const Settings = {

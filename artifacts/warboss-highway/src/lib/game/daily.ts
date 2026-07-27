@@ -75,7 +75,7 @@ const MODIFIERS: DailyModifier[] = [
 ];
 
 function dayIndex(date: Date) {
-  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
   return Math.floor(d.getTime() / 86400000);
 }
 

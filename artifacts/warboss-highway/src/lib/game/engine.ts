@@ -242,7 +242,7 @@ export class GameEngine {
 
   private initDailyRNG() {
     const d = new Date();
-    let s = d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
+    let s = d.getUTCFullYear() * 10000 + (d.getUTCMonth() + 1) * 100 + d.getUTCDate();
     this.rng = () => {
       s |= 0;
       s = (s + 0x6D2B79F5) | 0;
@@ -258,7 +258,9 @@ export class GameEngine {
     this.state.player.x = this.state.lanes[1];
     this.state.player.y = this.canvas.height - 80;
     this.initialPlayerY = this.state.player.y;
-    this.cameraY = this.state.player.y;
+    // cameraY is a delta from initialPlayerY (see draw()'s -cameraY translate),
+    // so it starts at 0, not at the player's absolute position.
+    this.cameraY = 0;
     this.joystick.cx = 70;
     this.joystick.cy = this.canvas.height - 80;
     this.joystick.nx = this.joystick.cx;
@@ -269,6 +271,7 @@ export class GameEngine {
     this.canvas.addEventListener('touchstart', this.handleTouchStart, { passive: false });
     this.canvas.addEventListener('touchmove', this.handleTouchMove, { passive: false });
     this.canvas.addEventListener('touchend', this.handleTouchEnd, { passive: false });
+    this.canvas.addEventListener('touchcancel', this.handleTouchEnd, { passive: false });
 
     playAudio('gameplay', true);
   }
@@ -279,6 +282,7 @@ export class GameEngine {
     this.canvas.removeEventListener('touchstart', this.handleTouchStart);
     this.canvas.removeEventListener('touchmove', this.handleTouchMove);
     this.canvas.removeEventListener('touchend', this.handleTouchEnd);
+    this.canvas.removeEventListener('touchcancel', this.handleTouchEnd);
     cancelAnimationFrame(this.animationId);
     stopAudio('gameplay');
   }
@@ -533,12 +537,13 @@ export class GameEngine {
 
     // Spawn vehicles (scale up with distance to counter top-camping)
     const spawnRate = 0.02 * speedMult * Math.min(2.2, 1 + state.distance / 18000) * this.dailyModifier.spawnMult;
+    let lastLane: number | undefined;
     if (this.rng() < spawnRate) {
-      this.spawnVehicle(currentSpeed);
+      lastLane = this.spawnVehicle(currentSpeed);
     }
     // Occasional pairs at higher distances
     if (state.distance > 25000 && this.rng() < spawnRate * 0.25) {
-      this.spawnVehicle(currentSpeed);
+      this.spawnVehicle(currentSpeed, lastLane);
     }
 
     // Spawn powerups
@@ -648,9 +653,10 @@ export class GameEngine {
     if (state.powerUpsUsed >= 5) this.grantAchievement('powerup_addict');
   }
 
-  private spawnVehicle(currentSpeed: number) {
+  private spawnVehicle(currentSpeed: number, excludeLane?: number): number {
     const state = this.state;
-    const lane = Math.floor(this.rng() * 3);
+    let lane = Math.floor(this.rng() * 3);
+    if (excludeLane !== undefined && lane === excludeLane) lane = (lane + 1) % 3;
     const isTank = this.rng() < 0.01;
     let type: VehicleType = isTank
       ? 'TANK'
@@ -666,6 +672,7 @@ export class GameEngine {
     const color = colors[Math.floor(this.rng() * colors.length)];
 
     state.vehicles.push({ type, x: state.lanes[lane], y: -100, width, height, color, speed, lane, passed: false });
+    return lane;
   }
 
   private spawnBoss(currentSpeed: number) {

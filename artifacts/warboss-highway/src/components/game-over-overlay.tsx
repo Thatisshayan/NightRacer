@@ -182,7 +182,11 @@ export function GameOverOverlay({
         return;
       }
     } catch (err) {
-      // User canceled or share failed — fall through to clipboard fallback
+      if (err instanceof Error && err.name === 'AbortError') {
+        // User canceled the native share sheet — respect that, don't fall through.
+        return;
+      }
+      // Share failed for another reason — fall through to clipboard fallback
     }
 
     try {

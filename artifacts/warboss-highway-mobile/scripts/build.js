@@ -69,6 +69,16 @@ function getDeploymentDomain() {
     return stripProtocol(process.env.EXPO_PUBLIC_DOMAIN);
   }
 
+  // CI has no Replit deployment target, but the build still exercises real
+  // Metro bundling/asset-processing — worth running as a smoke check even
+  // though the baked-in bundle URLs won't resolve anywhere.
+  if (process.env.CI) {
+    console.log(
+      'No deployment domain set; running in CI, using placeholder domain (bundle URLs will not be publicly reachable).',
+    );
+    return 'ci-build.invalid';
+  }
+
   console.error(
     'ERROR: No deployment domain found. Set REPLIT_INTERNAL_APP_DOMAIN, REPLIT_DEV_DOMAIN, or EXPO_PUBLIC_DOMAIN',
   );
@@ -182,8 +192,7 @@ async function startMetro(expoPublicDomain, expoPublicReplId) {
     }
   }
 
-  console.error('Metro timeout');
-  process.exit(1);
+  exitWithError('Metro timeout');
 }
 
 async function downloadFile(url, outputPath) {
@@ -238,6 +247,7 @@ async function downloadBundle(platform, timestamp) {
   url.searchParams.set('minify', 'true');
 
   const output = path.join(
+    projectRoot,
     'static-build',
     timestamp,
     '_expo',
@@ -393,15 +403,17 @@ async function downloadAssets(assets, timestamp) {
 
     const decodedPath = decodeURIComponent(unstablePath);
 
+    const staticRoot = path.join(projectRoot, 'static-build', timestamp);
     const outputDir = path.join(
-      projectRoot,
-      'static-build',
-      timestamp,
+      staticRoot,
       '_expo',
       'static',
       'js',
       asset.relativePath,
     );
+    if (!path.resolve(outputDir).startsWith(path.resolve(staticRoot) + path.sep)) {
+      throw new Error(`Asset path escapes build root: ${asset.relativePath}`);
+    }
     fs.mkdirSync(outputDir, { recursive: true });
     const output = path.join(outputDir, asset.filename);
 
@@ -481,7 +493,13 @@ function updateBundleUrls(timestamp, baseUrl) {
 
 function updateManifests(manifests, timestamp, baseUrl, assetsByHash) {
   const updateForPlatform = (platform, manifest) => {
-    if (!manifest.launchAsset || !manifest.extra) {
+    if (
+      !manifest.launchAsset ||
+      !manifest.extra ||
+      !manifest.extra.expoClient ||
+      !manifest.extra.expoGo ||
+      !manifest.extra.expoGo.packagerOpts
+    ) {
       exitWithError(`Malformed manifest for ${platform}`);
     }
 
@@ -490,10 +508,9 @@ function updateManifests(manifests, timestamp, baseUrl, assetsByHash) {
     manifest.createdAt = new Date(
       Number(timestamp.split('-')[0]),
     ).toISOString();
-    manifest.extra.expoClient.hostUri =
-      baseUrl.replace('https://', '') + '/' + platform;
-    manifest.extra.expoGo.debuggerHost =
-      baseUrl.replace('https://', '') + '/' + platform;
+    const hostUri = `${baseUrl.replace('https://', '')}${basePath}/${platform}`;
+    manifest.extra.expoClient.hostUri = hostUri;
+    manifest.extra.expoGo.debuggerHost = hostUri;
     manifest.extra.expoGo.packagerOpts.dev = false;
 
     if (manifest.assets && manifest.assets.length > 0) {

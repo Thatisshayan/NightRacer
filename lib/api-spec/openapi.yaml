@@ -151,6 +151,8 @@ components:
         car:
           type: string
           nullable: true
+          minLength: 1
+          maxLength: 20
         dailyMode:
           type: boolean
       required:

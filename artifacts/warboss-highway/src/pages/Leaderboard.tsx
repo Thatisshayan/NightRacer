@@ -176,7 +176,7 @@ export default function Leaderboard() {
                           <span className="inline-flex items-center gap-1">
                             {score.car || 'UNKNOWN'}
                             {score.dailyMode && (
-                              <span className="text-[10px] text-green-400 font-bold ml-1">◆</span>
+                              <span className="text-[10px] text-green-400 font-bold ml-1" role="img" aria-label="Daily mode">◆</span>
                             )}
                           </span>
                         </td>

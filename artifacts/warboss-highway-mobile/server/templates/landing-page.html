@@ -355,6 +355,7 @@
                 href="https://apps.apple.com/app/id982107779"
                 class="store-button"
                 target="_blank"
+                rel="noopener noreferrer"
               >
                 <svg class="store-icon" viewBox="0 0 24 24" fill="currentColor">
                   <path
@@ -368,6 +369,7 @@
                 href="https://play.google.com/store/apps/details?id=host.exp.exponent"
                 class="store-button"
                 target="_blank"
+                rel="noopener noreferrer"
               >
                 <svg class="store-icon" viewBox="0 0 24 24" fill="currentColor">
                   <path
@@ -385,7 +387,7 @@
               <h2 class="step-title">Scan QR Code</h2>
             </div>
             <p class="step-description">Use your phone's camera or Expo Go</p>
-            <div class="qr-code" id="qr-code"></div>
+            <div class="qr-code" id="qr-code" role="img" aria-label="QR code to open this app in Expo Go"></div>
             <a href="exps://EXPS_URL_PLACEHOLDER" class="open-button"
               >Open in Expo Go</a
             >
@@ -421,29 +423,33 @@
           storeButtonsContainer.insertBefore(playStoreBtn, appStoreBtn);
         }
 
-        const qrCode = new QRCodeStyling({
-          width: 400,
-          height: 400,
-          data: deepLink,
-          dotsOptions: {
-            color: "#333333",
-            type: "rounded",
-          },
-          backgroundOptions: {
-            color: "#ffffff",
-          },
-          cornersSquareOptions: {
-            type: "extra-rounded",
-          },
-          cornersDotOptions: {
-            type: "dot",
-          },
-          qrOptions: {
-            errorCorrectionLevel: "H",
-          },
-        });
+        try {
+          const qrCode = new QRCodeStyling({
+            width: 400,
+            height: 400,
+            data: deepLink,
+            dotsOptions: {
+              color: "#333333",
+              type: "rounded",
+            },
+            backgroundOptions: {
+              color: "#ffffff",
+            },
+            cornersSquareOptions: {
+              type: "extra-rounded",
+            },
+            cornersDotOptions: {
+              type: "dot",
+            },
+            qrOptions: {
+              errorCorrectionLevel: "H",
+            },
+          });
 
-        qrCode.append(document.getElementById("qr-code"));
+          qrCode.append(document.getElementById("qr-code"));
+        } catch (e) {
+          console.warn("QR code unavailable", e);
+        }
 
         if (isAndroid || isIOS) {
           loadingEl.style.display = "block";
