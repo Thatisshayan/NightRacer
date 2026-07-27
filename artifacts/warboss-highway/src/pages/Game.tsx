@@ -149,6 +149,79 @@ export default function Game() {
   useEffect(() => { Settings.setMuted(isMuted); }, [isMuted]);
   useEffect(() => { setUpgrades(Settings.getUpgrades(selectedCar)); }, [selectedCar]);
 
+  // Animated title screen — scrolling road on the background canvas
+  useEffect(() => {
+    if (screen !== 'title' || !canvasRef.current) return;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d')!;
+    const W = canvas.width;
+    const H = canvas.height;
+    let roadY = 0;
+    let rafId = 0;
+    let lastTs = 0;
+    const PIXELS_PER_SECOND = 180;
+
+    const draw = (ts: number) => {
+      const dt = lastTs ? (ts - lastTs) / 1000 : 0;
+      lastTs = ts;
+      roadY = (roadY + dt * PIXELS_PER_SECOND) % 60;
+
+      // Dark road
+      ctx.fillStyle = '#111';
+      ctx.fillRect(0, 0, W, H);
+
+      // Road surface
+      ctx.fillStyle = '#1a1a1a';
+      ctx.fillRect(W * 0.1, 0, W * 0.8, H);
+
+      // Lane markings
+      ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([30, 30]);
+      ctx.lineDashOffset = -roadY;
+      for (const lx of [W * 0.367, W * 0.633]) {
+        ctx.beginPath();
+        ctx.moveTo(lx, 0);
+        ctx.lineTo(lx, H);
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+
+      // Road edges
+      ctx.strokeStyle = 'rgba(220,38,38,0.3)';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(W * 0.1, 0); ctx.lineTo(W * 0.1, H);
+      ctx.moveTo(W * 0.9, 0); ctx.lineTo(W * 0.9, H);
+      ctx.stroke();
+
+      // Player car silhouette in center lane
+      const car = CAR_STATS[selectedCar];
+      const cx = W / 2;
+      const cy = H * 0.72;
+      // Glow
+      ctx.shadowColor = car.color;
+      ctx.shadowBlur = 20;
+      ctx.save();
+      ctx.translate(cx, cy);
+      drawVehicle(ctx, selectedCar, car.width * 1.4, car.height * 1.4, car.color);
+      ctx.restore();
+      ctx.shadowBlur = 0;
+
+      // Vignette
+      const vig = ctx.createRadialGradient(W/2, H/2, H*0.2, W/2, H/2, H*0.75);
+      vig.addColorStop(0, 'transparent');
+      vig.addColorStop(1, 'rgba(0,0,0,0.6)');
+      ctx.fillStyle = vig;
+      ctx.fillRect(0, 0, W, H);
+
+      if (!prefersReducedMotion) rafId = requestAnimationFrame(draw);
+    };
+
+    rafId = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(rafId);
+  }, [screen, selectedCar, prefersReducedMotion]);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => { engineRef.current?.cleanup(); };
@@ -238,7 +311,7 @@ export default function Game() {
 
   const handleToggleMute = () => setIsMuted(toggleMute());
 
-  const carTypes: CarType[] = ['RATTLETRAP', 'WAR_RUNNER', 'DEATHSLED'];
+  const carTypes: CarType[] = ['RATTLETRAP', 'WAR_RUNNER', 'DEATHSLED', 'SCRAPQUEEN', 'PHANTOM'];
 
   // Title screen entrance: logo -> streak -> car grid -> PB -> daily toggle ->
   // CTA, staggered per the ui-animation skill's 30-50ms/item guidance. This is
@@ -317,38 +390,76 @@ export default function Game() {
               </motion.div>
             )}
 
-            {/* Car selection */}
-            <motion.div variants={titleItemVariants} className="w-full space-y-3 mt-2">
+            {/* Car selection — carousel */}
+            <motion.div variants={titleItemVariants} className="w-full space-y-2 mt-2">
               <p className="text-center text-xs font-mono text-muted-foreground tracking-widest uppercase">
                 Select Vehicle
               </p>
-              <div className="grid grid-cols-3 gap-2">
-                {carTypes.map((car) => {
-                  const stats = CAR_STATS[car];
-                  const isSelected = selectedCar === car;
+
+              {/* Main card + arrows */}
+              <div className="flex items-center gap-2">
+                {/* Prev */}
+                <button
+                  onClick={() => {
+                    const idx = carTypes.indexOf(selectedCar);
+                    setSelectedCar(carTypes[(idx - 1 + carTypes.length) % carTypes.length]);
+                  }}
+                  className="flex-shrink-0 w-9 h-9 flex items-center justify-center border border-border bg-card/50 hover:border-primary/60 active:scale-95 transition-all font-black text-lg text-muted-foreground hover:text-primary"
+                  aria-label="Previous vehicle"
+                >
+                  ‹
+                </button>
+
+                {/* Selected card */}
+                {(() => {
+                  const stats = CAR_STATS[selectedCar];
                   return (
-                    <button
-                      key={car}
-                      onClick={() => setSelectedCar(car)}
-                      className={`flex flex-col items-center p-2 border-2 transition-all active:scale-[0.96] motion-reduce:active:scale-100 ${
-                        isSelected
-                          ? 'border-primary bg-primary/10 shadow-[0_0_12px_rgba(220,38,38,0.4)] scale-[1.03]'
-                          : 'border-border bg-card/50 hover:border-primary/50'
-                      }`}
-                    >
-                      <CarPreview carType={car} selected={isSelected} />
-                      <span className="font-black text-micro-label tracking-widest mt-1 text-center leading-tight">
+                    <div className="flex-1 flex flex-col items-center p-3 border-2 border-primary bg-primary/10 shadow-[0_0_18px_rgba(220,38,38,0.35)]">
+                      <CarPreview carType={selectedCar} selected={true} />
+                      <span className="font-black text-sm tracking-widest mt-2 text-center leading-tight text-white">
                         {stats.label}
                       </span>
-                      <span className="text-micro-body font-mono text-muted-foreground mt-0.5 leading-tight text-center">
+                      <span className="text-xs font-mono text-muted-foreground mt-1 leading-tight text-center">
                         {stats.desc}
                       </span>
-                      <span className="text-micro-body font-mono text-muted-foreground/70 mt-1 leading-tight text-center whitespace-pre">
+                      <span className="text-xs font-mono text-muted-foreground/70 mt-1 leading-tight text-center whitespace-pre">
                         {stats.stats}
                       </span>
-                    </button>
+                    </div>
                   );
-                })}
+                })()}
+
+                {/* Next */}
+                <button
+                  onClick={() => {
+                    const idx = carTypes.indexOf(selectedCar);
+                    setSelectedCar(carTypes[(idx + 1) % carTypes.length]);
+                  }}
+                  className="flex-shrink-0 w-9 h-9 flex items-center justify-center border border-border bg-card/50 hover:border-primary/60 active:scale-95 transition-all font-black text-lg text-muted-foreground hover:text-primary"
+                  aria-label="Next vehicle"
+                >
+                  ›
+                </button>
+              </div>
+
+              {/* Dot indicators */}
+              <div className="flex items-center justify-center gap-2 pt-1">
+                {carTypes.map((car) => (
+                  <button
+                    key={car}
+                    type="button"
+                    onClick={() => setSelectedCar(car)}
+                    aria-label={CAR_STATS[car].label}
+                    aria-current={selectedCar === car ? 'true' : undefined}
+                    className="w-6 h-6 flex items-center justify-center"
+                  >
+                    <span
+                      className={`block w-2 h-2 transition-all ${
+                        selectedCar === car ? 'bg-primary scale-125' : 'bg-muted-foreground/40 hover:bg-muted-foreground/70'
+                      }`}
+                    />
+                  </button>
+                ))}
               </div>
             </motion.div>
 
