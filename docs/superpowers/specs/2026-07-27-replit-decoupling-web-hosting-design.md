@@ -4,6 +4,11 @@ Part of the larger Replit-decoupling effort (database → **web hosting** → mo
 pipeline → CI check). Sub-project 1 (database → Neon) is done; see
 `2026-07-27-replit-decoupling-database-design.md`.
 
+**Approval:** repo owner (Shayan) directed this effort directly in conversation on
+2026-07-27, explicitly naming Vercel as the frontend host and choosing "single Vercel
+project for both frontend + API" over the alternative when asked — not a unilateral
+tooling choice.
+
 ## Decision
 
 Single Vercel project (`nightracer`) serving both the frontend and API:
@@ -75,6 +80,17 @@ dynamic worker-thread loading) is never invoked in this deployment. Not a real r
   `cartographer` and `dev-banner`, are already gated behind `REPL_ID !== undefined` and are
   no-ops off Replit). This one isn't gated — it's a dev-only error overlay, harmless in a
   production build, but still a live Replit-specific dependency. Not removed here.
+- **Preview deploys share the production database.** `DATABASE_URL` was set identically for
+  both Production and Preview (same Neon connection string) — flagged by CodeRabbit as a
+  real issue: a PR preview deploy can write test data into (or query) the real production
+  leaderboard through any write route. The correct fix is a separate Neon branch (Neon
+  supports instant branching for exactly this) with its own connection string set as the
+  Preview-only `DATABASE_URL`. Not done in this PR because it needs the Neon API key again
+  (not retained after sub-project 1, by design — see that spec's note on secret handling),
+  and creating it wasn't worth blocking this merge on. Resume by creating a `preview`
+  branch on the `nightracer` Neon project and running
+  `vercel env rm DATABASE_URL preview && vercel env add DATABASE_URL preview` with that
+  branch's connection string.
 - No staging environment/branch distinct from Preview deploys was set up.
 - Frontend `dist/public/assets/index-*.js` is ~546 kB minified (Vite's build warned about
   chunk size) — pre-existing, not introduced by this change, not addressed here.

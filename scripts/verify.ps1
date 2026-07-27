@@ -121,9 +121,12 @@ if ($PM) {
 Write-Host "== deploy-dry =="
 if (Test-Path (Join-Path $RepoRoot 'vercel.json')) {
   if ($env:VERCEL_TOKEN) {
-    vercel build --dry-run --token $env:VERCEL_TOKEN; if ($LASTEXITCODE -ne 0) { Err "deploy" "vercel dry-run failed" }
+    # `vercel build` has no --dry-run flag; --yes skips the interactive
+    # confirmation prompt when VERCEL_ORG_ID/VERCEL_PROJECT_ID are set,
+    # which is what actually gives us a non-interactive dry build.
+    npx --yes vercel@latest build --yes; if ($LASTEXITCODE -ne 0) { Err "deploy" "vercel build failed" }
   } else {
-    Notice "deploy" "vercel.json present but VERCEL_TOKEN not set in this environment; skipping dry-run (run 'vercel build --dry-run' locally, or add VERCEL_TOKEN/VERCEL_ORG_ID/VERCEL_PROJECT_ID as CI secrets for full coverage)"
+    Notice "deploy" "vercel.json present but VERCEL_TOKEN not set in this environment; skipping dry-run (run 'vercel build --yes' locally, or add VERCEL_TOKEN/VERCEL_ORG_ID/VERCEL_PROJECT_ID as CI secrets for full coverage)"
   }
 } elseif ((Test-Path (Join-Path $RepoRoot 'railway.json')) -or (Test-Path (Join-Path $RepoRoot 'railway.toml'))) {
   Notice "deploy" "railway target present; run 'railway up --detach' manually"

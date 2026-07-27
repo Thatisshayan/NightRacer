@@ -153,9 +153,12 @@ fi
 echo "== deploy-dry =="
 if [ -f vercel.json ]; then
   if [ -n "${VERCEL_TOKEN:-}" ]; then
-    vercel build --dry-run --token "$VERCEL_TOKEN" >/dev/null 2>&1 || error "deploy" "vercel dry-run failed"
+    # `vercel build` has no --dry-run flag; --yes skips the interactive
+    # confirmation prompt when VERCEL_ORG_ID/VERCEL_PROJECT_ID are set,
+    # which is what actually gives us a non-interactive dry build.
+    npx --yes vercel@latest build --yes >/dev/null 2>&1 || error "deploy" "vercel build failed"
   else
-    notice "deploy" "vercel.json present but VERCEL_TOKEN not set in this environment; skipping dry-run (run 'vercel build --dry-run' locally, or add VERCEL_TOKEN/VERCEL_ORG_ID/VERCEL_PROJECT_ID as CI secrets for full coverage)"
+    notice "deploy" "vercel.json present but VERCEL_TOKEN not set in this environment; skipping dry-run (run 'vercel build --yes' locally, or add VERCEL_TOKEN/VERCEL_ORG_ID/VERCEL_PROJECT_ID as CI secrets for full coverage)"
   fi
 elif [ -f railway.json ] || [ -f railway.toml ]; then
   notice "deploy" "railway target present; run 'railway up --detach' manually"

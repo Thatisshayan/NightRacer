@@ -48,11 +48,24 @@ jobs:
         run: npm install -g markdown-link-check@3.13.6
 
       - name: Run governance verification
+        run: bash scripts/verify.sh
+
+      # Kept as its own step (not folded into "Run governance verification")
+      # so VERCEL_TOKEN is scoped only to this command, not to the
+      # preceding install/build/test steps that also run in that step's
+      # process tree.
+      - name: Vercel deploy-dry check
+        if: ${{ hashFiles('vercel.json') != '' }}
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-        run: bash scripts/verify.sh
+        run: |
+          if [ -n "$VERCEL_TOKEN" ]; then
+            npx --yes vercel@latest build --yes
+          else
+            echo "::notice title=deploy::VERCEL_TOKEN not set; skipping vercel build check"
+          fi
 
   windows-smoke:
     name: windows-smoke (pnpm install + build on win32-x64)
@@ -75,8 +88,4 @@ jobs:
           cache: pnpm
 
       - name: Install + build (native win32-x64 optional deps must resolve)
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         run: pwsh scripts/verify.ps1

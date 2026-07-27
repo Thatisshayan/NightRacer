@@ -87,14 +87,25 @@ Rule 12 / Rule 11. This register survives the session. Future agents resume from
   typecheck + build succeeded only, not that gameplay behavior was verified by anything
   automated — resume by adding at least smoke tests around `GameEngine` (spawn/collision/
   scoring logic) and the `audio.ts` public API shape — status: open, not started.
-- [2026-07-27] `scripts/verify.sh`/`verify.ps1` deploy-dry check for `vercel.json`
-  (added as part of Replit-decoupling sub-project 2, web hosting) needs a `VERCEL_TOKEN`
-  (+ `VERCEL_ORG_ID`/`VERCEL_PROJECT_ID`) to actually run `vercel build --dry-run` in CI —
-  deferred because minting a CI-scoped token requires dashboard access this session's
-  app-scoped Vercel OAuth doesn't have (`vercel tokens add` returned 403) — the check
-  degrades to a `notice` (skip) rather than failing CI when the token is absent, so nothing
-  is currently blocking merges, but the check also isn't verifying anything until this is
-  provisioned — resume by creating a Vercel personal access token (dashboard → Account
-  Settings → Tokens) and adding it plus `VERCEL_ORG_ID=team_b3dGeEKw3qj1ijfdY9N2KGe2` and
-  `VERCEL_PROJECT_ID=prj_9OgL2EJXILrraekfHxJ0dQK9Dl1L` as GitHub Actions repo secrets —
-  status: open, degrades gracefully in the meantime.
+- [2026-07-27] `scripts/verify.sh`/`verify.ps1` deploy-dry check for `vercel.json` —
+  **status: resolved 2026-07-27.** The user provided a `VERCEL_TOKEN` (this session
+  couldn't mint one itself — `vercel tokens add` returned 403 under its app-scoped OAuth);
+  set as a GitHub Actions repo secret along with `VERCEL_ORG_ID`/`VERCEL_PROJECT_ID`.
+  Along the way, CodeRabbit review on PR #6 caught that the original fix used
+  `vercel build --dry-run`, which isn't a real flag (verified independently: `vercel build
+  --help` lists no such option) — replaced with `vercel build --yes`, and switched from a
+  bare `vercel` invocation to `npx --yes vercel@latest` since the CLI is only installed
+  globally on this dev machine, not a repo dependency — CI would have had no `vercel`
+  binary on PATH at all. Both fixes verified locally end-to-end before pushing (real
+  `vercel build --yes` success against the linked project). Also moved the Vercel secrets
+  out of the main "Run governance verification" step into their own dedicated step
+  (CodeRabbit: least-privilege — the secrets shouldn't be in scope for the preceding
+  install/build/test commands) in `.github/workflows/gate.yml`.
+- [2026-07-27] Vercel Preview deployments share the production `DATABASE_URL` (same Neon
+  connection string set for both Production and Preview environments) — a PR preview can
+  write test data into, or query, the real production leaderboard. Neon supports instant
+  branching for exactly this; the fix is a separate `preview` branch with its own
+  connection string set as the Preview-only `DATABASE_URL` on Vercel. Not done because it
+  needs the Neon API key again, which wasn't retained after sub-project 1 (by design) —
+  see `docs/superpowers/specs/2026-07-27-replit-decoupling-web-hosting-design.md` for the
+  exact resume steps — status: open, flagged by CodeRabbit on PR #6, not blocking merge.

@@ -112,8 +112,12 @@ async function buildAll() {
     ],
     sourcemap: "linked",
     plugins: [
-      // pino relies on workers to handle logging, instead of externalizing it we use a plugin to handle it
-      esbuildPluginPino({ transports: ["pino-pretty"] })
+      // pino relies on workers to handle logging, instead of externalizing it we use a plugin to handle it.
+      // logger.ts only configures the pino-pretty transport when NODE_ENV !== 'production', so skip bundling
+      // it in production builds (e.g. the Vercel serverless function) — it would never be loaded at runtime.
+      esbuildPluginPino({
+        transports: process.env.NODE_ENV === "production" ? [] : ["pino-pretty"],
+      }),
     ],
     // Make sure packages that are cjs only (e.g. express) but are bundled continue to work in our esm output file
     banner: {
