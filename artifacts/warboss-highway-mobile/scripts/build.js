@@ -166,6 +166,10 @@ async function startMetro(expoPublicDomain, expoPublicReplId) {
       detached: false,
       cwd: projectRoot,
       env,
+      // On Windows, `pnpm` resolves to a .cmd shim that spawn() can't exec
+      // directly without a shell (ENOENT), unlike on POSIX where it's a
+      // regular executable/symlink.
+      shell: process.platform === 'win32',
     },
   );
 
