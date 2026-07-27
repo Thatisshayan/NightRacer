@@ -152,7 +152,11 @@ fi
 # ---------------------------------------------------------------- 4. deploy-dry
 echo "== deploy-dry =="
 if [ -f vercel.json ]; then
-  vercel build --dry-run >/dev/null 2>&1 || error "deploy" "vercel dry-run failed"
+  if [ -n "${VERCEL_TOKEN:-}" ]; then
+    vercel build --dry-run --token "$VERCEL_TOKEN" >/dev/null 2>&1 || error "deploy" "vercel dry-run failed"
+  else
+    notice "deploy" "vercel.json present but VERCEL_TOKEN not set in this environment; skipping dry-run (run 'vercel build --dry-run' locally, or add VERCEL_TOKEN/VERCEL_ORG_ID/VERCEL_PROJECT_ID as CI secrets for full coverage)"
+  fi
 elif [ -f railway.json ] || [ -f railway.toml ]; then
   notice "deploy" "railway target present; run 'railway up --detach' manually"
 elif [ -f eas.json ]; then

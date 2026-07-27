@@ -120,7 +120,11 @@ if ($PM) {
 # ---------------------------------------------------------------- 4. deploy-dry
 Write-Host "== deploy-dry =="
 if (Test-Path (Join-Path $RepoRoot 'vercel.json')) {
-  vercel build --dry-run; if ($LASTEXITCODE -ne 0) { Err "deploy" "vercel dry-run failed" }
+  if ($env:VERCEL_TOKEN) {
+    vercel build --dry-run --token $env:VERCEL_TOKEN; if ($LASTEXITCODE -ne 0) { Err "deploy" "vercel dry-run failed" }
+  } else {
+    Notice "deploy" "vercel.json present but VERCEL_TOKEN not set in this environment; skipping dry-run (run 'vercel build --dry-run' locally, or add VERCEL_TOKEN/VERCEL_ORG_ID/VERCEL_PROJECT_ID as CI secrets for full coverage)"
+  }
 } elseif ((Test-Path (Join-Path $RepoRoot 'railway.json')) -or (Test-Path (Join-Path $RepoRoot 'railway.toml'))) {
   Notice "deploy" "railway target present; run 'railway up --detach' manually"
 } elseif (Test-Path (Join-Path $RepoRoot 'eas.json')) {

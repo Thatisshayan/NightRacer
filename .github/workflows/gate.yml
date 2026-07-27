@@ -48,6 +48,10 @@ jobs:
         run: npm install -g markdown-link-check@3.13.6
 
       - name: Run governance verification
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         run: bash scripts/verify.sh
 
   windows-smoke:
@@ -71,4 +75,8 @@ jobs:
           cache: pnpm
 
       - name: Install + build (native win32-x64 optional deps must resolve)
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         run: pwsh scripts/verify.ps1

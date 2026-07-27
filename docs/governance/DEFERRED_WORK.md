@@ -87,3 +87,14 @@ Rule 12 / Rule 11. This register survives the session. Future agents resume from
   typecheck + build succeeded only, not that gameplay behavior was verified by anything
   automated — resume by adding at least smoke tests around `GameEngine` (spawn/collision/
   scoring logic) and the `audio.ts` public API shape — status: open, not started.
+- [2026-07-27] `scripts/verify.sh`/`verify.ps1` deploy-dry check for `vercel.json`
+  (added as part of Replit-decoupling sub-project 2, web hosting) needs a `VERCEL_TOKEN`
+  (+ `VERCEL_ORG_ID`/`VERCEL_PROJECT_ID`) to actually run `vercel build --dry-run` in CI —
+  deferred because minting a CI-scoped token requires dashboard access this session's
+  app-scoped Vercel OAuth doesn't have (`vercel tokens add` returned 403) — the check
+  degrades to a `notice` (skip) rather than failing CI when the token is absent, so nothing
+  is currently blocking merges, but the check also isn't verifying anything until this is
+  provisioned — resume by creating a Vercel personal access token (dashboard → Account
+  Settings → Tokens) and adding it plus `VERCEL_ORG_ID=team_b3dGeEKw3qj1ijfdY9N2KGe2` and
+  `VERCEL_PROJECT_ID=prj_9OgL2EJXILrraekfHxJ0dQK9Dl1L` as GitHub Actions repo secrets —
+  status: open, degrades gracefully in the meantime.
