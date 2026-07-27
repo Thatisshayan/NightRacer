@@ -206,6 +206,17 @@ export const drawVehicle = (
 ) => {
   ctx.save();
 
+  // ── Universal drop shadow (drawn before body so it sits beneath) ──────────
+  {
+    const sg = ctx.createRadialGradient(3, 6, 2, 3, 6, Math.max(w, h) * 0.55);
+    sg.addColorStop(0, 'rgba(0,0,0,0.55)');
+    sg.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = sg;
+    ctx.beginPath();
+    ctx.ellipse(3, 6, w * 0.62, h * 0.38, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
   if (type === 'SEDAN' || type === 'WAR_RUNNER') {
     ctx.fillStyle = color || '#555';
     ctx.fillRect(-w / 2, -h / 2, w, h);
