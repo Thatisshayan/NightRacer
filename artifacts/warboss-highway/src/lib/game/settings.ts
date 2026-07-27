@@ -98,4 +98,21 @@ export const Settings = {
   addScrap(amount: number): void {
     this.setScrap(this.getScrap() + amount);
   },
+
+  // Pixi-renderer-only setting (Phase C of the Pixi rewrite): gates GPU
+  // filters (bloom/glow) and particle-sprite count. Defaults to 'low' under
+  // prefers-reduced-motion, mirroring engine.ts's existing reducedMotion
+  // check, since neither should assume a device can afford extra GPU work.
+  getGraphicsQuality(): 'low' | 'high' {
+    const stored = getItem('graphics_quality');
+    if (stored === 'low' || stored === 'high') return stored;
+    const reducedMotion =
+      typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+        ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        : false;
+    return reducedMotion ? 'low' : 'high';
+  },
+  setGraphicsQuality(quality: 'low' | 'high'): void {
+    setItem('graphics_quality', quality);
+  },
 };

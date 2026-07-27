@@ -1,5 +1,5 @@
 import { playAudio, stopAudio } from './audio';
-import { drawVehicle, drawHUD, drawObstacle } from './renderer';
+import { drawVehicle, drawObstacle } from './renderer';
 import { Settings } from './settings';
 import { DailyModifier } from './daily';
 
@@ -7,6 +7,15 @@ export type PowerUpType = 'SHIELD' | 'SLOWMO' | 'SCORE_BLAST' | 'EXTRA_LIFE';
 export type CarType = 'RATTLETRAP' | 'WAR_RUNNER' | 'DEATHSLED' | 'SCRAPQUEEN' | 'PHANTOM';
 export type VehicleType = 'SEDAN' | 'PICKUP' | 'COP' | 'BOXTRUCK' | 'BUS' | 'SPORTS' | 'TANK' | 'BOSS';
 export type ObstacleType = 'OIL_SLICK' | 'DEBRIS';
+
+// Structural interface only — kept free of any pixi.js import so engine.ts
+// never pulls the Pixi bundle in statically (Game.tsx loads it via a lazy
+// `import('pixi.js')` and hands the engine an instance through
+// `attachRenderer`, see docs plan "Warboss Highway Pixi rewrite" Phase A).
+export interface GameRenderer {
+  sync(state: GameState, cameraY: number, screenShake: number): void;
+  destroy(): void;
+}
 
 export interface CarStats {
   width: number;
@@ -182,6 +191,7 @@ export class GameEngine {
   private cameraY: number = 0;
   private initialPlayerY: number = 0;
   private grainPattern: CanvasPattern | null = null;
+  private pixiRenderer: GameRenderer | null = null;
   // prefers-reduced-motion: screen shake is a known motion-sickness trigger,
   // so it's disabled entirely under reduced motion. The hit still registers
   // via the existing particle burst + invulnerability flicker, which aren't
@@ -304,6 +314,8 @@ export class GameEngine {
     this.canvas.removeEventListener('touchcancel', this.handleTouchEnd);
     cancelAnimationFrame(this.animationId);
     stopAudio('gameplay');
+    this.pixiRenderer?.destroy();
+    this.pixiRenderer = null;
   }
 
   private handleKeyDown = (e: KeyboardEvent) => {
@@ -416,6 +428,27 @@ export class GameEngine {
     return this.isPaused;
   }
 
+  // Read-only escape hatch for the DOM HUD overlay (game-hud-overlay.tsx),
+  // which reads this every frame via its own rAF loop instead of React
+  // state, to avoid re-rendering the component tree at 60fps. Callers must
+  // not mutate the returned object.
+  public getState(): GameState {
+    return this.state;
+  }
+
+  // Swaps the draw path to a Pixi (WebGL) renderer — see GameRenderer above.
+  // Passing null reverts to the built-in Canvas 2D draw().
+  public attachRenderer(renderer: GameRenderer | null) {
+    this.pixiRenderer?.destroy();
+    this.pixiRenderer = renderer;
+    if (renderer) {
+      // Pixi's canvas is transparent and layered above this one; once it's
+      // driving the frame, nothing else clears this canvas's last Canvas 2D
+      // frame (HUD included), so it would otherwise show through forever.
+      this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    }
+  }
+
   private loop = (timestamp: number) => {
     if (this.state.isGameOver) return;
     const dt = Math.min(timestamp - this.lastTime, 50);
@@ -423,7 +456,11 @@ export class GameEngine {
     if (!this.isPaused) {
       this.update(dt);
     }
-    this.draw();
+    if (this.pixiRenderer) {
+      this.pixiRenderer.sync(this.state, this.cameraY, this.state.screenShake);
+    } else {
+      this.draw();
+    }
     if (!this.state.isGameOver) {
       this.animationId = requestAnimationFrame(this.loop);
     }
@@ -951,61 +988,11 @@ export class GameEngine {
 
     ctx.restore(); // end camera follow
 
-    // Level-up flash
-    if (state.levelUpFlash > 0) {
-      const t = state.levelUpFlash / 1800;
-      const alpha = Math.sin(t * Math.PI) * 0.35;
-      ctx.fillStyle = `rgba(255, 130, 0, ${alpha})`;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      if (state.levelUpFlash > 1200) {
-        ctx.font = 'bold 30px "Russo One", sans-serif';
-        ctx.fillStyle = '#fff';
-        ctx.textAlign = 'center';
-        ctx.shadowColor = '#ff8800';
-        ctx.shadowBlur = 25;
-        ctx.fillText(state.levelUpText, canvas.width / 2, canvas.height / 2 - 10);
-        ctx.shadowBlur = 0;
-      }
-    }
-
-    // Boss warning
-    if (state.bossWarning > 0) {
-      const blink = Math.floor(performance.now() / 180) % 2 === 0;
-      if (blink) {
-        ctx.fillStyle = 'rgba(180, 0, 0, 0.28)';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-      }
-      ctx.textAlign = 'center';
-      ctx.font = 'bold 28px "Russo One", sans-serif';
-      ctx.fillStyle = '#ff2222';
-      ctx.shadowColor = '#ff0000';
-      ctx.shadowBlur = 30;
-      ctx.fillText('⚠ WARBOSS INCOMING ⚠', canvas.width / 2, canvas.height / 2);
-      ctx.font = '16px "Roboto Mono", monospace';
-      ctx.fillStyle = '#ffaaaa';
-      ctx.shadowBlur = 0;
-      ctx.fillText('BRACE YOURSELF', canvas.width / 2, canvas.height / 2 + 36);
-    }
-
-    // Near-miss combo text
-    if (state.combo > 1) {
-      const alpha = Math.min(1, state.comboTimer / 800);
-      ctx.globalAlpha = alpha;
-      const sz = Math.min(24, 14 + state.combo);
-      ctx.font = `bold ${sz}px "Russo One", sans-serif`;
-      ctx.fillStyle = '#ffff44';
-      ctx.textAlign = 'center';
-      ctx.shadowColor = '#ff8800';
-      ctx.shadowBlur = 12;
-      ctx.fillText(`NEAR MISS ×${state.combo}!`, canvas.width / 2, canvas.height - 100);
-      ctx.shadowBlur = 0;
-      ctx.globalAlpha = 1;
-    }
-
-    // HUD
-    const speedMult = this.getSpeedMultiplier(state.distance);
-    drawHUD(ctx, canvas.width, canvas.height, state, speedMult);
+    // HUD, level-up flash, boss warning, and near-miss combo text all moved
+    // to a DOM overlay (game-hud-overlay.tsx) — see the Pixi rewrite plan's
+    // Phase D. It reads GameEngine.getState() directly and renders
+    // independently of which renderer (this Canvas 2D path or Pixi) is
+    // driving the game-world visuals underneath it.
 
     ctx.restore();
 

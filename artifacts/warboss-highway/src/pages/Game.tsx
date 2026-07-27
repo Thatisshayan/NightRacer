@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { GameEngine, GameState, CarType, CAR_STATS } from '@/lib/game/engine';
 import { GameOverOverlay } from '@/components/game-over-overlay';
+import { GameHudOverlay } from '@/components/game-hud-overlay';
 import { playAudio, stopAudio, toggleMute, getMuted, pauseAudio, resumeAudio } from '@/lib/game/audio';
 import { Settings } from '@/lib/game/settings';
 import { Volume2, VolumeX, Pause, Play, RotateCcw, Home, Settings2, Gamepad2, HelpCircle, X, Wrench, ArrowUp, Shield, Gauge } from 'lucide-react';
@@ -98,8 +99,16 @@ function CarPreview({ carType, selected }: { carType: CarType; selected: boolean
 // ── Main Page ──────────────────────────────────────────────────────────────────
 type Screen = 'title' | 'playing' | 'gameover';
 
+// Dev/QA flag for the in-progress Pixi.js renderer rewrite — visit with
+// `?renderer=pixi` in the URL. Off by default until Phase B reaches parity
+// with the Canvas 2D renderer (see the "Warboss Highway Pixi rewrite" plan).
+// Removed entirely once the rewrite finishes (Phase E).
+const usePixiRenderer =
+  typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('renderer') === 'pixi';
+
 export default function Game() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const pixiHostRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<GameEngine | null>(null);
 
   const [screen, setScreen] = useState<Screen>('title');
@@ -307,6 +316,20 @@ export default function Game() {
       }
     );
     engineRef.current.start();
+
+    if (usePixiRenderer && pixiHostRef.current) {
+      const engine = engineRef.current;
+      const host = pixiHostRef.current;
+      host.innerHTML = '';
+      import('@/lib/game/pixi-renderer').then(({ PixiRenderer }) =>
+        PixiRenderer.create(host, 420, 800)
+      ).then((renderer) => {
+        // Bail if the engine was torn down (restart/unmount) while the
+        // Pixi bundle/app was still loading.
+        if (engineRef.current !== engine) { renderer.destroy(); return; }
+        engine.attachRenderer(renderer);
+      }).catch((err) => console.error('[pixi-debug] failed to attach Pixi renderer', err));
+    }
   }, [isDailyChallenge, selectedCar, joystickEnabled]);
 
   const handleToggleMute = () => setIsMuted(toggleMute());
@@ -358,6 +381,24 @@ export default function Game() {
           height={800}
           className="block w-full h-full object-cover touch-none"
         />
+
+        {/* Pixi (WebGL) renderer host — dev-only behind ?renderer=pixi until
+            the rewrite reaches parity. Sits over the Canvas 2D element and
+            is pointer-events-none so input still reaches the canvas, which
+            owns all touch/keyboard listeners regardless of active renderer. */}
+        {usePixiRenderer && (
+          <div
+            ref={pixiHostRef}
+            className="absolute inset-0 pointer-events-none"
+            style={{ display: screen === 'playing' ? 'block' : 'none' }}
+          />
+        )}
+
+        {/* HUD — DOM overlay, independent of which renderer (Canvas 2D or
+            Pixi) is drawing the game world underneath it. */}
+        {screen === 'playing' && engineRef.current && (
+          <GameHudOverlay engine={engineRef.current} />
+        )}
 
         {/* Title / car-select screen */}
         <AnimatePresence>
