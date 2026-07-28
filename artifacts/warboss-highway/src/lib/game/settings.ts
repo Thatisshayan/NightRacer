@@ -1,4 +1,4 @@
-import { CarType } from './engine';
+import { CarType } from '@workspace/game-core';
 
 const STORAGE_PREFIX = 'warboss_';
 

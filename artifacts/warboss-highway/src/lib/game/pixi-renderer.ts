@@ -1,6 +1,6 @@
 import { Application, Container, Graphics, Sprite, TilingSprite } from 'pixi.js';
 import { GlowFilter, MotionBlurFilter } from 'pixi-filters';
-import type { GameRenderer, GameState, CarType, Vehicle, Obstacle, PowerUpItem, Particle } from './engine';
+import type { GameRenderer, GameState, CarType, Vehicle, Obstacle, PowerUpItem, Particle } from '@workspace/game-core';
 import { loadSpriteTextures, generatePlaceholderTextures, type SpriteTextures } from './sprites';
 import { Settings } from './settings';
 

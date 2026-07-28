@@ -4,8 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useLocation } from 'wouter';
 import { useToast } from '@/hooks/use-toast';
-import { ACHIEVEMENTS, getAchievementById } from '@/lib/game/achievements';
-import { CarType } from '@/lib/game/engine';
+import { ACHIEVEMENTS, getAchievementById, type CarType } from '@workspace/game-core';
 
 interface GameOverOverlayProps {
   score: number;

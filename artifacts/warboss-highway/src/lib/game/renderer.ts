@@ -1,4 +1,4 @@
-import { type ObstacleType } from './engine';
+import { type ObstacleType } from '@workspace/game-core';
 
 // drawHUD moved to src/components/game-hud-overlay.tsx (DOM overlay) — see
 // the "Warboss Highway Pixi rewrite" plan, Phase D.

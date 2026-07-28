@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { GameEngine, GameState, CarType, CAR_STATS } from '@/lib/game/engine';
+import { type GameState, type CarType, CAR_STATS, getDailyModifier } from '@workspace/game-core';
+import { WebGameEngine } from '@/lib/game/web-engine';
 import { GameOverOverlay } from '@/components/game-over-overlay';
 import { GameHudOverlay } from '@/components/game-hud-overlay';
 import { playAudio, stopAudio, toggleMute, getMuted, pauseAudio, resumeAudio } from '@/lib/game/audio';
 import { Settings } from '@/lib/game/settings';
 import { Volume2, VolumeX, Pause, Play, RotateCcw, Home, Settings2, Gamepad2, HelpCircle, X, Wrench, ArrowUp, Shield, Gauge } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { getDailyModifier } from '@/lib/game/daily';
 
 // Enter/move curve from the ui-animation skill's easing defaults.
 const ENTER_EASE = [0.22, 1, 0.36, 1] as const;
@@ -111,7 +111,7 @@ const usePixiRenderer =
 export default function Game() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const pixiHostRef = useRef<HTMLDivElement>(null);
-  const engineRef = useRef<GameEngine | null>(null);
+  const engineRef = useRef<WebGameEngine | null>(null);
 
   const [screen, setScreen] = useState<Screen>('title');
   const [gameOverState, setGameOverState] = useState<GameState | null>(null);
@@ -294,7 +294,7 @@ export default function Game() {
     setNewRecord(false);
     setScreen('playing');
 
-    engineRef.current = new GameEngine(
+    engineRef.current = new WebGameEngine(
       canvasRef.current,
       (state) => {
         const isNew = updatePB(selectedCar, state.score);
