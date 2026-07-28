@@ -58,6 +58,7 @@
     "zod-validation-error": "^3.4.0"
   },
   "dependencies": {
-    "@shopify/react-native-skia": "2.2.12"
+    "@shopify/react-native-skia": "2.2.12",
+    "expo-audio": "~1.1.1"
   }
 }

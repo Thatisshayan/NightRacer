@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { getDailyModifier, type CarType, type GameState } from '@workspace/game-core';
 import { GameCanvas, GAME_WIDTH, GAME_HEIGHT } from '@/components/game/GameCanvas';
@@ -7,6 +7,7 @@ import { TitleScreen } from '@/components/game/TitleScreen';
 import { GameOverScreen } from '@/components/game/GameOverScreen';
 import { useNativeGameEngine } from '@/components/game/useGameEngine';
 import { Settings } from '@/lib/settings';
+import { NativeAudio } from '@/lib/native-audio';
 
 type Screen = 'title' | 'playing' | 'gameover';
 
@@ -69,10 +70,18 @@ export default function TabOneScreen() {
   );
 
   const startGame = useCallback(() => {
+    NativeAudio.stop('menu');
     setGameOverInfo(null);
     setRunKey((k) => k + 1);
     setScreen('playing');
   }, []);
+
+  // Mirrors the web app's title-screen effect (Game.tsx: `if (screen ===
+  // 'title') playAudio('menu', true)`) — 'gameplay' music is started/
+  // stopped by the engine itself (see game-core's init()/cleanup()).
+  useEffect(() => {
+    if (screen === 'title') NativeAudio.play('menu', true);
+  }, [screen]);
 
   return (
     <View style={styles.container}>
