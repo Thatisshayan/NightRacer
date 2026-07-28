@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { GameEngine, POP_DURATION_MS, POWERUP_DURATION_MS, type PowerUpType } from '@/lib/game/engine';
+import { GameEngine, POP_DURATION_MS, POWERUP_DURATION_MS, type PowerUpType } from '@workspace/game-core';
 
 // Ease-out pop scale — mirrors the old Canvas 2D renderer.ts helper of the
 // same name, now driving a CSS transform instead of a ctx.scale().

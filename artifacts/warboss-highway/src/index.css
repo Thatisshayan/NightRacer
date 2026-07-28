@@ -183,8 +183,9 @@
 /* Global prefers-reduced-motion guard for CSS transitions/keyframes (Tailwind's
    animate-pulse, hover-elevate, button active:scale, etc). This does NOT cover
    the canvas game-loop's own motion (screen shake, particle bursts) — those are
-   plain JS and are gated separately via GameEngine's own matchMedia check
-   (see lib/game/engine.ts) — nor framer-motion animations, which check
+   plain JS and are gated separately via a matchMedia check done in
+   lib/game/web-engine.ts and passed into GameEngine — nor framer-motion
+   animations, which check
    useReducedMotion() individually where used. */
 @media (prefers-reduced-motion: reduce) {
   *,

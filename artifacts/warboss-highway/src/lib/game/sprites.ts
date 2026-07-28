@@ -1,5 +1,5 @@
 import { Assets, Graphics, Rectangle, Texture, type Renderer } from 'pixi.js';
-import { CAR_STATS, type CarType, type PowerUpType } from './engine';
+import { CAR_STATS, type CarType, type PowerUpType } from '@workspace/game-core';
 
 // Regular (non-boss) enemy vehicle types that ship 3 hand-drawn variants each
 // in the sprite pack (sedan_v1..v3, pickup_v1..v3, ...). BOSS uses a single
