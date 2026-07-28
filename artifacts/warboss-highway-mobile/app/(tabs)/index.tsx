@@ -86,19 +86,6 @@ export default function TabOneScreen() {
     setIsPaused(paused);
   }, []);
 
-  // The Game tab stays mounted when the user switches to Kill-Board (both
-  // NativeTabs and the classic Tabs navigator preserve sibling screens), so
-  // without this the engine's animation loop and gameplay audio would keep
-  // running off-screen — silently losing lives/time the player never saw.
-  // Auto-pause on blur, same as manually tapping the pause button; requires
-  // an explicit resume tap rather than auto-resuming on refocus.
-  const isFocused = useIsFocused();
-  useEffect(() => {
-    if (!isFocused && screen === 'playing') {
-      engine?.pause();
-    }
-  }, [isFocused, screen, engine]);
-
   // Only constructed while actually playing — the title/game-over screens
   // don't need an engine instance running behind them, unlike the web
   // app's canvas (which stays mounted so its crash frame shows through
@@ -112,6 +99,19 @@ export default function TabOneScreen() {
     isDailyChallenge ? dailyModifier : undefined,
     handlePauseChange
   );
+
+  // The Game tab stays mounted when the user switches to Kill-Board (both
+  // NativeTabs and the classic Tabs navigator preserve sibling screens), so
+  // without this the engine's animation loop and gameplay audio would keep
+  // running off-screen — silently losing lives/time the player never saw.
+  // Auto-pause on blur, same as manually tapping the pause button; requires
+  // an explicit resume tap rather than auto-resuming on refocus.
+  const isFocused = useIsFocused();
+  useEffect(() => {
+    if (!isFocused && screen === 'playing') {
+      engine?.pause();
+    }
+  }, [isFocused, screen, engine]);
 
   const startGame = useCallback(() => {
     NativeAudio.stop('menu');

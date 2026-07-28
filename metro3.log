@@ -1,0 +1,14 @@
+Starting project at D:\AgentDevWork\repos\NightRacer\artifacts\warboss-highway-mobile
+React Compiler enabled
+Metro is running in CI mode, reloads are disabled. Remove CI=true to enable watch mode.
+Starting Metro Bundler
+TypeError: Body is unusable: Body has already been read
+TypeError: Body is unusable: Body has already been read
+    at consumeBody (node:internal/deps/undici/undici:6961:31)
+    at _Response.json (node:internal/deps/undici/undici:6912:18)
+    at getNativeModuleVersionsAsync (D:\AgentDevWork\repos\NightRacer\node_modules\.pnpm\@expo+cli@54.0.26_expo-rout_4a39c0feb094b831d5a11b9b54083b05\node_modules\@expo\cli\src\api\getNativeModuleVersions.ts:47:31)
+    at getVersionedNativeModulesAsync (D:\AgentDevWork\repos\NightRacer\node_modules\.pnpm\@expo+cli@54.0.26_expo-rout_4a39c0feb094b831d5a11b9b54083b05\node_modules\@expo\cli\src\start\doctor\dependencies\bundledNativeModules.ts:33:14)
+    at getCombinedKnownVersionsAsync (D:\AgentDevWork\repos\NightRacer\node_modules\.pnpm\@expo+cli@54.0.26_expo-rout_4a39c0feb094b831d5a11b9b54083b05\node_modules\@expo\cli\src\start\doctor\dependencies\getVersionedPackages.ts:58:7)
+    at getVersionedDependenciesAsync (D:\AgentDevWork\repos\NightRacer\node_modules\.pnpm\@expo+cli@54.0.26_expo-rout_4a39c0feb094b831d5a11b9b54083b05\node_modules\@expo\cli\src\start\doctor\dependencies\validateDependenciesVersions.ts:100:33)
+    at validateDependenciesVersionsAsync (D:\AgentDevWork\repos\NightRacer\node_modules\.pnpm\@expo+cli@54.0.26_expo-rout_4a39c0feb094b831d5a11b9b54083b05\node_modules\@expo\cli\src\start\doctor\dependencies\validateDependenciesVersions.ts:49:25)
+    at startAsync (D:\AgentDevWork\repos\NightRacer\node_modules\.pnpm\@expo+cli@54.0.26_expo-rout_4a39c0feb094b831d5a11b9b54083b05\node_modules\@expo\cli\src\start\startAsync.ts:110:5)
