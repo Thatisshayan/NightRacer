@@ -14,6 +14,7 @@ import {
 } from '@expo-google-fonts/inter';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
+import { hydrateSettings } from '@/lib/settings';
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
@@ -30,6 +31,17 @@ function useSkiaWebReady(): boolean {
   useEffect(() => {
     if (Platform.OS !== 'web') return;
     import('@shopify/react-native-skia/lib/module/web').then(({ LoadSkiaWeb }) => LoadSkiaWeb()).then(() => setReady(true));
+  }, []);
+  return ready;
+}
+
+// Settings (see lib/settings.ts) reads from an in-memory cache that must
+// be hydrated from AsyncStorage before any screen calls Settings.getX()
+// synchronously — gated here the same way as fonts/Skia-web above.
+function useSettingsReady(): boolean {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    hydrateSettings().then(() => setReady(true));
   }, []);
   return ready;
 }
@@ -53,14 +65,15 @@ export default function RootLayout() {
   });
 
   const skiaReady = useSkiaWebReady();
+  const settingsReady = useSettingsReady();
 
   useEffect(() => {
-    if ((fontsLoaded || fontError) && skiaReady) {
+    if ((fontsLoaded || fontError) && skiaReady && settingsReady) {
       SplashScreen.hideAsync();
     }
-  }, [fontsLoaded, fontError, skiaReady]);
+  }, [fontsLoaded, fontError, skiaReady, settingsReady]);
 
-  if ((!fontsLoaded && !fontError) || !skiaReady) return null;
+  if ((!fontsLoaded && !fontError) || !skiaReady || !settingsReady) return null;
 
   return (
     <SafeAreaProvider>

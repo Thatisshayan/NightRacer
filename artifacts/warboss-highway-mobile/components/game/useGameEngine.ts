@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import type { CarType } from '@workspace/game-core';
+import { useEffect, useRef, useState } from 'react';
+import type { CarType, GameState } from '@workspace/game-core';
 import { NativeGameEngine } from './native-engine';
 
 // Lifts engine ownership up to the screen (app/(tabs)/index.tsx) so both
@@ -9,17 +9,20 @@ import { NativeGameEngine } from './native-engine';
 export function useNativeGameEngine(
   width: number,
   height: number,
-  selectedCar: CarType = 'WAR_RUNNER'
+  selectedCar: CarType,
+  onGameOver?: (state: GameState) => void
 ): NativeGameEngine | null {
   const [engine, setEngine] = useState<NativeGameEngine | null>(null);
+  // onGameOver is read via a ref so a new inline callback each render
+  // (the common case at call sites) doesn't tear down and recreate the
+  // engine — only width/height/selectedCar changing should do that.
+  const onGameOverRef = useRef(onGameOver);
+  onGameOverRef.current = onGameOver;
 
   useEffect(() => {
     const instance = new NativeGameEngine(
       { width, height },
-      () => {
-        // Phase 6 wires a real game-over screen; for now the run just
-        // stops rendering new frames (state.isGameOver freezes the loop).
-      },
+      (state) => onGameOverRef.current?.(state),
       { selectedCar }
     );
     instance.start();
@@ -29,7 +32,6 @@ export function useNativeGameEngine(
       instance.cleanup();
       setEngine(null);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [width, height, selectedCar]);
 
   return engine;
