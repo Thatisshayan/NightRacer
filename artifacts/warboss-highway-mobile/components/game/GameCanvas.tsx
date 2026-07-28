@@ -3,14 +3,14 @@ import { Canvas, Group, Image } from '@shopify/react-native-skia';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { runOnJS } from 'react-native-reanimated';
 import type { GameRenderer, GameState } from '@workspace/game-core';
-import { NativeGameEngine } from './native-engine';
+import type { NativeGameEngine } from './native-engine';
 import { useSpriteImages, vehicleImage } from './sprites';
 
 // Matches the web app's internal game resolution (see
 // artifacts/warboss-highway/src/pages/Game.tsx's canvas width/height) so
 // GameEngine's lane math produces the same layout on both platforms.
-const GAME_WIDTH = 420;
-const GAME_HEIGHT = 800;
+export const GAME_WIDTH = 420;
+export const GAME_HEIGHT = 800;
 const ROAD_TILE_SIZE = 80;
 
 interface Frame {
@@ -25,28 +25,21 @@ interface Frame {
 // per-frame draw), so a render is triggered via a tick counter bumped
 // from the attached GameRenderer.sync() rather than an onDraw callback.
 //
+// Takes `engine` as a prop (owned by the screen — see useGameEngine.ts)
+// instead of creating its own, so HudOverlay can share the same instance.
+//
 // Deliberately out of scope for this pass (tracked as fast-follow, not
-// forgotten): HUD (Phase 4), the same road-tile vignette crop the web
-// renderer applies (cosmetic; needs a Skia clip/scale trick since <Image>
-// has no source-rect crop prop), obstacles/powerups visual polish
-// (particles, glow, exhaust), and audio (Phase 7, deferred even on web
-// parity grounds — see native-engine.ts).
-export function GameCanvas() {
+// forgotten): the same road-tile vignette crop the web renderer applies
+// (cosmetic; needs a Skia clip/scale trick since <Image> has no
+// source-rect crop prop), obstacles/powerups visual polish (particles,
+// glow, exhaust), and audio (Phase 7, deferred even on web parity
+// grounds — see native-engine.ts).
+export function GameCanvas({ engine }: { engine: NativeGameEngine }) {
   const images = useSpriteImages();
-  const engineRef = useRef<NativeGameEngine | null>(null);
   const frameRef = useRef<Frame | null>(null);
   const [, setTick] = useState(0);
 
   useEffect(() => {
-    const engine = new NativeGameEngine(
-      { width: GAME_WIDTH, height: GAME_HEIGHT },
-      () => {
-        // Phase 6 wires a real game-over screen; for now the run just
-        // stops rendering new frames (state.isGameOver freezes the loop).
-      },
-      { selectedCar: 'WAR_RUNNER' }
-    );
-
     const renderer: GameRenderer = {
       sync(state, cameraY) {
         frameRef.current = { state, cameraY };
@@ -56,14 +49,8 @@ export function GameCanvas() {
     };
 
     engine.attachRenderer(renderer);
-    engineRef.current = engine;
-    engine.start();
-
-    return () => {
-      engine.cleanup();
-      engineRef.current = null;
-    };
-  }, []);
+    return () => engine.attachRenderer(null);
+  }, [engine]);
 
   const frame = frameRef.current;
 
@@ -89,17 +76,17 @@ export function GameCanvas() {
         .onEnd(() => {
           runOnJS(handlePointerUp)();
         }),
-    []
+    [engine]
   );
 
   function handlePointerDown(x: number, y: number) {
-    engineRef.current?.pointerDown(x, y);
+    engine.pointerDown(x, y);
   }
   function handlePointerMove(x: number, y: number) {
-    engineRef.current?.pointerMove(x, y);
+    engine.pointerMove(x, y);
   }
   function handlePointerUp() {
-    engineRef.current?.pointerUp();
+    engine.pointerUp();
   }
 
   return (
