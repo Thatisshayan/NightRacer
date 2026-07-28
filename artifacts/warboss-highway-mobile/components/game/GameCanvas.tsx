@@ -1,5 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, Group, Image } from '@shopify/react-native-skia';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { runOnJS } from 'react-native-reanimated';
 import type { GameRenderer, GameState } from '@workspace/game-core';
 import { NativeGameEngine } from './native-engine';
 import { useSpriteImages, vehicleImage } from './sprites';
@@ -24,11 +26,11 @@ interface Frame {
 // from the attached GameRenderer.sync() rather than an onDraw callback.
 //
 // Deliberately out of scope for this pass (tracked as fast-follow, not
-// forgotten): input (Phase 3), HUD (Phase 4), the same road-tile vignette
-// crop the web renderer applies (cosmetic; needs a Skia clip/scale trick
-// since <Image> has no source-rect crop prop), obstacles/powerups visual
-// polish (particles, glow, exhaust), and audio (Phase 7, deferred even on
-// web parity grounds — see native-engine.ts).
+// forgotten): HUD (Phase 4), the same road-tile vignette crop the web
+// renderer applies (cosmetic; needs a Skia clip/scale trick since <Image>
+// has no source-rect crop prop), obstacles/powerups visual polish
+// (particles, glow, exhaust), and audio (Phase 7, deferred even on web
+// parity grounds — see native-engine.ts).
 export function GameCanvas() {
   const images = useSpriteImages();
   const engineRef = useRef<NativeGameEngine | null>(null);
@@ -65,7 +67,43 @@ export function GameCanvas() {
 
   const frame = frameRef.current;
 
+  // Mirrors the web renderer's drag-to-steer (handleTouchStart/Move/End
+  // in web-engine.ts) via GameEngine's DOM-agnostic pointerDown/Move/Up —
+  // same input model, different wiring. Pan callbacks run as worklets on
+  // the UI thread (Reanimated is installed), so calls into the engine
+  // instance (plain JS, lives on the JS thread) go through runOnJS.
+  // GestureDetector's view is sized to exactly match the Canvas below, so
+  // the gesture's local x/y land directly in the same coordinate space
+  // GameEngine expects — no separate screen-to-canvas scaling needed like
+  // the web version's getBoundingClientRect() math (there's no CSS-vs-
+  // backing-resolution mismatch here).
+  const pan = useMemo(
+    () =>
+      Gesture.Pan()
+        .onBegin((e) => {
+          runOnJS(handlePointerDown)(e.x, e.y);
+        })
+        .onUpdate((e) => {
+          runOnJS(handlePointerMove)(e.x, e.y);
+        })
+        .onEnd(() => {
+          runOnJS(handlePointerUp)();
+        }),
+    []
+  );
+
+  function handlePointerDown(x: number, y: number) {
+    engineRef.current?.pointerDown(x, y);
+  }
+  function handlePointerMove(x: number, y: number) {
+    engineRef.current?.pointerMove(x, y);
+  }
+  function handlePointerUp() {
+    engineRef.current?.pointerUp();
+  }
+
   return (
+    <GestureDetector gesture={pan}>
     <Canvas style={{ width: GAME_WIDTH, height: GAME_HEIGHT, backgroundColor: '#0c0c0e' }}>
       <Group transform={[{ translateY: frame ? -frame.cameraY : 0 }]}>
         {images.roadTile && frame && renderRoad(images.roadTile, frame.state.roadOffset)}
@@ -132,6 +170,7 @@ export function GameCanvas() {
         )}
       </Group>
     </Canvas>
+    </GestureDetector>
   );
 }
 
