@@ -12,6 +12,15 @@ import { useSpriteImages, vehicleImage } from './sprites';
 export const GAME_WIDTH = 420;
 export const GAME_HEIGHT = 800;
 const ROAD_TILE_SIZE = 80;
+// Must mirror engine.ts's camera-follow clamp (cameraMax = height * 0.18)
+// and this file's own screen-shake ceiling ((300/300) * 9) — the road tiling
+// has to overscan by at least this much above the viewport, or dragging the
+// player toward the top of the screen (which pushes cameraY negative,
+// translating the whole scene down) exposes bare canvas background above
+// the topmost tile row.
+const CAMERA_MAX = GAME_HEIGHT * 0.18;
+const MAX_SHAKE_PX = 9;
+const TOP_OVERSCAN = Math.ceil((CAMERA_MAX + MAX_SHAKE_PX) / ROAD_TILE_SIZE) * ROAD_TILE_SIZE;
 
 interface Frame {
   state: GameState;
@@ -42,7 +51,13 @@ function hexagonPath(cx: number, cy: number, r: number, rotation: number): strin
 //
 // Takes `engine` as a prop (owned by the screen — see useGameEngine.ts)
 // instead of creating its own, so HudOverlay can share the same instance.
-export function GameCanvas({ engine }: { engine: NativeGameEngine }) {
+// `scale` fits the fixed 420x800 simulation into whatever area the screen
+// actually measured (see app/(tabs)/index.tsx) — phones with a usable
+// viewport narrower or shorter than 420x800 (smaller devices, or the tab
+// bar/safe-area insets eating into it) would otherwise clip gameplay and
+// the gesture surface, since the Canvas used to be hard-coded to that size
+// regardless of the device.
+export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; scale?: number }) {
   const images = useSpriteImages();
   const frameRef = useRef<Frame | null>(null);
   const [, setTick] = useState(0);
@@ -67,24 +82,22 @@ export function GameCanvas({ engine }: { engine: NativeGameEngine }) {
   // same input model, different wiring. Pan callbacks run as worklets on
   // the UI thread (Reanimated is installed), so calls into the engine
   // instance (plain JS, lives on the JS thread) go through runOnJS.
-  // GestureDetector's view is sized to exactly match the Canvas below, so
-  // the gesture's local x/y land directly in the same coordinate space
-  // GameEngine expects — no separate screen-to-canvas scaling needed like
-  // the web version's getBoundingClientRect() math (there's no CSS-vs-
-  // backing-resolution mismatch here).
+  // GestureDetector's view is sized to the on-screen (scaled) Canvas, so
+  // its local x/y are in display space — divide by `scale` to land back in
+  // the 420x800 logical space GameEngine expects.
   const pan = useMemo(
     () =>
       Gesture.Pan()
         .onBegin((e) => {
-          runOnJS(handlePointerDown)(e.x, e.y);
+          runOnJS(handlePointerDown)(e.x / scale, e.y / scale);
         })
         .onUpdate((e) => {
-          runOnJS(handlePointerMove)(e.x, e.y);
+          runOnJS(handlePointerMove)(e.x / scale, e.y / scale);
         })
         .onEnd(() => {
           runOnJS(handlePointerUp)();
         }),
-    [engine]
+    [engine, scale]
   );
 
   function handlePointerDown(x: number, y: number) {
@@ -97,10 +110,13 @@ export function GameCanvas({ engine }: { engine: NativeGameEngine }) {
     engine.pointerUp();
   }
 
+  const displayWidth = GAME_WIDTH * scale;
+  const displayHeight = GAME_HEIGHT * scale;
+
   if (!frame) {
     return (
       <GestureDetector gesture={pan}>
-        <Canvas style={{ width: GAME_WIDTH, height: GAME_HEIGHT, backgroundColor: '#0c0c0e' }} />
+        <Canvas style={{ width: displayWidth, height: displayHeight, backgroundColor: '#0c0c0e' }} />
       </GestureDetector>
     );
   }
@@ -125,8 +141,8 @@ export function GameCanvas({ engine }: { engine: NativeGameEngine }) {
 
   return (
     <GestureDetector gesture={pan}>
-      <Canvas style={{ width: GAME_WIDTH, height: GAME_HEIGHT, backgroundColor: '#0c0c0e' }}>
-        <Group transform={[{ translateX: shakeX }, { translateY: shakeY - cameraY }]}>
+      <Canvas style={{ width: displayWidth, height: displayHeight, backgroundColor: '#0c0c0e' }}>
+        <Group transform={[{ scale }, { translateX: shakeX }, { translateY: shakeY - cameraY }]}>
           {images.roadTile && renderRoad(images.roadTile, state.roadOffset)}
 
           {state.obstacles.map((o, i) => {
@@ -259,8 +275,8 @@ export function GameCanvas({ engine }: { engine: NativeGameEngine }) {
 function renderRoad(roadTile: NonNullable<ReturnType<typeof useSpriteImages>['roadTile']>, roadOffset: number) {
   const tiles: React.ReactNode[] = [];
   const cols = Math.ceil(GAME_WIDTH / ROAD_TILE_SIZE);
-  const rows = Math.ceil(GAME_HEIGHT / ROAD_TILE_SIZE) + 2;
-  const yStart = -ROAD_TILE_SIZE + (roadOffset % ROAD_TILE_SIZE);
+  const rows = Math.ceil((GAME_HEIGHT + TOP_OVERSCAN) / ROAD_TILE_SIZE) + 2;
+  const yStart = -ROAD_TILE_SIZE - TOP_OVERSCAN + (roadOffset % ROAD_TILE_SIZE);
 
   for (let row = 0; row < rows; row++) {
     for (let col = 0; col < cols; col++) {

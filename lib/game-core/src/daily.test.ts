@@ -12,6 +12,7 @@ describe('getDailyModifier', () => {
   it('changes across different calendar days', () => {
     const day1 = getDailyModifier(new Date('2026-03-15T12:00:00Z'));
     const day2 = getDailyModifier(new Date('2026-03-16T12:00:00Z'));
+    expect(day1.name).not.toBe(day2.name);
     // Not guaranteed to differ every single day (7 modifiers cycling), but
     // over a full week every day must map to some modifier and the whole
     // cycle must be represented — a stronger, still-deterministic check.
@@ -21,8 +22,6 @@ describe('getDailyModifier', () => {
       seen.add(getDailyModifier(date).name);
     }
     expect(seen.size).toBeGreaterThanOrEqual(7);
-    void day1;
-    void day2;
   });
 
   it('always returns positive multipliers (never a modifier that zeroes out the run)', () => {

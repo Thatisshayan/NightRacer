@@ -265,6 +265,12 @@ export class GameEngine {
   // directly, since neither API exists universally.
   private reducedMotion: boolean;
 
+  // dims are logical simulation pixels (not a canvas/element) — each
+  // platform adapter maps its own rendering surface onto this space (see
+  // web-engine.ts / native-engine.ts). `options.audio`/`haptics` are
+  // no-op if omitted; `reducedMotion` disables screen shake only (see the
+  // field comment above). All other options default to their web-parity
+  // behavior when omitted.
   constructor(
     dims: { width: number; height: number },
     onGameOver: (state: GameState) => void,

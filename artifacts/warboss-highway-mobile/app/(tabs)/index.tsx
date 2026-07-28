@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
+import { useIsFocused } from '@react-navigation/native';
 import { getDailyModifier, type CarType, type GameState } from '@workspace/game-core';
 import { GameCanvas, GAME_WIDTH, GAME_HEIGHT } from '@/components/game/GameCanvas';
 import { HudOverlay } from '@/components/game/HudOverlay';
@@ -35,6 +36,16 @@ export default function TabOneScreen() {
   const [muted, setMuted] = useState(() => getMutedState());
   const [showTutorial, setShowTutorial] = useState(false);
   const [streak, setStreak] = useState(0);
+  // The simulation always runs at a fixed 420x800 logical resolution (see
+  // GAME_WIDTH/GAME_HEIGHT), but the actual usable screen area varies with
+  // device size and safe-area/tab-bar insets. Without scaling to fit, a
+  // narrower or shorter viewport than 420x800 clips gameplay and the drag
+  // gesture surface. Measured via onLayout since useWindowDimensions
+  // doesn't account for this container's own safe-area/tab-bar insets.
+  const [availableSize, setAvailableSize] = useState<{ width: number; height: number } | null>(null);
+  const scale = availableSize
+    ? Math.min(availableSize.width / GAME_WIDTH, availableSize.height / GAME_HEIGHT)
+    : 1;
 
   const dailyModifier = useMemo(() => getDailyModifier(), []);
 
@@ -74,6 +85,19 @@ export default function TabOneScreen() {
   const handlePauseChange = useCallback((paused: boolean) => {
     setIsPaused(paused);
   }, []);
+
+  // The Game tab stays mounted when the user switches to Kill-Board (both
+  // NativeTabs and the classic Tabs navigator preserve sibling screens), so
+  // without this the engine's animation loop and gameplay audio would keep
+  // running off-screen — silently losing lives/time the player never saw.
+  // Auto-pause on blur, same as manually tapping the pause button; requires
+  // an explicit resume tap rather than auto-resuming on refocus.
+  const isFocused = useIsFocused();
+  useEffect(() => {
+    if (!isFocused && screen === 'playing') {
+      engine?.pause();
+    }
+  }, [isFocused, screen, engine]);
 
   // Only constructed while actually playing — the title/game-over screens
   // don't need an engine instance running behind them, unlike the web
@@ -131,17 +155,25 @@ export default function TabOneScreen() {
       )}
 
       {screen === 'playing' && (
-        <View style={styles.gameArea}>
-          {engine && <GameCanvas engine={engine} />}
-          {engine && (
-            <HudOverlay
-              engine={engine}
-              onPause={() => engine.pause()}
-              muted={muted}
-              onToggleMute={handleToggleMute}
-            />
-          )}
-          {isPaused && <PauseOverlay onResume={() => engine?.resume()} onQuit={quitToMenu} />}
+        <View
+          style={styles.gameAreaMeasure}
+          onLayout={(e) => {
+            const { width, height } = e.nativeEvent.layout;
+            setAvailableSize({ width, height });
+          }}
+        >
+          <View style={{ width: GAME_WIDTH * scale, height: GAME_HEIGHT * scale }}>
+            {engine && <GameCanvas engine={engine} scale={scale} />}
+            {engine && (
+              <HudOverlay
+                engine={engine}
+                onPause={() => engine.pause()}
+                muted={muted}
+                onToggleMute={handleToggleMute}
+              />
+            )}
+            {isPaused && <PauseOverlay onResume={() => engine?.resume()} onQuit={quitToMenu} />}
+          </View>
         </View>
       )}
 
@@ -176,8 +208,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#000',
   },
-  gameArea: {
-    width: GAME_WIDTH,
-    height: GAME_HEIGHT,
+  gameAreaMeasure: {
+    flex: 1,
+    alignSelf: 'stretch',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

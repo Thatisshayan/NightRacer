@@ -33,8 +33,6 @@ function isMusicCue(cue: string): cue is MusicCue {
   return cue in MUSIC_SOURCES;
 }
 
-let muted = Settings.getMuted();
-
 // One player per SFX cue, reused and seeked back to 0 on each trigger —
 // cheaper than creating/tearing down a player per play() call, and these
 // are all under ~0.5s so overlapping retriggers aren't a real concern.
@@ -53,7 +51,7 @@ let currentMusicCue: MusicCue | null = null;
 
 function playMusic(cue: MusicCue) {
   if (currentMusicCue === cue) {
-    if (!muted) musicPlayer?.play();
+    if (!Settings.getMuted()) musicPlayer?.play();
     return;
   }
   musicPlayer?.pause();
@@ -62,7 +60,7 @@ function playMusic(cue: MusicCue) {
   musicPlayer.loop = true;
   musicPlayer.volume = 0.35;
   currentMusicCue = cue;
-  if (!muted) musicPlayer.play();
+  if (!Settings.getMuted()) musicPlayer.play();
 }
 
 function stopMusic() {
@@ -74,7 +72,7 @@ function stopMusic() {
 
 export const NativeAudio: AudioAdapter = {
   play(cue) {
-    if (muted) return;
+    if (Settings.getMuted()) return;
     if (isMusicCue(cue)) {
       playMusic(cue);
     } else if (isSfxCue(cue)) {
@@ -92,16 +90,16 @@ export function pauseMusic(): void {
   musicPlayer?.pause();
 }
 export function resumeMusic(): void {
-  if (!muted) musicPlayer?.play();
+  if (!Settings.getMuted()) musicPlayer?.play();
 }
 
 export function toggleMuted(): boolean {
-  muted = !muted;
+  const muted = !Settings.getMuted();
   Settings.setMuted(muted);
   if (muted) musicPlayer?.pause();
   else musicPlayer?.play();
   return muted;
 }
 export function getMutedState(): boolean {
-  return muted;
+  return Settings.getMuted();
 }
