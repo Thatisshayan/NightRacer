@@ -24,7 +24,11 @@ const cache = new Map<string, string>();
 
 const CAR_TYPES = Object.keys(CAR_STATS) as CarType[];
 const FIXED_KEYS = ['muted', 'selected_car', 'daily_challenge', 'tutorial_seen', 'scrap'];
-const ALL_KEYS = [...FIXED_KEYS, ...CAR_TYPES.map((car) => `upgrades_${car}`)].map(getKey);
+const ALL_KEYS = [
+  ...FIXED_KEYS,
+  ...CAR_TYPES.map((car) => `upgrades_${car}`),
+  ...CAR_TYPES.map((car) => `pb_${car}`),
+].map(getKey);
 
 let hydratePromise: Promise<void> | null = null;
 
@@ -110,6 +114,19 @@ export const Settings = {
   setScrap(scrap: number): void {
     setItem('scrap', String(Math.max(0, scrap)));
   },
+  getPersonalBest(car: CarType): number {
+    return Math.max(0, Number(getItem(`pb_${car}`)) || 0);
+  },
+  // Returns true if `score` beat the stored best (and persists it).
+  updatePersonalBest(car: CarType, score: number): boolean {
+    const prev = this.getPersonalBest(car);
+    if (score > prev) {
+      setItem(`pb_${car}`, String(Math.floor(score)));
+      return true;
+    }
+    return false;
+  },
+
   addScrap(amount: number): void {
     this.setScrap(this.getScrap() + amount);
   },

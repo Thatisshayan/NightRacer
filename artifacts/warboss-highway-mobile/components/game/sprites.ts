@@ -18,16 +18,22 @@ export interface SpriteImages {
   powerups: Record<PowerUpType, SkImage | null>;
 }
 
-// Same premium v2 sprite pack as the web app (copied into
-// assets/sprites/ — see the "native mobile rebuild" plan's Phase 2).
-export function useSpriteImages(): SpriteImages {
-  const playerCars: Record<CarType, SkImage | null> = {
+// Standalone (doesn't pull in the full enemy/powerup sprite set) — used by
+// the title screen's car-select carousel, which only ever needs these 5.
+export function usePlayerCarImages(): Record<CarType, SkImage | null> {
+  return {
     RATTLETRAP: useImage(require('../../assets/sprites/rattletrap.png')),
     WAR_RUNNER: useImage(require('../../assets/sprites/war_runner.png')),
     DEATHSLED: useImage(require('../../assets/sprites/deathsled.png')),
     SCRAPQUEEN: useImage(require('../../assets/sprites/scrapqueen.png')),
     PHANTOM: useImage(require('../../assets/sprites/phantom.png')),
   };
+}
+
+// Same premium v2 sprite pack as the web app (copied into
+// assets/sprites/ — see the "native mobile rebuild" plan's Phase 2).
+export function useSpriteImages(): SpriteImages {
+  const playerCars = usePlayerCarImages();
 
   const enemyVehicles: Record<EnemyVariantType, [SkImage | null, SkImage | null, SkImage | null]> = {
     SEDAN: [

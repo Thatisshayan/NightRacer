@@ -14,10 +14,18 @@ import {
 } from '@expo-google-fonts/inter';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
+import { setBaseUrl } from '@workspace/api-client-react';
 import { hydrateSettings } from '@/lib/settings';
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
+
+// The web app calls the same API same-origin (Vercel rewrites /api/* to
+// the api-server — see vercel.json at the repo root); the mobile app has
+// no "current origin" to piggyback on, so it needs an explicit absolute
+// base URL. Points at the stable production alias rather than a
+// deployment-specific preview URL.
+setBaseUrl('https://nightracer.vercel.app');
 
 // react-native-skia (used by the game's GameCanvas — see components/game/)
 // needs its CanvasKit-wasm binary loaded before any Skia component renders,
