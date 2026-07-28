@@ -1,4 +1,5 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+import { Platform } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
@@ -16,6 +17,22 @@ import * as SplashScreen from 'expo-splash-screen';
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
+
+// react-native-skia (used by the game's GameCanvas — see components/game/)
+// needs its CanvasKit-wasm binary loaded before any Skia component renders,
+// but only on web — iOS/Android ship Skia natively and need no bootstrap.
+// This is primarily a dev-verification convenience (this game targets iOS;
+// the Expo web target lets the render pipeline be checked in a browser on
+// machines without an iOS simulator) rather than a supported platform in
+// its own right, but costs nothing on native since it's skipped entirely.
+function useSkiaWebReady(): boolean {
+  const [ready, setReady] = useState(Platform.OS !== 'web');
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    import('@shopify/react-native-skia/lib/module/web').then(({ LoadSkiaWeb }) => LoadSkiaWeb()).then(() => setReady(true));
+  }, []);
+  return ready;
+}
 
 const queryClient = new QueryClient();
 
@@ -35,13 +52,15 @@ export default function RootLayout() {
     Inter_700Bold,
   });
 
+  const skiaReady = useSkiaWebReady();
+
   useEffect(() => {
-    if (fontsLoaded || fontError) {
+    if ((fontsLoaded || fontError) && skiaReady) {
       SplashScreen.hideAsync();
     }
-  }, [fontsLoaded, fontError]);
+  }, [fontsLoaded, fontError, skiaReady]);
 
-  if (!fontsLoaded && !fontError) return null;
+  if ((!fontsLoaded && !fontError) || !skiaReady) return null;
 
   return (
     <SafeAreaProvider>

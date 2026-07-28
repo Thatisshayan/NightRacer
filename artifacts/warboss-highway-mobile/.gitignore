@@ -39,3 +39,8 @@ yarn-error.*
 .vercel
 
 .env
+
+# Dev-only Expo-web verification asset (copied from node_modules/canvaskit-wasm
+# by hand, ~8MB) — this app targets iOS; web is only used as a local render-
+# pipeline check on machines without an iOS simulator. Never commit this.
+public/canvaskit.wasm
