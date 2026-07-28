@@ -1,5 +1,36 @@
-import { useImage, type SkImage } from '@shopify/react-native-skia';
+import { useMemo } from 'react';
+import { AlphaType, ColorType, Skia, useImage, type SkImage } from '@shopify/react-native-skia';
 import type { CarType, PowerUpType } from '@workspace/game-core';
+
+// The road tile source PNG is vignetted (lighter center, darker toward
+// its own edges) rather than seamlessly tileable — repeating it as-is
+// makes every tile boundary visible as a grid, exactly like the bug the
+// web renderer hit and fixed (see sprites.ts on web: crops to the
+// texture's center before tiling). react-native-skia's <Image> has no
+// source-rect crop prop (unlike Pixi's Texture(source, frame)), so the
+// crop is done manually: read the center region's raw pixels back out
+// and build a new, smaller SkImage from just those pixels.
+function cropCenterSquare(image: SkImage, insetFraction: number): SkImage | null {
+  const w = image.width();
+  const h = image.height();
+  const inset = Math.round(Math.min(w, h) * insetFraction);
+  const cropWidth = w - inset * 2;
+  const cropHeight = h - inset * 2;
+  if (cropWidth <= 0 || cropHeight <= 0) return image;
+
+  const info = { width: cropWidth, height: cropHeight, colorType: ColorType.RGBA_8888, alphaType: AlphaType.Unpremul };
+  const pixels = image.readPixels(inset, inset, info);
+  if (!pixels || !(pixels instanceof Uint8Array)) return image;
+
+  const data = Skia.Data.fromBytes(pixels);
+  return Skia.Image.MakeImage(info, data, cropWidth * 4) ?? image;
+}
+
+// Memoizes the crop against the source image identity so it only runs
+// once per load, not once per frame — GameCanvas re-renders every tick.
+function useCroppedRoadTile(rawRoadTile: SkImage | null): SkImage | null {
+  return useMemo(() => (rawRoadTile ? cropCenterSquare(rawRoadTile, 0.22) : null), [rawRoadTile]);
+}
 
 // Mirrors the web package's ENEMY_VARIANT_TYPES (see
 // artifacts/warboss-highway/src/lib/game/sprites.ts) — kept in sync by
@@ -80,9 +111,12 @@ export function useSpriteImages(): SpriteImages {
     EXTRA_LIFE: useImage(require('../../assets/sprites/extra_life.png')),
   };
 
+  const rawRoadTile = useImage(require('../../assets/sprites/asphalt_tile.png'));
+  const roadTile = useCroppedRoadTile(rawRoadTile);
+
   return {
     playerCars,
-    roadTile: useImage(require('../../assets/sprites/asphalt_tile.png')),
+    roadTile,
     enemyVehicles,
     bossVehicle: useImage(require('../../assets/sprites/boss.png')),
     oilSlick: useImage(require('../../assets/sprites/oil_slick.png')),

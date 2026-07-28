@@ -803,18 +803,44 @@ export class GameEngine {
     return true;
   }
 
-  // Picks a lane + an x offset jittered across that lane's full width
-  // (instead of always dead-center — see the "only the middle lane ever has
-  // traffic" / "idle on a lane boundary is safe" reports), retrying a few
-  // times against isAreaClear so it doesn't land on an existing vehicle.
-  private findSafeSpawnX(width: number, excludeLane?: number): { lane: number; x: number } | null {
+  // Nearest lane index to x — bookkeeping only (used by the "occasional
+  // pairs" spawn call to bias a second vehicle away from the first's
+  // lane for visual variety), never a placement constraint. See the doc
+  // comment on findSafeSpawnX for why placement itself must not be
+  // lane-bucketed.
+  private nearestLane(x: number): number {
     const state = this.state;
-    const laneWidth = this.width / 3;
-    const jitterRange = Math.max(0, laneWidth / 2 - width / 2 - 8);
-    for (let attempt = 0; attempt < 6; attempt++) {
-      let lane = Math.floor(this.rng() * 3);
-      if (excludeLane !== undefined && lane === excludeLane) lane = (lane + 1) % 3;
-      const x = state.lanes[lane] + (this.rng() * 2 - 1) * jitterRange;
+    let lane = 0;
+    let bestDist = Infinity;
+    for (let i = 0; i < state.lanes.length; i++) {
+      const d = Math.abs(state.lanes[i] - x);
+      if (d < bestDist) {
+        bestDist = d;
+        lane = i;
+      }
+    }
+    return lane;
+  }
+
+  // Samples x continuously across the full playable road width (the same
+  // margins clampPlayerPosition() uses) instead of picking a lane center
+  // and jittering within it. An earlier version of this method jittered
+  // within each lane's own half-width, which left a permanent dead zone
+  // at every lane BOUNDARY that no vehicle could ever reach — since
+  // vehicles never move in x after spawning, a player parked exactly on
+  // a boundary was permanently safe from anything but the boss (whose
+  // width spans multiple lanes). Verified by engine.test.ts's boundary
+  // regression test, which caught this before it shipped again. Retries
+  // a few times against isAreaClear so it doesn't land on an existing
+  // vehicle/obstacle.
+  private findSafeSpawnX(width: number, excludeLane?: number): { lane: number; x: number } | null {
+    const margin = 18 + width / 2 + 8;
+    const minX = margin;
+    const maxX = Math.max(minX, this.width - margin);
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const x = minX + this.rng() * (maxX - minX);
+      const lane = this.nearestLane(x);
+      if (excludeLane !== undefined && lane === excludeLane) continue;
       if (this.isAreaClear(x, width, -100, 170)) return { lane, x };
     }
     return null;
@@ -848,9 +874,11 @@ export class GameEngine {
     const state = this.state;
     const types: PowerUpType[] = ['SHIELD', 'SLOWMO', 'SCORE_BLAST', 'EXTRA_LIFE'];
     const width = 30;
+    const margin = 18 + width / 2 + 8;
+    const minX = margin;
+    const maxX = Math.max(minX, this.width - margin);
     for (let attempt = 0; attempt < 3; attempt++) {
-      const lane = Math.floor(this.rng() * 3);
-      const x = state.lanes[lane];
+      const x = minX + this.rng() * (maxX - minX);
       if (this.isAreaClear(x, width, -50, 150)) {
         const type = types[Math.floor(this.rng() * types.length)];
         state.powerups.push({ type, x, y: -50, width, height: 30 });
@@ -865,8 +893,10 @@ export class GameEngine {
       const type: ObstacleType = this.rng() < 0.5 ? 'OIL_SLICK' : 'DEBRIS';
       const width = type === 'OIL_SLICK' ? 55 : 28;
       const height = type === 'OIL_SLICK' ? 28 : 22;
-      const lane = Math.floor(this.rng() * 3);
-      const x = state.lanes[lane];
+      const margin = 18 + width / 2 + 8;
+      const minX = margin;
+      const maxX = Math.max(minX, this.width - margin);
+      const x = minX + this.rng() * (maxX - minX);
       if (this.isAreaClear(x, width, -80, 150)) {
         state.obstacles.push({ type, x, y: -80, width, height });
         return;

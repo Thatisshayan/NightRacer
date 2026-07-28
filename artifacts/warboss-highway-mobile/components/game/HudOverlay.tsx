@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 import { POP_DURATION_MS, POWERUP_DURATION_MS, type GameState, type PowerUpType } from '@workspace/game-core';
 import type { NativeGameEngine } from './native-engine';
@@ -27,7 +27,17 @@ const POWERUP_META: Record<keyof typeof POWERUP_DURATION_MS, { color: string; la
 const ARC_R = 36;
 const ARC_CIRCUMFERENCE = 2 * Math.PI * ARC_R * 0.75; // 270° of a r=36 circle
 
-export function HudOverlay({ engine }: { engine: NativeGameEngine }) {
+export function HudOverlay({
+  engine,
+  onPause,
+  muted,
+  onToggleMute,
+}: {
+  engine: NativeGameEngine;
+  onPause: () => void;
+  muted: boolean;
+  onToggleMute: () => void;
+}) {
   const [, setTick] = useState(0);
   const stateRef = useRef<GameState | null>(null);
 
@@ -62,9 +72,15 @@ export function HudOverlay({ engine }: { engine: NativeGameEngine }) {
   const showNearMiss = state.combo > 1;
 
   return (
-    <View style={styles.root} pointerEvents="none">
+    <View style={styles.root} pointerEvents="box-none">
       {/* Top HUD bar */}
-      <View style={styles.topBar}>
+      <View style={styles.topBar} pointerEvents="box-none">
+        <Pressable onPress={onPause} style={styles.pauseButton} hitSlop={8}>
+          <Text style={styles.pauseIcon}>❙❙</Text>
+        </Pressable>
+        <Pressable onPress={onToggleMute} style={styles.muteButton} hitSlop={8}>
+          <Text style={styles.muteIcon}>{muted ? '🔇' : '🔊'}</Text>
+        </Pressable>
         <Text
           style={[
             styles.score,
@@ -179,14 +195,18 @@ export function HudOverlay({ engine }: { engine: NativeGameEngine }) {
 
 const styles = StyleSheet.create({
   root: { ...StyleSheet.absoluteFillObject, zIndex: 10 },
-  topBar: { position: 'absolute', top: 0, left: 0, right: 0, height: 72, backgroundColor: 'rgba(0,0,0,0.55)' },
-  score: { position: 'absolute', left: 15, top: 14, fontSize: 22, fontWeight: 'bold', color: '#fff' },
-  dist: { position: 'absolute', left: 15, top: 44, fontSize: 13, color: '#888' },
-  combo: { position: 'absolute', left: 0, right: 0, top: 22, fontSize: 13, color: '#ffee22', textAlign: 'center' },
-  dailyBadge: { position: 'absolute', left: 0, right: 0, top: 50, fontSize: 10, color: '#55ffaa', textAlign: 'center' },
-  lives: { position: 'absolute', right: 15, top: 15, flexDirection: 'row-reverse', gap: 4 },
+  topBar: { position: 'absolute', top: 0, left: 0, right: 0, height: 92, backgroundColor: 'rgba(0,0,0,0.55)' },
+  pauseButton: { position: 'absolute', left: 8, top: 6, width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
+  pauseIcon: { fontSize: 14, color: '#fff' },
+  muteButton: { position: 'absolute', right: 8, top: 6, width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
+  muteIcon: { fontSize: 16 },
+  score: { position: 'absolute', left: 15, top: 32, fontSize: 22, fontWeight: 'bold', color: '#fff' },
+  dist: { position: 'absolute', left: 15, top: 62, fontSize: 13, color: '#888' },
+  combo: { position: 'absolute', left: 0, right: 0, top: 40, fontSize: 13, color: '#ffee22', textAlign: 'center' },
+  dailyBadge: { position: 'absolute', left: 0, right: 0, top: 68, fontSize: 10, color: '#55ffaa', textAlign: 'center' },
+  lives: { position: 'absolute', right: 15, top: 34, flexDirection: 'row-reverse', gap: 4 },
   heart: { color: '#cc0000', fontSize: 20, lineHeight: 20 },
-  oilWarning: { position: 'absolute', right: 12, top: 48, fontSize: 12, color: '#8888ff' },
+  oilWarning: { position: 'absolute', right: 12, top: 66, fontSize: 12, color: '#8888ff' },
   powerUpBar: {
     position: 'absolute',
     left: 10,

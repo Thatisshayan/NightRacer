@@ -14,6 +14,7 @@ import {
 } from '@expo-google-fonts/inter';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
+import { setAudioModeAsync } from 'expo-audio';
 import { setBaseUrl } from '@workspace/api-client-react';
 import { hydrateSettings } from '@/lib/settings';
 
@@ -26,6 +27,14 @@ SplashScreen.preventAutoHideAsync();
 // base URL. Points at the stable production alias rather than a
 // deployment-specific preview URL.
 setBaseUrl('https://nightracer.vercel.app');
+
+// Without this, iOS silences ALL app audio (SFX, music) whenever the
+// hardware ring/silent switch is set to silent — expo-audio's iOS default
+// respects that switch like a phone call ringer would, which is wrong for
+// a game. playsInSilentMode makes gameplay audio behave like every other
+// game (plays regardless of the switch, same as the web app's Web Audio
+// output, which has no equivalent silent-switch concept at all).
+setAudioModeAsync({ playsInSilentMode: true }).catch(() => {});
 
 // react-native-skia (used by the game's GameCanvas — see components/game/)
 // needs its CanvasKit-wasm binary loaded before any Skia component renders,

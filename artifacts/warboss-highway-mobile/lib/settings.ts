@@ -23,7 +23,7 @@ const getKey = (key: string) => `${STORAGE_PREFIX}${key}`;
 const cache = new Map<string, string>();
 
 const CAR_TYPES = Object.keys(CAR_STATS) as CarType[];
-const FIXED_KEYS = ['muted', 'selected_car', 'daily_challenge', 'tutorial_seen', 'scrap'];
+const FIXED_KEYS = ['muted', 'selected_car', 'daily_challenge', 'tutorial_seen', 'scrap', 'streak', 'last_play'];
 const ALL_KEYS = [
   ...FIXED_KEYS,
   ...CAR_TYPES.map((car) => `upgrades_${car}`),
@@ -129,5 +129,28 @@ export const Settings = {
 
   addScrap(amount: number): void {
     this.setScrap(this.getScrap() + amount);
+  },
+
+  // Ports the web app's getStreak() (Game.tsx) — call once per title-
+  // screen visit. Consecutive-day play extends the streak; a skipped day
+  // resets it to 1; playing again the same day returns the existing count
+  // unchanged. Unlike the web version (which shows a "BONUS APPLIED"
+  // banner but never actually applies one anywhere in the codebase — a
+  // pre-existing bug there), the mobile scrap-earned calculation in
+  // app/(tabs)/index.tsx actually multiplies by this bonus.
+  getStreak(): { count: number; isNew: boolean } {
+    const today = new Date().toDateString();
+    const last = getItem('last_play');
+    const count = Math.max(0, parseInt(getItem('streak') || '0', 10) || 0);
+
+    if (last === today) return { count, isNew: false };
+
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const newCount = last === yesterday.toDateString() ? count + 1 : 1;
+
+    setItem('streak', String(newCount));
+    setItem('last_play', today);
+    return { count: newCount, isNew: true };
   },
 };

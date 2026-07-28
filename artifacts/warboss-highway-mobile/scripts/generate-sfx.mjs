@@ -167,12 +167,34 @@ const SFX = {
 // startMusic() (two oscillators + LFO tremolo + lowpass filter). A true
 // biquad lowpass isn't worth implementing for this; using smoother
 // waveforms (sine + a softened square-ish tone) gets a similar "warm pad"
-// character without it. Rendered as a single seamless loop (phase-
-// continuous at the loop point since frequencies are constant, not
-// glided) and looped via expo-audio's isLooping instead of re-synthesizing
-// continuously.
+// character without it.
+//
+// For a genuinely seamless loop (no click at the seam), every oscillator
+// — including the tremolo LFO — must complete a whole number of cycles
+// within the loop duration, AND the duration itself must land on an exact
+// sample boundary (duration * SAMPLE_RATE must itself be an integer, or
+// accumulated phase drifts by a fraction of a sample per loop). This is
+// checked at generation time instead of assumed — an earlier version of
+// this script asserted the loop was seamless without actually verifying
+// the math, and it wasn't (329.6 and 494.4 cycles for the gameplay
+// track's two oscillators — an audible click every loop).
+function assertIntegerCycles(label, hz, durationSec) {
+  const cycles = hz * durationSec;
+  if (Math.abs(cycles - Math.round(cycles)) > 1e-9) {
+    throw new Error(`${label}: ${hz}Hz over ${durationSec}s = ${cycles} cycles (not an integer) — loop will click`);
+  }
+}
+
 function renderDrone(root, fifth, lfoHz, durationSec) {
-  const length = Math.ceil(durationSec * SAMPLE_RATE);
+  assertIntegerCycles('root', root, durationSec);
+  assertIntegerCycles('fifth', fifth, durationSec);
+  assertIntegerCycles('lfo', lfoHz, durationSec);
+  const exactLength = durationSec * SAMPLE_RATE;
+  if (Math.abs(exactLength - Math.round(exactLength)) > 1e-9) {
+    throw new Error(`duration ${durationSec}s * ${SAMPLE_RATE}Hz = ${exactLength} samples (not an integer) — loop will drift`);
+  }
+  const length = Math.round(exactLength);
+
   const samples = new Float32Array(length);
   let phase1 = 0;
   let phase2 = 0;
@@ -188,9 +210,12 @@ function renderDrone(root, fifth, lfoHz, durationSec) {
   return samples;
 }
 
+// 5s duration: at 44100Hz that's exactly 220500 samples, and every
+// oscillator (including both LFOs) completes a whole number of cycles —
+// verified by assertIntegerCycles above, not just asserted in a comment.
 const MUSIC = {
-  menu: () => renderDrone(110, 165, 0.4, 4),
-  gameplay: () => renderDrone(82.4, 123.6, 1.2, 4),
+  menu: () => renderDrone(110, 165, 0.4, 5),
+  gameplay: () => renderDrone(82.4, 123.6, 1.2, 5),
 };
 
 for (const [name, notes] of Object.entries(SFX)) {

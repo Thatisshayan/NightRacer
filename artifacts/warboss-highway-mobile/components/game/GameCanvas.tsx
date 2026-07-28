@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Canvas, Group, Image } from '@shopify/react-native-skia';
+import { BlurMask, Canvas, Circle, Group, Image, Line, LinearGradient, Path, RadialGradient } from '@shopify/react-native-skia';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { runOnJS } from 'react-native-reanimated';
-import type { GameRenderer, GameState } from '@workspace/game-core';
+import { CAR_STATS, type GameRenderer, type GameState } from '@workspace/game-core';
 import type { NativeGameEngine } from './native-engine';
 import { useSpriteImages, vehicleImage } from './sprites';
 
@@ -18,22 +18,30 @@ interface Frame {
   cameraY: number;
 }
 
-// Phase 2 of the "native mobile rebuild" plan: proves the shared
-// game-core simulation renders on native via react-native-skia. Renders
-// declaratively from getState()/cameraY each frame — react-native-skia's
-// <Canvas> here is a React scene graph (unlike Pixi's imperative
-// per-frame draw), so a render is triggered via a tick counter bumped
-// from the attached GameRenderer.sync() rather than an onDraw callback.
+function hexagonPath(cx: number, cy: number, r: number, rotation: number): string {
+  let d = '';
+  for (let i = 0; i < 6; i++) {
+    const a = (i * Math.PI) / 3 + rotation;
+    const x = cx + Math.cos(a) * r;
+    const y = cy + Math.sin(a) * r;
+    d += i === 0 ? `M ${x} ${y} ` : `L ${x} ${y} `;
+  }
+  return `${d}Z`;
+}
+
+// Phase 2 of the "native mobile rebuild" plan (now with the visual-parity
+// pass that was originally deferred): proves the shared game-core
+// simulation renders on native via react-native-skia, matching the web
+// renderer's feedback effects — crash particles, shield ring, hit-flicker,
+// screen shake, oil-slick glow, exhaust trail, player underglow — instead
+// of just sprites moving around with no juice. Renders declaratively from
+// getState()/cameraY each frame — react-native-skia's <Canvas> here is a
+// React scene graph (unlike Pixi's imperative per-frame draw), so a
+// render is triggered via a tick counter bumped from the attached
+// GameRenderer.sync() rather than an onDraw callback.
 //
 // Takes `engine` as a prop (owned by the screen — see useGameEngine.ts)
 // instead of creating its own, so HudOverlay can share the same instance.
-//
-// Deliberately out of scope for this pass (tracked as fast-follow, not
-// forgotten): the same road-tile vignette crop the web renderer applies
-// (cosmetic; needs a Skia clip/scale trick since <Image> has no
-// source-rect crop prop), obstacles/powerups visual polish (particles,
-// glow, exhaust), and audio (Phase 7, deferred even on web parity
-// grounds — see native-engine.ts).
 export function GameCanvas({ engine }: { engine: NativeGameEngine }) {
   const images = useSpriteImages();
   const frameRef = useRef<Frame | null>(null);
@@ -89,81 +97,165 @@ export function GameCanvas({ engine }: { engine: NativeGameEngine }) {
     engine.pointerUp();
   }
 
+  if (!frame) {
+    return (
+      <GestureDetector gesture={pan}>
+        <Canvas style={{ width: GAME_WIDTH, height: GAME_HEIGHT, backgroundColor: '#0c0c0e' }} />
+      </GestureDetector>
+    );
+  }
+
+  const { state, cameraY } = frame;
+  const now = performance.now();
+  const carColor = CAR_STATS[state.selectedCar].color;
+
+  // Screen shake — same random-jitter-scaled-by-screenShake as the web
+  // draw()'s `ctx.translate((Math.random()-0.5)*i, ...)`.
+  const shakeAmp = state.screenShake > 0 ? (state.screenShake / 300) * 9 : 0;
+  const shakeX = shakeAmp > 0 ? (Math.random() - 0.5) * shakeAmp : 0;
+  const shakeY = shakeAmp > 0 ? (Math.random() - 0.5) * shakeAmp : 0;
+
+  const flickerVisible = !state.player.isInvulnerable || Math.floor(now / 80) % 2 === 0;
+  const shieldActive = state.activePowerUp === 'SHIELD';
+  const invulnAlpha = state.player.isInvulnerable ? 0.7 + 0.3 * Math.sin(now * 0.03) : 1;
+
+  const playerImage = images.playerCars[state.selectedCar];
+  const underglowCy = state.player.y + state.player.height * 0.35;
+  const underglowR = state.player.width * 1.4;
+
   return (
     <GestureDetector gesture={pan}>
-    <Canvas style={{ width: GAME_WIDTH, height: GAME_HEIGHT, backgroundColor: '#0c0c0e' }}>
-      <Group transform={[{ translateY: frame ? -frame.cameraY : 0 }]}>
-        {images.roadTile && frame && renderRoad(images.roadTile, frame.state.roadOffset)}
+      <Canvas style={{ width: GAME_WIDTH, height: GAME_HEIGHT, backgroundColor: '#0c0c0e' }}>
+        <Group transform={[{ translateX: shakeX }, { translateY: shakeY - cameraY }]}>
+          {images.roadTile && renderRoad(images.roadTile, state.roadOffset)}
 
-        {frame?.state.obstacles.map((o, i) => {
-          const img = o.type === 'OIL_SLICK' ? images.oilSlick : images.debris;
-          if (!img) return null;
-          return (
-            <Image
-              key={`obstacle-${i}`}
-              image={img}
-              x={o.x - o.width / 2}
-              y={o.y - o.height / 2}
-              width={o.width}
-              height={o.height}
-              fit="fill"
-            />
-          );
-        })}
+          {state.obstacles.map((o, i) => {
+            const img = o.type === 'OIL_SLICK' ? images.oilSlick : images.debris;
+            if (!img) return null;
+            return (
+              <Image
+                key={`obstacle-${i}`}
+                image={img}
+                x={o.x - o.width / 2}
+                y={o.y - o.height / 2}
+                width={o.width}
+                height={o.height}
+                fit="fill"
+              />
+            );
+          })}
 
-        {frame?.state.vehicles.map((v, i) => {
-          const img = vehicleImage(images, v.type, v.variant);
-          if (!img) return null;
-          return (
-            <Image
-              key={`vehicle-${i}`}
-              image={img}
-              x={v.x - v.width / 2}
-              y={v.y - v.height / 2}
-              width={v.width}
-              height={v.height}
-              fit="fill"
-              transform={[{ rotate: Math.PI }]}
-              origin={{ x: v.x, y: v.y }}
-            />
-          );
-        })}
+          {state.vehicles.map((v, i) => {
+            const img = vehicleImage(images, v.type, v.variant);
+            if (!img) return null;
+            return (
+              <Image
+                key={`vehicle-${i}`}
+                image={img}
+                x={v.x - v.width / 2}
+                y={v.y - v.height / 2}
+                width={v.width}
+                height={v.height}
+                fit="fill"
+                transform={[{ rotate: Math.PI }]}
+                origin={{ x: v.x, y: v.y }}
+              />
+            );
+          })}
 
-        {frame?.state.powerups.map((p, i) => {
-          const img = images.powerups[p.type];
-          if (!img) return null;
-          return (
-            <Image
-              key={`powerup-${i}`}
-              image={img}
-              x={p.x - p.width / 2}
-              y={p.y - p.height / 2}
-              width={p.width}
-              height={p.height}
-              fit="contain"
-            />
-          );
-        })}
+          {state.powerups.map((p, i) => {
+            const img = images.powerups[p.type];
+            if (!img) return null;
+            return (
+              <Image
+                key={`powerup-${i}`}
+                image={img}
+                x={p.x - p.width / 2}
+                y={p.y - p.height / 2}
+                width={p.width}
+                height={p.height}
+                fit="contain"
+              />
+            );
+          })}
 
-        {frame && images.playerCars[frame.state.selectedCar] && (
-          <Image
-            image={images.playerCars[frame.state.selectedCar]}
-            x={frame.state.player.x - frame.state.player.width / 2}
-            y={frame.state.player.y - frame.state.player.height / 2}
-            width={frame.state.player.width}
-            height={frame.state.player.height}
-            fit="fill"
-          />
-        )}
-      </Group>
-    </Canvas>
+          {/* Exhaust trail — matches web drawExhaust()'s gradient plumes */}
+          {state.speedMultiplier > 1.1 && renderExhaust(state, carColor)}
+
+          {/* Player underglow */}
+          <Circle cx={state.player.x} cy={underglowCy} r={underglowR} opacity={0.33}>
+            <RadialGradient c={{ x: state.player.x, y: underglowCy }} r={underglowR} colors={[carColor, 'rgba(0,0,0,0)']} />
+          </Circle>
+
+          {/* Player car */}
+          {flickerVisible && playerImage && (
+            <Group opacity={invulnAlpha}>
+              {state.player.oilSlicked && (
+                <Circle
+                  cx={state.player.x}
+                  cy={state.player.y}
+                  r={Math.max(state.player.width, state.player.height) * 0.55}
+                  color="#8888ff"
+                  opacity={0.35}
+                >
+                  <BlurMask blur={14} style="normal" />
+                </Circle>
+              )}
+
+              {shieldActive && (
+                <Group>
+                  <Path
+                    path={hexagonPath(state.player.x, state.player.y, 38, now * 0.0012)}
+                    color="#00ffff"
+                    style="stroke"
+                    strokeWidth={2.5}
+                    opacity={0.9}
+                  />
+                  <Circle
+                    cx={state.player.x}
+                    cy={state.player.y}
+                    r={28 + (0.5 + 0.5 * Math.sin(now * 0.0012 * 4)) * 4}
+                    color="#00ffff"
+                    style="stroke"
+                    strokeWidth={1}
+                    opacity={0.5}
+                  />
+                </Group>
+              )}
+
+              <Image
+                image={playerImage}
+                x={state.player.x - state.player.width / 2}
+                y={state.player.y - state.player.height / 2}
+                width={state.player.width}
+                height={state.player.height}
+                fit="fill"
+              />
+            </Group>
+          )}
+
+          {/* Crash/hit particles — glowing circles, matches web draw()'s
+              radial-gradient particle rendering. */}
+          {state.particles.map((p, i) => {
+            const life = Math.max(0, p.life / p.maxLife);
+            if (life <= 0) return null;
+            return (
+              <Circle key={`particle-${i}`} cx={p.x} cy={p.y} r={p.size * 1.2} color={p.color} opacity={life}>
+                <BlurMask blur={p.size * 0.8} style="normal" />
+              </Circle>
+            );
+          })}
+        </Group>
+      </Canvas>
     </GestureDetector>
   );
 }
 
-// Simple full-tile repeat (no vignette crop yet — see the doc comment
-// above) covering the full game height plus one tile of overscroll in
-// each direction so the scroll never shows a gap at the seam.
+// Simple full-tile repeat — the source image is pre-cropped by
+// useSpriteImages()/cropCenterSquare() (see sprites.ts) to remove its
+// vignette before it ever reaches here, so a plain repeat (stretched to
+// each 80x80 destination cell via fit="fill") reads as continuous road
+// instead of a visible grid.
 function renderRoad(roadTile: NonNullable<ReturnType<typeof useSpriteImages>['roadTile']>, roadOffset: number) {
   const tiles: React.ReactNode[] = [];
   const cols = Math.ceil(GAME_WIDTH / ROAD_TILE_SIZE);
@@ -186,4 +278,33 @@ function renderRoad(roadTile: NonNullable<ReturnType<typeof useSpriteImages>['ro
     }
   }
   return <>{tiles}</>;
+}
+
+function renderExhaust(state: GameState, carColor: string) {
+  const spd = state.speedMultiplier;
+  const px = state.player.x;
+  const py = state.player.y + state.player.height / 2;
+  const hw = state.player.width * 0.3;
+  const len = spd * 22;
+  const hot = spd >= 2.2;
+  const plumeColor = hot ? 'rgba(255,90,10,0.6)' : 'rgba(180,190,200,0.4)';
+
+  const plume = (ox: number, width: number, key: string) => (
+    <Line key={key} p1={{ x: px + ox, y: py }} p2={{ x: px + ox, y: py + len }} style="stroke" strokeWidth={width} strokeCap="round">
+      <LinearGradient start={{ x: px + ox, y: py }} end={{ x: px + ox, y: py + len }} colors={[plumeColor, 'rgba(0,0,0,0)']} />
+    </Line>
+  );
+
+  return (
+    <Group>
+      {plume(-hw, 2.5, 'exhaust-l')}
+      {plume(hw, 2.5, 'exhaust-r')}
+      {spd >= 2.0 && plume(0, 1.5, 'exhaust-c')}
+      {spd >= 2.5 && (
+        <Line p1={{ x: px, y: py }} p2={{ x: px, y: py + len * 0.8 }} style="stroke" strokeWidth={state.player.width * 0.7} strokeCap="round">
+          <LinearGradient start={{ x: px, y: py }} end={{ x: px, y: py + len * 0.8 }} colors={[carColor, 'rgba(0,0,0,0)']} />
+        </Line>
+      )}
+    </Group>
+  );
 }

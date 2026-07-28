@@ -20,7 +20,8 @@ export function useNativeGameEngine(
   selectedCar: CarType,
   onGameOver: ((state: GameState) => void) | undefined,
   runKey: number | null,
-  dailyModifier?: DailyModifier
+  dailyModifier?: DailyModifier,
+  onPauseChange?: (paused: boolean) => void
 ): NativeGameEngine | null {
   const [engine, setEngine] = useState<NativeGameEngine | null>(null);
   // Read via refs so a new inline callback/object each render doesn't
@@ -29,6 +30,8 @@ export function useNativeGameEngine(
   onGameOverRef.current = onGameOver;
   const dailyModifierRef = useRef(dailyModifier);
   dailyModifierRef.current = dailyModifier;
+  const onPauseChangeRef = useRef(onPauseChange);
+  onPauseChangeRef.current = onPauseChange;
 
   useEffect(() => {
     if (runKey === null) {
@@ -44,6 +47,7 @@ export function useNativeGameEngine(
         isDailyChallenge: dailyModifierRef.current !== undefined,
         dailyModifier: dailyModifierRef.current,
         upgrades: Settings.getUpgrades(selectedCar),
+        onPauseChange: (paused) => onPauseChangeRef.current?.(paused),
       }
     );
     instance.start();

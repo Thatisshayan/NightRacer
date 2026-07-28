@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useGetGameStats, useGetLeaderboard } from '@workspace/api-client-react';
 
 type Period = 'all' | 'daily' | 'weekly';
@@ -17,20 +17,46 @@ const PERIOD_LABELS: Record<Period, string> = {
 // setup).
 export default function LeaderboardScreen() {
   const [period, setPeriod] = useState<Period>('all');
-  const { data: scores, isLoading: scoresLoading } = useGetLeaderboard({ limit: 50, period });
-  const { data: stats, isLoading: statsLoading } = useGetGameStats();
+  const {
+    data: scores,
+    isLoading: scoresLoading,
+    isError: scoresError,
+    refetch: refetchScores,
+    isRefetching: scoresRefetching,
+  } = useGetLeaderboard({ limit: 50, period });
+  const {
+    data: stats,
+    isLoading: statsLoading,
+    isError: statsError,
+    refetch: refetchStats,
+  } = useGetGameStats();
+
+  const handleRefresh = () => {
+    refetchScores();
+    refetchStats();
+  };
 
   return (
-    <ScrollView style={styles.root} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={styles.root}
+      contentContainerStyle={styles.content}
+      refreshControl={
+        <RefreshControl refreshing={scoresRefetching} onRefresh={handleRefresh} tintColor="#dc2626" />
+      }
+    >
       <Text style={styles.title}>KILL-BOARD</Text>
       <Text style={styles.subtitle}>GLOBAL RANKINGS & STATS</Text>
 
-      <View style={styles.statsGrid}>
-        <StatCard label="TOTAL DEPLOYMENTS" value={stats?.totalGamesPlayed} loading={statsLoading} />
-        <StatCard label="HIGHEST SCORE" value={stats?.highestScore} loading={statsLoading} />
-        <StatCard label="AVERAGE SCORE" value={stats ? Math.floor(stats.averageScore) : undefined} loading={statsLoading} />
-        <StatCard label="POWER-UPS BURNED" value={stats?.totalPowerupsUsed} loading={statsLoading} />
-      </View>
+      {statsError ? (
+        <RetryBanner message="Couldn't load stats." onRetry={() => refetchStats()} />
+      ) : (
+        <View style={styles.statsGrid}>
+          <StatCard label="TOTAL DEPLOYMENTS" value={stats?.totalGamesPlayed} loading={statsLoading} />
+          <StatCard label="HIGHEST SCORE" value={stats?.highestScore} loading={statsLoading} />
+          <StatCard label="AVERAGE SCORE" value={stats ? Math.floor(stats.averageScore) : undefined} loading={statsLoading} />
+          <StatCard label="POWER-UPS BURNED" value={stats?.totalPowerupsUsed} loading={statsLoading} />
+        </View>
+      )}
 
       <View style={styles.periodRow}>
         {(['all', 'weekly', 'daily'] as Period[]).map((p) => (
@@ -46,7 +72,9 @@ export default function LeaderboardScreen() {
         ))}
       </View>
 
-      {scoresLoading ? (
+      {scoresError ? (
+        <RetryBanner message="Couldn't load the leaderboard." onRetry={() => refetchScores()} />
+      ) : scoresLoading ? (
         <ActivityIndicator color="#dc2626" style={{ marginTop: 24 }} />
       ) : scores && scores.length > 0 ? (
         <View style={styles.table}>
@@ -78,6 +106,17 @@ export default function LeaderboardScreen() {
         </Text>
       )}
     </ScrollView>
+  );
+}
+
+function RetryBanner({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <View style={styles.retryBanner}>
+      <Text style={styles.retryMessage}>{message}</Text>
+      <Pressable onPress={onRetry} style={styles.retryButton}>
+        <Text style={styles.retryButtonText}>RETRY</Text>
+      </Pressable>
+    </View>
   );
 }
 
@@ -120,4 +159,8 @@ const styles = StyleSheet.create({
   rowSub: { fontSize: 10, color: '#888', marginTop: 2 },
   scoreValue: { fontSize: 15, fontWeight: '900', color: '#dc2626' },
   empty: { textAlign: 'center', color: '#666', fontSize: 12, marginTop: 24 },
+  retryBanner: { alignItems: 'center', gap: 10, paddingVertical: 20, borderWidth: 1, borderColor: 'rgba(255,80,80,0.3)', backgroundColor: 'rgba(255,80,80,0.06)' },
+  retryMessage: { fontSize: 12, color: '#ff8080' },
+  retryButton: { borderWidth: 1, borderColor: '#dc2626', paddingHorizontal: 16, paddingVertical: 8 },
+  retryButtonText: { fontSize: 11, fontWeight: '900', color: '#dc2626', letterSpacing: 1 },
 });

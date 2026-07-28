@@ -5,9 +5,11 @@ import { GameCanvas, GAME_WIDTH, GAME_HEIGHT } from '@/components/game/GameCanva
 import { HudOverlay } from '@/components/game/HudOverlay';
 import { TitleScreen } from '@/components/game/TitleScreen';
 import { GameOverScreen } from '@/components/game/GameOverScreen';
+import { PauseOverlay } from '@/components/game/PauseOverlay';
+import { TutorialOverlay } from '@/components/game/TutorialOverlay';
 import { useNativeGameEngine } from '@/components/game/useGameEngine';
 import { Settings } from '@/lib/settings';
-import { NativeAudio } from '@/lib/native-audio';
+import { NativeAudio, getMutedState, toggleMuted } from '@/lib/native-audio';
 
 type Screen = 'title' | 'playing' | 'gameover';
 
@@ -17,9 +19,11 @@ interface GameOverInfo {
   scrapEarned: number;
 }
 
-// Phase 2-6 of the "native mobile rebuild" plan: title/car-select ->
+// Phase 2-7 of the "native mobile rebuild" plan: title/car-select ->
 // playing -> game-over, same screen-state-machine shape as the web app's
-// Game.tsx. Leaderboard viewing lives on its own tab (see
+// Game.tsx, now with the pieces that were originally deferred: a pause
+// button/overlay, a mute toggle, the first-run tutorial, and the daily
+// streak system. Leaderboard viewing lives on its own tab (see
 // app/(tabs)/leaderboard.tsx) rather than this screen.
 export default function TabOneScreen() {
   const [screen, setScreen] = useState<Screen>('title');
@@ -27,6 +31,10 @@ export default function TabOneScreen() {
   const [isDailyChallenge, setIsDailyChallenge] = useState(() => Settings.getDailyChallenge());
   const [gameOverInfo, setGameOverInfo] = useState<GameOverInfo | null>(null);
   const [runKey, setRunKey] = useState(0);
+  const [isPaused, setIsPaused] = useState(false);
+  const [muted, setMuted] = useState(() => getMutedState());
+  const [showTutorial, setShowTutorial] = useState(false);
+  const [streak, setStreak] = useState(0);
 
   const dailyModifier = useMemo(() => getDailyModifier(), []);
 
@@ -43,18 +51,29 @@ export default function TabOneScreen() {
     });
   }, []);
 
+  const handleToggleMute = useCallback(() => {
+    setMuted(toggleMuted());
+  }, []);
+
   const handleGameOver = useCallback(
     (state: GameState) => {
       const isNewRecord = Settings.updatePersonalBest(selectedCar, state.score);
-      const scrapEarned =
-        Math.floor(state.score / 100) +
-        (state.isDailyChallenge ? Math.floor(state.score * dailyModifier.scrapBonus) : 0);
+      const streakBonus = 1 + streak * 0.05;
+      const scrapEarned = Math.floor(
+        (Math.floor(state.score / 100) + (state.isDailyChallenge ? Math.floor(state.score * dailyModifier.scrapBonus) : 0)) *
+          streakBonus
+      );
       Settings.addScrap(scrapEarned);
+      setIsPaused(false);
       setGameOverInfo({ state, isNewRecord, scrapEarned });
       setScreen('gameover');
     },
-    [selectedCar, dailyModifier]
+    [selectedCar, dailyModifier, streak]
   );
+
+  const handlePauseChange = useCallback((paused: boolean) => {
+    setIsPaused(paused);
+  }, []);
 
   // Only constructed while actually playing — the title/game-over screens
   // don't need an engine instance running behind them, unlike the web
@@ -66,21 +85,35 @@ export default function TabOneScreen() {
     selectedCar,
     handleGameOver,
     screen === 'playing' ? runKey : null,
-    isDailyChallenge ? dailyModifier : undefined
+    isDailyChallenge ? dailyModifier : undefined,
+    handlePauseChange
   );
 
   const startGame = useCallback(() => {
     NativeAudio.stop('menu');
     setGameOverInfo(null);
+    setIsPaused(false);
     setRunKey((k) => k + 1);
     setScreen('playing');
   }, []);
 
+  const quitToMenu = useCallback(() => {
+    engine?.cleanup();
+    setIsPaused(false);
+    setScreen('title');
+  }, [engine]);
+
   // Mirrors the web app's title-screen effect (Game.tsx: `if (screen ===
-  // 'title') playAudio('menu', true)`) — 'gameplay' music is started/
-  // stopped by the engine itself (see game-core's init()/cleanup()).
+  // 'title') { playAudio('menu', true); const { count } = getStreak();
+  // ... }`) — 'gameplay' music is started/stopped by the engine itself
+  // (see game-core's init()/cleanup()). Also gates the first-run
+  // tutorial the same way Game.tsx does with Settings.getTutorialSeen().
   useEffect(() => {
-    if (screen === 'title') NativeAudio.play('menu', true);
+    if (screen === 'title') {
+      NativeAudio.play('menu', true);
+      setStreak(Settings.getStreak().count);
+      if (!Settings.getTutorialSeen()) setShowTutorial(true);
+    }
   }, [screen]);
 
   return (
@@ -92,6 +125,7 @@ export default function TabOneScreen() {
           isDailyChallenge={isDailyChallenge}
           onToggleDailyChallenge={handleToggleDailyChallenge}
           personalBest={Settings.getPersonalBest(selectedCar)}
+          streak={streak}
           onStart={startGame}
         />
       )}
@@ -99,7 +133,15 @@ export default function TabOneScreen() {
       {screen === 'playing' && (
         <View style={styles.gameArea}>
           {engine && <GameCanvas engine={engine} />}
-          {engine && <HudOverlay engine={engine} />}
+          {engine && (
+            <HudOverlay
+              engine={engine}
+              onPause={() => engine.pause()}
+              muted={muted}
+              onToggleMute={handleToggleMute}
+            />
+          )}
+          {isPaused && <PauseOverlay onResume={() => engine?.resume()} onQuit={quitToMenu} />}
         </View>
       )}
 
@@ -112,6 +154,15 @@ export default function TabOneScreen() {
           scrapEarned={gameOverInfo.scrapEarned}
           onRestart={startGame}
           onMenu={() => setScreen('title')}
+        />
+      )}
+
+      {showTutorial && (
+        <TutorialOverlay
+          onDismiss={() => {
+            setShowTutorial(false);
+            Settings.setTutorialSeen(true);
+          }}
         />
       )}
     </View>

@@ -22,6 +22,7 @@ export function TitleScreen({
   isDailyChallenge,
   onToggleDailyChallenge,
   personalBest,
+  streak,
   onStart,
 }: {
   selectedCar: CarType;
@@ -29,6 +30,7 @@ export function TitleScreen({
   isDailyChallenge: boolean;
   onToggleDailyChallenge: () => void;
   personalBest: number;
+  streak: number;
   onStart: () => void;
 }) {
   const carImages = usePlayerCarImages();
@@ -110,6 +112,14 @@ export function TitleScreen({
         </Text>
       )}
 
+      {streak >= 2 && (
+        <View style={styles.streakBanner}>
+          <Text style={styles.streakText}>
+            🔥 DAY {streak} STREAK — BONUS ×{(1 + streak * 0.05).toFixed(2)} APPLIED
+          </Text>
+        </View>
+      )}
+
       <Pressable style={styles.toggleRow} onPress={onToggleDailyChallenge}>
         <View style={[styles.toggleTrack, isDailyChallenge && styles.toggleTrackOn]}>
           <View style={[styles.toggleThumb, isDailyChallenge && styles.toggleThumbOn]} />
@@ -166,6 +176,8 @@ const styles = StyleSheet.create({
   dotActive: { backgroundColor: '#dc2626' },
   personalBest: { fontSize: 11, color: '#888' },
   personalBestValue: { color: '#dc2626', fontWeight: '900' },
+  streakBanner: { backgroundColor: 'rgba(255,170,0,0.15)', borderWidth: 1, borderColor: 'rgba(255,170,0,0.4)', paddingHorizontal: 12, paddingVertical: 6 },
+  streakText: { fontSize: 10, fontWeight: '900', color: '#ffaa00' },
   toggleRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 4 },
   toggleTrack: { width: 44, height: 22, borderWidth: 2, borderColor: '#333', justifyContent: 'center' },
   toggleTrackOn: { borderColor: '#22c55e', backgroundColor: 'rgba(34,197,94,0.2)' },
