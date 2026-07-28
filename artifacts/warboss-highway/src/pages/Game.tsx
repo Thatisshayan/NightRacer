@@ -99,12 +99,14 @@ function CarPreview({ carType, selected }: { carType: CarType; selected: boolean
 // ── Main Page ──────────────────────────────────────────────────────────────────
 type Screen = 'title' | 'playing' | 'gameover';
 
-// Dev/QA flag for the in-progress Pixi.js renderer rewrite — visit with
-// `?renderer=pixi` in the URL. Off by default until Phase B reaches parity
-// with the Canvas 2D renderer (see the "Warboss Highway Pixi rewrite" plan).
-// Removed entirely once the rewrite finishes (Phase E).
+// Pixi.js (WebGL) is the default renderer now that the sprite pack (Phase E
+// of the "Warboss Highway Pixi rewrite" plan) is wired in — see
+// sprites.ts/pixi-renderer.ts. `?renderer=canvas2d` opts back into the
+// procedural Canvas 2D path for QA/debug comparison or as a manual escape
+// hatch if Pixi fails to init on a given device.
 const usePixiRenderer =
-  typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('renderer') === 'pixi';
+  typeof window === 'undefined' ||
+  new URLSearchParams(window.location.search).get('renderer') !== 'canvas2d';
 
 export default function Game() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -387,8 +389,8 @@ export default function Game() {
           className="block w-full h-full object-cover touch-none"
         />
 
-        {/* Pixi (WebGL) renderer host — dev-only behind ?renderer=pixi until
-            the rewrite reaches parity. Sits over the Canvas 2D element and
+        {/* Pixi (WebGL) renderer host — default renderer, opt out with
+            ?renderer=canvas2d. Sits over the Canvas 2D element and
             is pointer-events-none so input still reaches the canvas, which
             owns all touch/keyboard listeners regardless of active renderer.
             Stays visible through 'gameover' too (not just 'playing') since

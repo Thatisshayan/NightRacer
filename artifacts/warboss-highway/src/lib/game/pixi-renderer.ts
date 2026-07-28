@@ -1,8 +1,15 @@
 import { Application, Container, Graphics, Sprite, TilingSprite } from 'pixi.js';
 import { GlowFilter, MotionBlurFilter } from 'pixi-filters';
 import type { GameRenderer, GameState, CarType, Vehicle, Obstacle, PowerUpItem, Particle } from './engine';
-import { generatePlaceholderTextures, type SpriteTextures } from './sprites';
+import { loadSpriteTextures, generatePlaceholderTextures, type SpriteTextures } from './sprites';
 import { Settings } from './settings';
+
+function vehicleTexture(textures: SpriteTextures, v: Vehicle) {
+  if (v.type === 'BOSS') return textures.bossVehicle;
+  const variants = textures.enemyVehicles[v.type as keyof typeof textures.enemyVehicles];
+  const idx = Math.min(3, Math.max(1, v.variant || 1)) - 1;
+  return variants[idx];
+}
 
 // A pooled sprite keyed by the backing GameState object's own identity (the
 // arrays never get new objects for the same on-screen entity, only
@@ -129,7 +136,13 @@ export class PixiRenderer implements GameRenderer {
     const app = new Application();
     await app.init({ width, height, backgroundAlpha: 0, antialias: true });
     container.appendChild(app.canvas);
-    const textures = generatePlaceholderTextures(app.renderer);
+    let textures: SpriteTextures;
+    try {
+      textures = await loadSpriteTextures(app.renderer);
+    } catch (err) {
+      console.error('[pixi] sprite pack failed to load, falling back to placeholder art', err);
+      textures = generatePlaceholderTextures(app.renderer);
+    }
     return new PixiRenderer(app, textures);
   }
 
@@ -178,9 +191,8 @@ export class PixiRenderer implements GameRenderer {
 
     syncPool(
       this.vehiclePool, state.vehicles, this.gen, this.vehicleLayer,
-      () => { const s = new Sprite(this.textures.enemyVehicle); s.anchor.set(0.5); return s; },
+      (v) => { const s = new Sprite(vehicleTexture(this.textures, v)); s.anchor.set(0.5); return s; },
       (v, s) => {
-        s.tint = v.color;
         s.width = v.width;
         s.height = v.height;
         s.x = v.x;
@@ -221,17 +233,32 @@ export class PixiRenderer implements GameRenderer {
   }
 
   destroy() {
-    // generateTexture()'d textures aren't owned by the scene graph, so
-    // app.destroy({children: true}) won't reclaim their GPU memory on its
-    // own — destroy them explicitly (each restart otherwise regenerates a
-    // fresh set via generatePlaceholderTextures without freeing the old one).
-    for (const texture of Object.values(this.textures.playerCars)) texture.destroy(true);
-    for (const texture of Object.values(this.textures.powerups)) texture.destroy(true);
-    this.textures.roadTile.destroy(true);
-    this.textures.enemyVehicle.destroy(true);
-    this.textures.oilSlick.destroy(true);
-    this.textures.debris.destroy(true);
-    this.textures.softGlow.destroy(true);
+    if (this.textures.assetUrls) {
+      // Real sprite-pack textures are cached by pixi.Assets and meant to be
+      // reused across restarts (menu -> play -> game over -> play again)
+      // instead of re-fetched every time. Destroying or unloading them here
+      // raced the next PixiRenderer.create()'s Assets.load() of the same
+      // URLs — loading a key that's mid-unload never resolved, silently
+      // stalling the whole renderer (no error, Pixi just never attached).
+      // Leave the shared cache alone; only clean up what this instance
+      // derived/owns itself: the cropped road-tile wrapper (not its shared
+      // source) and the runtime-generated glow texture.
+      this.textures.roadTile.destroy(false);
+    } else {
+      // generateTexture()'d placeholder textures aren't Assets-managed and
+      // aren't owned by the scene graph either, so app.destroy({children:
+      // true}) won't reclaim their GPU memory — destroy them explicitly.
+      for (const texture of Object.values(this.textures.playerCars)) texture.destroy(true);
+      for (const texture of Object.values(this.textures.powerups)) texture.destroy(true);
+      for (const variants of Object.values(this.textures.enemyVehicles)) {
+        variants.forEach((t) => t.destroy(true));
+      }
+      this.textures.roadTile.destroy(true);
+      this.textures.bossVehicle.destroy(true);
+      this.textures.oilSlick.destroy(true);
+      this.textures.debris.destroy(true);
+    }
+    this.textures.softGlow.destroy(true); // always runtime-generated, never Assets-managed
 
     this.app.destroy(true, { children: true });
   }

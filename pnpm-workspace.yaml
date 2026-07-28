@@ -47,8 +47,15 @@ catalog:
   '@tailwindcss/vite': ^4.1.14
   '@tanstack/react-query': ^5.90.21
   '@types/node': ^25.3.3
-  '@types/react': ^19.2.0
-  '@types/react-dom': ^19.2.0
+  # Must track the `react`/`react-dom` pin below (19.1.0) — letting these
+  # drift to a newer major/minor than the actual runtime resolves two
+  # incompatible @types/react-dom builds across the workspace (one paired
+  # with @types/react@19.1.x, one with @types/react@19.2.x), which surfaces
+  # as spurious "two different types ... are unrelated" TS errors on any
+  # component using polymorphic refs/props (e.g. @radix-ui/react-slot,
+  # react-day-picker).
+  '@types/react': ^19.1.0
+  '@types/react-dom': ^19.1.0
   '@vitejs/plugin-react': ^5.0.4
   class-variance-authority: ^0.7.1
   clsx: ^2.1.1

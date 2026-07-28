@@ -56,7 +56,10 @@ export const CAR_STATS: Record<CarType, CarStats> = {
     stats: 'SPD ███░░  ARM ███░░',
   },
   DEATHSLED: {
-    width: 22,
+    // Was 22 — narrow enough that it could thread every gap in traffic
+    // without ever overlapping an enemy's hitbox, making the car
+    // effectively uncrashable. Widened while keeping it the 2nd-narrowest.
+    width: 30,
     height: 46,
     speedMod: 1.15,
     color: '#3d6db8',
@@ -74,7 +77,10 @@ export const CAR_STATS: Record<CarType, CarStats> = {
     stats: 'SPD █░░░░  ARM █████',
   },
   PHANTOM: {
-    width: 16,
+    // Was 16 — same "practically unhittable" issue as DEATHSLED, worse.
+    // Kept as the narrowest car for its "ghost-thin" identity, just no
+    // longer thin enough to dodge everything by default.
+    width: 24,
     height: 42,
     speedMod: 1.35,
     color: '#00ffcc',
@@ -104,6 +110,10 @@ export interface Vehicle extends GameObject {
   speed: number;
   lane: number;
   passed: boolean;
+  // 1-3, picked at spawn — selects which of the sprite pack's 3 hand-drawn
+  // variants (e.g. sedan_v1/v2/v3) this instance renders as. Unused by BOSS,
+  // which has a single dedicated sprite.
+  variant: number;
 }
 
 export interface PowerUpItem extends GameObject {
@@ -174,6 +184,25 @@ const COMBO_DECAY_MS = 3000;
 export const POP_DURATION_MS = 220;
 const NEAR_MISS_EXTRA_PX = 22;
 
+// Traffic spawns on a bounded cooldown (min/max ms, scaled down as speed/
+// distance ramp up) instead of a flat per-frame probability. A flat
+// probability is bursty by nature — long empty stretches followed by
+// clusters — which read as "sometimes no enemy, sometimes a ton" even
+// though the average rate is unchanged. A cooldown keeps gaps consistent.
+const VEHICLE_SPAWN_MIN_MS = 550;
+const VEHICLE_SPAWN_MAX_MS = 1350;
+const POWERUP_SPAWN_MIN_MS = 5000;
+const POWERUP_SPAWN_MAX_MS = 11000;
+const OBSTACLE_SPAWN_MIN_MS = 1800;
+const OBSTACLE_SPAWN_MAX_MS = 4200;
+// How close (px) a newly-spawned entity may land to an existing vehicle/
+// obstacle it could otherwise spawn on top of or immediately merge into.
+const SPAWN_X_BUFFER = 12;
+// Minimum trailing gap enforced between two vehicles sharing overlapping
+// x-ranges, so a faster car spawned behind a slower one can't visually
+// clip through it before passing.
+const VEHICLE_MIN_TRAIL_GAP = 46;
+
 export class GameEngine {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
@@ -201,6 +230,10 @@ export class GameEngine {
   private initialPlayerY: number = 0;
   private grainPattern: CanvasPattern | null = null;
   private pixiRenderer: GameRenderer | null = null;
+  // Bounded spawn-cooldown timers — see VEHICLE_SPAWN_MIN_MS doc comment.
+  private vehicleSpawnTimer: number = 400;
+  private powerupSpawnTimer: number = POWERUP_SPAWN_MIN_MS;
+  private obstacleSpawnTimer: number = OBSTACLE_SPAWN_MIN_MS;
   // prefers-reduced-motion: screen shake is a known motion-sickness trigger,
   // so it's disabled entirely under reduced motion. The hit still registers
   // via the existing particle burst + invulnerability flicker, which aren't
@@ -600,34 +633,37 @@ export class GameEngine {
       }
     }
 
-    // Spawn vehicles (scale up with distance to counter top-camping)
-    const spawnRate = 0.02 * speedMult * Math.min(2.2, 1 + state.distance / 18000) * this.dailyModifier.spawnMult;
-    let lastLane: number | undefined;
-    if (this.rng() < spawnRate) {
-      lastLane = this.spawnVehicle(currentSpeed);
-    }
-    // Occasional pairs at higher distances
-    if (state.distance > 25000 && this.rng() < spawnRate * 0.25) {
-      this.spawnVehicle(currentSpeed, lastLane);
+    // Spawn vehicles — bounded cooldown scheduler (see VEHICLE_SPAWN_MIN_MS
+    // doc comment above) instead of a flat per-frame probability.
+    const densityRamp = Math.min(2.2, 1 + state.distance / 18000);
+    this.vehicleSpawnTimer -= dt;
+    if (this.vehicleSpawnTimer <= 0) {
+      const lane = this.spawnVehicle(currentSpeed);
+      // Occasional pairs at higher distances
+      if (state.distance > 25000 && lane !== undefined && this.rng() < 0.3) {
+        this.spawnVehicle(currentSpeed, lane);
+      }
+      const factor = Math.max(0.4, speedMult * densityRamp * this.dailyModifier.spawnMult);
+      const base = VEHICLE_SPAWN_MIN_MS + this.rng() * (VEHICLE_SPAWN_MAX_MS - VEHICLE_SPAWN_MIN_MS);
+      this.vehicleSpawnTimer = Math.max(200, base / factor);
     }
 
     // Spawn powerups
-    if (this.rng() < 0.002) {
-      const types: PowerUpType[] = ['SHIELD', 'SLOWMO', 'SCORE_BLAST', 'EXTRA_LIFE'];
-      const type = types[Math.floor(this.rng() * types.length)];
-      const lane = Math.floor(this.rng() * 3);
-      state.powerups.push({ type, x: state.lanes[lane], y: -50, width: 30, height: 30 });
+    this.powerupSpawnTimer -= dt;
+    if (this.powerupSpawnTimer <= 0) {
+      this.trySpawnPowerup();
+      this.powerupSpawnTimer = POWERUP_SPAWN_MIN_MS + this.rng() * (POWERUP_SPAWN_MAX_MS - POWERUP_SPAWN_MIN_MS);
     }
 
     // Spawn obstacles (only after first 10 seconds)
-    if (state.distance > 10000 && this.rng() < 0.005 * speedMult * this.dailyModifier.obstacleMult) {
-      const type: ObstacleType = this.rng() < 0.5 ? 'OIL_SLICK' : 'DEBRIS';
-      const lane = Math.floor(this.rng() * 3);
-      state.obstacles.push({
-        type, x: state.lanes[lane], y: -80,
-        width: type === 'OIL_SLICK' ? 55 : 28,
-        height: type === 'OIL_SLICK' ? 28 : 22,
-      });
+    if (state.distance > 10000) {
+      this.obstacleSpawnTimer -= dt;
+      if (this.obstacleSpawnTimer <= 0) {
+        this.trySpawnObstacle();
+        const factor = Math.max(0.4, speedMult * this.dailyModifier.obstacleMult);
+        const base = OBSTACLE_SPAWN_MIN_MS + this.rng() * (OBSTACLE_SPAWN_MAX_MS - OBSTACLE_SPAWN_MIN_MS);
+        this.obstacleSpawnTimer = Math.max(400, base / factor);
+      }
     }
 
     // Update vehicles
@@ -670,6 +706,25 @@ export class GameEngine {
       // Collision
       if (!state.player.isInvulnerable && state.activePowerUp !== 'SHIELD' && this.checkCollision(state.player, v)) {
         this.handleCrash();
+      }
+    }
+
+    // Separate vehicles with overlapping x-ranges that have crept closer
+    // than the minimum trailing gap — without this, a fast vehicle spawned
+    // behind a slow one (or a pair spawned close together) can visually
+    // clip through / merge with it before passing off-screen.
+    for (let i = 0; i < state.vehicles.length; i++) {
+      const behind = state.vehicles[i];
+      for (let j = 0; j < state.vehicles.length; j++) {
+        if (i === j) continue;
+        const ahead = state.vehicles[j];
+        if (ahead.y <= behind.y) continue;
+        const xOverlap = Math.abs(behind.x - ahead.x) < (behind.width + ahead.width) / 2 + 6;
+        if (!xOverlap) continue;
+        const gap = ahead.y - behind.y - (behind.height + ahead.height) / 2;
+        if (gap < VEHICLE_MIN_TRAIL_GAP) {
+          behind.y = ahead.y - (behind.height + ahead.height) / 2 - VEHICLE_MIN_TRAIL_GAP;
+        }
       }
     }
 
@@ -718,10 +773,37 @@ export class GameEngine {
     if (state.powerUpsUsed >= 5) this.grantAchievement('powerup_addict');
   }
 
-  private spawnVehicle(currentSpeed: number, excludeLane?: number): number {
+  // True if no existing vehicle/obstacle sits within `xBuffer` horizontally
+  // and `yBuffer` vertically of (x, spawnY) — used to keep new spawns from
+  // landing on top of / merging into something already there.
+  private isAreaClear(x: number, width: number, spawnY: number, yBuffer: number, xBuffer = SPAWN_X_BUFFER): boolean {
     const state = this.state;
-    let lane = Math.floor(this.rng() * 3);
-    if (excludeLane !== undefined && lane === excludeLane) lane = (lane + 1) % 3;
+    const overlaps = (ox: number, ow: number, oy: number) =>
+      Math.abs(oy - spawnY) < yBuffer && Math.abs(ox - x) < (ow + width) / 2 + xBuffer;
+    for (const v of state.vehicles) if (overlaps(v.x, v.width, v.y)) return false;
+    for (const o of state.obstacles) if (overlaps(o.x, o.width, o.y)) return false;
+    return true;
+  }
+
+  // Picks a lane + an x offset jittered across that lane's full width
+  // (instead of always dead-center — see the "only the middle lane ever has
+  // traffic" / "idle on a lane boundary is safe" reports), retrying a few
+  // times against isAreaClear so it doesn't land on an existing vehicle.
+  private findSafeSpawnX(width: number, excludeLane?: number): { lane: number; x: number } | null {
+    const state = this.state;
+    const laneWidth = this.canvas.width / 3;
+    const jitterRange = Math.max(0, laneWidth / 2 - width / 2 - 8);
+    for (let attempt = 0; attempt < 6; attempt++) {
+      let lane = Math.floor(this.rng() * 3);
+      if (excludeLane !== undefined && lane === excludeLane) lane = (lane + 1) % 3;
+      const x = state.lanes[lane] + (this.rng() * 2 - 1) * jitterRange;
+      if (this.isAreaClear(x, width, -100, 170)) return { lane, x };
+    }
+    return null;
+  }
+
+  private spawnVehicle(currentSpeed: number, excludeLane?: number): number | undefined {
+    const state = this.state;
     const isTank = this.rng() < 0.01;
     let type: VehicleType = isTank
       ? 'TANK'
@@ -733,11 +815,45 @@ export class GameEngine {
     if (type === 'BOXTRUCK') { width = 35; height = 70; speed = currentSpeed * 0.7; }
     if (type === 'TANK')     { width = 50; height = 80; speed = currentSpeed * 0.4; }
 
+    const spot = this.findSafeSpawnX(width, excludeLane);
+    if (!spot) return undefined;
+
     const colors = ['#555', '#453c31', '#222', '#4b5320', '#cc0000', '#dcdcdc'];
     const color = colors[Math.floor(this.rng() * colors.length)];
+    const variant = Math.floor(this.rng() * 3) + 1;
 
-    state.vehicles.push({ type, x: state.lanes[lane], y: -100, width, height, color, speed, lane, passed: false });
-    return lane;
+    state.vehicles.push({ type, x: spot.x, y: -100, width, height, color, speed, lane: spot.lane, passed: false, variant });
+    return spot.lane;
+  }
+
+  private trySpawnPowerup() {
+    const state = this.state;
+    const types: PowerUpType[] = ['SHIELD', 'SLOWMO', 'SCORE_BLAST', 'EXTRA_LIFE'];
+    const width = 30;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const lane = Math.floor(this.rng() * 3);
+      const x = state.lanes[lane];
+      if (this.isAreaClear(x, width, -50, 150)) {
+        const type = types[Math.floor(this.rng() * types.length)];
+        state.powerups.push({ type, x, y: -50, width, height: 30 });
+        return;
+      }
+    }
+  }
+
+  private trySpawnObstacle() {
+    const state = this.state;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const type: ObstacleType = this.rng() < 0.5 ? 'OIL_SLICK' : 'DEBRIS';
+      const width = type === 'OIL_SLICK' ? 55 : 28;
+      const height = type === 'OIL_SLICK' ? 28 : 22;
+      const lane = Math.floor(this.rng() * 3);
+      const x = state.lanes[lane];
+      if (this.isAreaClear(x, width, -80, 150)) {
+        state.obstacles.push({ type, x, y: -80, width, height });
+        return;
+      }
+    }
   }
 
   private spawnBoss(currentSpeed: number) {
@@ -760,11 +876,15 @@ export class GameEngine {
       speed: currentSpeed * 0.25,
       lane: 1,
       passed: false,
+      variant: 1,
     });
   }
 
   private checkCollision(r1: GameObject, r2: GameObject) {
-    const shrink = 5;
+    // Was 5px per side (10px total forgiveness) — stacked with the narrow
+    // player cars (see CAR_STATS DEATHSLED/PHANTOM comments), the effective
+    // hitbox shrank enough that careful play could avoid ever colliding.
+    const shrink = 3;
     return (
       r1.x - r1.width / 2 + shrink < r2.x + r2.width / 2 - shrink &&
       r1.x + r1.width / 2 - shrink > r2.x - r2.width / 2 + shrink &&
