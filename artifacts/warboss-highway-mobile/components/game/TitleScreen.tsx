@@ -8,6 +8,14 @@ import { Settings } from '@/lib/settings';
 const CAR_TYPES = Object.keys(CAR_STATS) as CarType[];
 const UPGRADE_COST = 100;
 const PREVIEW_SIZE = 90;
+// The garage cards used to be plain bordered boxes with just a text label —
+// visually flatter than the vehicle carousel right above them. A small
+// glyph per stat is a cheap, no-new-asset way to close that gap.
+const UPGRADE_ICON: Record<'speed' | 'armor' | 'handling', string> = {
+  speed: '⚡',
+  armor: '⛨',
+  handling: '⚙',
+};
 
 // Native port of the web app's title/car-select screen (see
 // artifacts/warboss-highway/src/pages/Game.tsx's title JSX) — car
@@ -144,6 +152,7 @@ export function TitleScreen({
               disabled={!affordable}
               style={[styles.upgradeButton, affordable && styles.upgradeButtonActive]}
             >
+              <Text style={styles.upgradeIcon}>{UPGRADE_ICON[type]}</Text>
               <Text style={styles.upgradeLabel}>{type.toUpperCase()}</Text>
               <Text style={styles.upgradeLevel}>Lv {level}/5</Text>
             </Pressable>
@@ -191,6 +200,7 @@ const styles = StyleSheet.create({
   garageGrid: { flexDirection: 'row', gap: 8, width: '100%' },
   upgradeButton: { flex: 1, alignItems: 'center', padding: 8, borderWidth: 2, borderColor: '#333', backgroundColor: 'rgba(255,255,255,0.03)' },
   upgradeButtonActive: { borderColor: '#ffaa00', backgroundColor: 'rgba(255,170,0,0.1)' },
+  upgradeIcon: { fontSize: 16, color: '#ffaa00', marginBottom: 2 },
   upgradeLabel: { fontSize: 10, fontWeight: '900', color: '#fff' },
   upgradeLevel: { fontSize: 10, color: '#888', marginTop: 2 },
   garageHint: { fontSize: 10, color: '#666', textAlign: 'center' },

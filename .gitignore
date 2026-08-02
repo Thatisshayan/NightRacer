@@ -8,6 +8,9 @@ out-tsc
 .expo
 .expo-shared
 
+# agent scratch (emulator screenshots etc.)
+.scratch
+
 # dependencies
 node_modules
 
