@@ -109,3 +109,19 @@ Rule 12 / Rule 11. This register survives the session. Future agents resume from
   the Preview-only `DATABASE_URL`, replacing the shared one. Verified isolation for real,
   not assumed: inserted a marker row directly into the preview branch's `scores` table,
   then queried production's `scores` table directly — came back empty.
+- [2026-08-02] Native mobile (`GameCanvas.tsx`) road/vehicle visual quality — **status:
+  partially resolved, more queued.** Real-device (Android emulator) playtest confirmed the
+  road read as flat near-black with no lane markers, and traffic sprites were too dim/
+  desaturated to read as threats at a glance. Fixed: road contrast/brightness boost (Skia
+  ColorMatrix), two dashed lane-divider lines at the actual lane boundaries, vehicle
+  contrast/brightness boost + soft ground-shadow. Verified visually via emulator screenshot
+  before/after (first verification attempt was a false pass — Metro served a stale cached
+  bundle across an app relaunch; caught via a suspicious "(1 module)" bundler log line,
+  fixed by restarting Metro with `--clear`). Assessment: lane dividers are a clear win,
+  contrast boosts are real but modest/conservative. Still queued, not started: lives/hearts
+  icon (generic heart emoji, doesn't fit the grimdark theme), speed dial widget styling,
+  bottom tab bar reskin (stock white iOS tab bar under a near-black game), canvas framing/
+  vignette, HUD text depth (flat white-on-black, no shadow/backing), garage upgrade card
+  icons. Scope explicitly set by the project owner as "visually top-notch, mobile first,
+  then web app" — resume by working through the queued list, then port equivalent fixes to
+  `artifacts/warboss-highway`'s web renderer.
