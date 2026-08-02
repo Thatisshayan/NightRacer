@@ -62,6 +62,14 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
   const frameRef = useRef<Frame | null>(null);
   const [, setTick] = useState(0);
 
+  // Perf: the tile grid's x/y positions never change relative to each other —
+  // only the whole grid scrolls. Previously renderRoad() rebuilt every
+  // <Image> in the grid from roadOffset on every single engine tick (60x/sec),
+  // which meant reconciling dozens of Skia nodes a frame for no reason. Build
+  // the grid once (it only depends on the road tile image loading), and
+  // scroll it with a single transform below instead.
+  const roadTiles = useMemo(() => (images.roadTile ? buildRoadGrid(images.roadTile) : null), [images.roadTile]);
+
   useEffect(() => {
     const renderer: GameRenderer = {
       sync(state, cameraY) {
@@ -143,7 +151,9 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
     <GestureDetector gesture={pan}>
       <Canvas style={{ width: displayWidth, height: displayHeight, backgroundColor: '#0c0c0e' }}>
         <Group transform={[{ scale }, { translateX: shakeX }, { translateY: shakeY - cameraY }]}>
-          {images.roadTile && renderRoad(images.roadTile, state.roadOffset)}
+          {roadTiles && (
+            <Group transform={[{ translateY: state.roadOffset % ROAD_TILE_SIZE }]}>{roadTiles}</Group>
+          )}
 
           {state.obstacles.map((o, i) => {
             const img = o.type === 'OIL_SLICK' ? images.oilSlick : images.debris;
@@ -272,11 +282,19 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
 // vignette before it ever reaches here, so a plain repeat (stretched to
 // each 80x80 destination cell via fit="fill") reads as continuous road
 // instead of a visible grid.
-function renderRoad(roadTile: NonNullable<ReturnType<typeof useSpriteImages>['roadTile']>, roadOffset: number) {
+//
+// Perf: this used to be called inline every render with `roadOffset` baked
+// into each tile's `y`, so the whole grid (cols * rows Image elements) was
+// torn down and rebuilt by React/Skia's reconciler on every engine tick.
+// The grid's tile positions don't actually depend on roadOffset — only the
+// grid's position as a whole scrolls — so this now builds a static grid
+// once (memoized on the road tile image loading) anchored at a fixed
+// yStart, and the caller scrolls it with a single Group transform instead.
+function buildRoadGrid(roadTile: NonNullable<ReturnType<typeof useSpriteImages>['roadTile']>) {
   const tiles: React.ReactNode[] = [];
   const cols = Math.ceil(GAME_WIDTH / ROAD_TILE_SIZE);
   const rows = Math.ceil((GAME_HEIGHT + TOP_OVERSCAN) / ROAD_TILE_SIZE) + 2;
-  const yStart = -ROAD_TILE_SIZE - TOP_OVERSCAN + (roadOffset % ROAD_TILE_SIZE);
+  const yStart = -ROAD_TILE_SIZE - TOP_OVERSCAN;
 
   for (let row = 0; row < rows; row++) {
     for (let col = 0; col < cols; col++) {
