@@ -3,16 +3,19 @@ import {
   BlurMask,
   Canvas,
   Circle,
+  ColorMatrix,
+  DashPathEffect,
   Group,
   Image,
   Line,
   LinearGradient,
+  Paint,
   Path,
   RadialGradient,
   type SkImage,
 } from '@shopify/react-native-skia';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import { runOnJS, useSharedValue } from 'react-native-reanimated';
+import { runOnJS, useDerivedValue, useSharedValue } from 'react-native-reanimated';
 import { CAR_STATS, type GameRenderer, type GameState, type Obstacle, type Particle, type PowerUpItem, type Vehicle } from '@workspace/game-core';
 import type { NativeGameEngine } from './native-engine';
 import { useSpriteImages, vehicleImage } from './sprites';
@@ -42,6 +45,27 @@ const MAX_VEHICLES = 24;
 const MAX_OBSTACLES = 12;
 const MAX_POWERUPS = 6;
 const MAX_PARTICLES = 60;
+
+// Visual fix (2026-08-02): a real device/emulator playtest showed the road
+// reading as near-flat black (grid seams barely visible, no lane markers)
+// and traffic sprites blending into it (correct art, but too dim/desaturated
+// to read as threats at a glance — the whole point of a dodge game). Rather
+// than re-author the source PNGs (shared with the web renderer — recoloring
+// them risks visual divergence across platforms), boost contrast/brightness
+// at draw time via a Skia ColorMatrix, the same standard contrast/brightness
+// transform used by CSS filters: output = (input - 0.5) * contrast + 0.5 +
+// brightness, applied per RGB channel, alpha untouched.
+function contrastBrightnessMatrix(contrast: number, brightness: number): number[] {
+  const t = (1 - contrast) / 2 + brightness;
+  return [
+    contrast, 0, 0, 0, t,
+    0, contrast, 0, 0, t,
+    0, 0, contrast, 0, t,
+    0, 0, 0, 1, 0,
+  ];
+}
+const ROAD_BOOST = contrastBrightnessMatrix(1.3, 0.05);
+const VEHICLE_BOOST = contrastBrightnessMatrix(1.2, 0.12);
 
 function hexagonPath(cx: number, cy: number, r: number, rotation: number): string {
   let d = '';
@@ -91,12 +115,23 @@ interface SpriteSlotHandle {
 const IDENTITY_TRANSFORM: { rotate: number }[] = [{ rotate: 0 }];
 
 const SpriteSlot = React.memo(
-  forwardRef<SpriteSlotHandle, { fit: 'fill' | 'contain' }>(function SpriteSlot({ fit }, ref) {
+  forwardRef<SpriteSlotHandle, { fit: 'fill' | 'contain'; boost?: number[]; shadow?: boolean }>(function SpriteSlot(
+    { fit, boost, shadow },
+    ref
+  ) {
     const x = useSharedValue(0);
     const y = useSharedValue(0);
     const w = useSharedValue(0);
     const h = useSharedValue(0);
     const opacity = useSharedValue(0);
+    // Ground shadow (vehicles only, see `shadow` prop) — a soft dark
+    // ellipse anchored slightly below the sprite's center, derived
+    // reactively from the same x/y/w/h SharedValues rather than tracked
+    // separately, so it never needs its own imperative updates.
+    const shadowCx = useDerivedValue(() => x.value + w.value / 2);
+    const shadowCy = useDerivedValue(() => y.value + h.value * 0.62);
+    const shadowR = useDerivedValue(() => Math.max(w.value, h.value) * 0.42);
+    const shadowOpacity = useDerivedValue(() => opacity.value * 0.4);
     // transform/origin are whole-object SharedValues (not derived from
     // x/y/w/h) so rotation always pivots on the entity's own center —
     // mutated together with x/y/w/h in `set()` below. Passing plain
@@ -133,7 +168,16 @@ const SpriteSlot = React.memo(
 
     if (!image) return null;
     return (
-      <Image image={image} x={x} y={y} width={w} height={h} opacity={opacity} fit={fit} transform={transform} origin={origin} />
+      <>
+        {shadow && (
+          <Circle cx={shadowCx} cy={shadowCy} r={shadowR} color="#000000" opacity={shadowOpacity}>
+            <BlurMask blur={6} style="normal" />
+          </Circle>
+        )}
+        <Image image={image} x={x} y={y} width={w} height={h} opacity={opacity} fit={fit} transform={transform} origin={origin}>
+          {boost && <ColorMatrix matrix={boost} />}
+        </Image>
+      </>
     );
   })
 );
@@ -460,14 +504,18 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
     <GestureDetector gesture={pan}>
       <Canvas style={{ width: displayWidth, height: displayHeight, backgroundColor: '#0c0c0e' }}>
         <Group transform={groupTransform}>
-          {roadTiles && <Group transform={roadTransform}>{roadTiles}</Group>}
+          {roadTiles && (
+            <Group transform={roadTransform} layer={<Paint><ColorMatrix matrix={ROAD_BOOST} /></Paint>}>
+              {roadTiles}
+            </Group>
+          )}
 
           {obstaclePool.handles.map((ref, i) => (
             <SpriteSlot key={`obstacle-${i}`} ref={ref as React.RefObject<SpriteSlotHandle>} fit="fill" />
           ))}
 
           {vehiclePool.handles.map((ref, i) => (
-            <SpriteSlot key={`vehicle-${i}`} ref={ref as React.RefObject<SpriteSlotHandle>} fit="fill" />
+            <SpriteSlot key={`vehicle-${i}`} ref={ref as React.RefObject<SpriteSlotHandle>} fit="fill" boost={VEHICLE_BOOST} shadow />
           ))}
 
           {powerupPool.handles.map((ref, i) => (
@@ -569,5 +617,27 @@ function buildRoadGrid(roadTile: NonNullable<ReturnType<typeof useSpriteImages>[
       );
     }
   }
+
+  // Lane divider dashes — the road previously had zero markings, which
+  // was part of why it read as a flat dark surface rather than a road at
+  // a glance. Matches engine.ts's 3-lane math (`this.width / 3`) exactly
+  // so dividers line up with where vehicles actually spawn/travel.
+  const laneWidth = GAME_WIDTH / 3;
+  const gridHeight = rows * ROAD_TILE_SIZE;
+  for (const divX of [laneWidth, laneWidth * 2]) {
+    tiles.push(
+      <Line
+        key={`lane-divider-${divX}`}
+        p1={{ x: divX, y: yStart }}
+        p2={{ x: divX, y: yStart + gridHeight }}
+        color="rgba(255,255,255,0.16)"
+        style="stroke"
+        strokeWidth={2}
+      >
+        <DashPathEffect intervals={[18, 14]} />
+      </Line>
+    );
+  }
+
   return <>{tiles}</>;
 }
