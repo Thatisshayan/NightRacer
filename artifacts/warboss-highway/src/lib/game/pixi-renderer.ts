@@ -4,6 +4,10 @@ import type { GameRenderer, GameState, CarType, Vehicle, Obstacle, PowerUpItem, 
 import { loadSpriteTextures, generatePlaceholderTextures, type SpriteTextures } from './sprites';
 import { Settings } from './settings';
 
+// Mirrors the mobile Skia renderer's ROAD_TILE_SIZE (GameCanvas.tsx) so the
+// road reads at the same in-game scale on both platforms.
+const ROAD_TILE_DISPLAY_SIZE = 80;
+
 function vehicleTexture(textures: SpriteTextures, v: Vehicle) {
   if (v.type === 'BOSS') return textures.bossVehicle;
   const variants = textures.enemyVehicles[v.type as keyof typeof textures.enemyVehicles];
@@ -99,6 +103,18 @@ export class PixiRenderer implements GameRenderer {
       width: app.screen.width,
       height: app.screen.height,
     });
+    // The sprite pack's road tile ships at high resolution (e.g. 2048x2048)
+    // for print-quality source art, but TilingSprite repeats it at the
+    // texture's native pixel size with no auto-fit — left alone, a single
+    // tile is far larger than the whole canvas and the "road" is just an
+    // undersampled crop of one tile, not a repeating pattern. Scale it down
+    // to ROAD_TILE_DISPLAY_SIZE, matching the mobile Skia renderer's
+    // ROAD_TILE_SIZE constant (GameCanvas.tsx) for visual parity between
+    // platforms.
+    this.road.tileScale.set(
+      ROAD_TILE_DISPLAY_SIZE / textures.roadTile.width,
+      ROAD_TILE_DISPLAY_SIZE / textures.roadTile.height
+    );
     this.worldContainer.addChild(this.road);
     this.worldContainer.addChild(this.obstacleLayer);
     this.worldContainer.addChild(this.vehicleLayer);
@@ -159,6 +175,14 @@ export class PixiRenderer implements GameRenderer {
     }
     this.playerSprite.x = state.player.x;
     this.playerSprite.y = state.player.y;
+    // Unlike vehicles/obstacles/powerups (sized every frame via syncPool),
+    // the player sprite's width/height were never assigned at all — a
+    // Sprite with no explicit size renders at its texture's native pixel
+    // size. Harmless with small placeholder art, but the real sprite pack
+    // ships at ~1373x2048px, so the player car rendered at ~full texture
+    // resolution and filled/overflowed the entire canvas.
+    this.playerSprite.width = state.player.width;
+    this.playerSprite.height = state.player.height;
     this.playerSprite.alpha = state.player.isInvulnerable
       ? (Math.floor(performance.now() / 100) % 2 === 0 ? 0.4 : 1)
       : 1;
