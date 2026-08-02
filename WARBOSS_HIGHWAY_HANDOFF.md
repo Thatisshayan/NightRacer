@@ -186,15 +186,36 @@ the bare `/` in `BASE_PATH=/`). See `README.md` for the full gotcha list.
 
 ## Known Issues (read before touching the mobile app)
 
-- **Per-frame full React re-render (leading suspect for the bad on-device feel).**
-  `GameCanvas.tsx` uses `const [, setTick] = useState(0)` bumped on every engine frame to
-  force React to rebuild the entire Skia scene graph (all road tiles + every entity) at
-  ~60fps. Flagged in PR #11 review (Qodo: "Per-frame react rendering overhead") and never
-  fixed — everything else from that review pass was. This is being addressed next.
+- **Per-frame full React re-render — fixed 2026-08-02, unverified on-device.**
+  `GameCanvas.tsx` used to hold `const [, setTick] = useState(0)` bumped on every engine
+  frame to force React to rebuild the entire Skia scene graph (road tiles + every entity) at
+  ~60fps. Flagged in PR #11 review (Qodo: "Per-frame react rendering overhead") and left
+  unfixed through two follow-up commits. Phase 1 (road tile grid) landed first; this pass
+  finishes it: obstacles/vehicles/powerups/particles now render through fixed-size pools of
+  stable Skia nodes (`SpriteSlot`/`ParticleSlot`) whose position/size/opacity are driven by
+  Reanimated `SharedValue`s mutated directly in the engine's `sync()` callback — react-native-
+  skia accepts a `SharedValue` anywhere a prop is normally a plain value and updates the
+  native draw command without going through React's reconciler at all. Pool slots are
+  assigned by entity object identity (a `Map`), not array index, which is safe because
+  engine.ts mutates entities in place and only ever removes them via `splice()` — never
+  clones/replaces a live entity — so identity survives a mid-array removal of a sibling. The
+  component itself now renders exactly once per mount; every subsequent frame is pure
+  SharedValue mutation. This has **not** been played on a real device or emulator — this dev
+  environment can't run one (see below) — so it fixes the diagnosed root cause but the actual
+  on-device feel is still unconfirmed. Verify by playtesting and re-rating before calling this
+  done.
+- **This dev environment cannot run/preview the mobile app.** `expo start --web` starts the
+  Metro bundler but the first web bundle (react-native-skia + expo-router) hangs indefinitely
+  here (3+ min, near-idle CPU, no bundler progress output) — confirmed 2026-08-02. Don't
+  burn time trying to get a browser preview working on this machine; verification needs a
+  real device/simulator via the existing `ios-build.yml` → TestFlight pipeline, or an Android
+  emulator on a machine that can actually run one.
 - **Real-device playtesting rated the app 0.25/10** (2026-08-01). It loads and plays but
   feels bad. Most of the PR's own test-plan checklist (traffic/collision feel, HUD
   correctness, audio playback, carousel selection) was never checked off — it was merged on
-  typecheck + CI green + code reading alone, not gameplay verification.
+  typecheck + CI green + code reading alone, not gameplay verification. The perf fix above is
+  the leading-suspect fix for the bad feel, but the 0.25/10 rating itself won't be updated
+  until someone actually replays it.
 - See `docs/governance/DEFERRED_WORK.md` for the full list of implemented-but-unverified
   items on both platforms (audio pause/resume correctness, road texture tiling, title-scroll
   speed, OKLCH color conversion, unused legacy audio assets still tracked in git, etc).
