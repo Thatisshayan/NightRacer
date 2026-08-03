@@ -599,8 +599,15 @@ export class GameEngine {
     if (!state.player.oilSlicked) {
       const len = Math.sqrt(dx * dx + dy * dy);
       if (len > 0) {
-        // Base speed tuned so diagonal doesn't outrun horizontal/vertical
-        const moveSpeed = 0.42 * (1 + this.upgrades.handling * 0.08) * (dt / 16);
+        // Base speed tuned so diagonal doesn't outrun horizontal/vertical.
+        // Was 0.42 (≈25px/sec at 60fps) since this was first written —
+        // crossing a single 140px lane took ~5.6 seconds, an order of
+        // magnitude slower than drag/touch input (which sets player.x
+        // directly, effectively instant). Keyboard/joystick players could
+        // never out-steer approaching traffic. Raised to a value that
+        // crosses a lane in well under half a second, in line with touch
+        // responsiveness.
+        const moveSpeed = 5.5 * (1 + this.upgrades.handling * 0.08) * (dt / 16);
         state.player.x += (dx / len) * moveSpeed;
         state.player.y += (dy / len) * moveSpeed;
       }

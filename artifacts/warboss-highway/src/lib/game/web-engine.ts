@@ -8,6 +8,11 @@ import {
 import { playAudio, stopAudio } from './audio';
 import { drawVehicle, drawObstacle } from './renderer';
 
+// Mirrors pixi-renderer.ts's VISUAL_SCALE — see its comment for the full
+// reasoning. Kept here too so the two renderers stay visually consistent
+// during the brief window before Pixi's sprite pack finishes loading.
+const VISUAL_SCALE = 1.25;
+
 // Web-specific subclass: wires real DOM input (keyboard/touch) into the
 // platform-agnostic GameEngine's public pointer/key API, supplies the
 // Web Audio-backed AudioAdapter and navigator.vibrate haptics, and restores
@@ -132,11 +137,14 @@ export class WebGameEngine extends GameEngine {
 
     this.drawRoad(ctx);
 
-    // Obstacles
+    // Obstacles — VISUAL_SCALE ported from the Pixi renderer's own fix
+    // (see pixi-renderer.ts's constant comment); this Canvas 2D path is
+    // only ever visible transiently while Pixi's sprite pack is still
+    // loading, but should still match once it is.
     state.obstacles.forEach(o => {
       ctx.save();
       ctx.translate(o.x, o.y);
-      drawObstacle(ctx, o.type, o.width, o.height);
+      drawObstacle(ctx, o.type, o.width * VISUAL_SCALE, o.height * VISUAL_SCALE);
       ctx.restore();
     });
 
@@ -145,7 +153,7 @@ export class WebGameEngine extends GameEngine {
       ctx.save();
       ctx.translate(v.x, v.y);
       ctx.rotate(Math.PI);
-      drawVehicle(ctx, v.type, v.width, v.height, v.color);
+      drawVehicle(ctx, v.type, v.width * VISUAL_SCALE, v.height * VISUAL_SCALE, v.color);
       ctx.restore();
     });
 
@@ -168,7 +176,12 @@ export class WebGameEngine extends GameEngine {
       ctx.arc(0, 0, p.width / 2, 0, Math.PI * 2);
       ctx.fill();
       ctx.shadowBlur = 0;
-      ctx.strokeStyle = '#fff';
+      // Was a solid white stroke — read as a bright white halo/background
+      // behind the icon against the dark road (this is the Canvas 2D
+      // fallback path only, used while the Pixi renderer's real sprite
+      // pack is still loading; matches the sprite art's own subtler rim
+      // better than pure white).
+      ctx.strokeStyle = 'rgba(255,255,255,0.35)';
       ctx.lineWidth = 2;
       ctx.stroke();
       ctx.fillStyle = '#000';
@@ -206,6 +219,13 @@ export class WebGameEngine extends GameEngine {
 
       if (state.activePowerUp === 'SHIELD') {
         const t = performance.now() * 0.0012;
+        // Was a fixed 38/28 regardless of car size — looked fine for a
+        // mid-size car but wildly oversized on the narrow ones (PHANTOM's
+        // 16px-wide body inside a 76px hexagon). Scaled to the player's
+        // own dimensions, matching the ratio the Pixi renderer already
+        // used correctly (maxDim * 0.75).
+        const shieldR = Math.max(state.player.width, state.player.height);
+        const hexR = shieldR * 0.62;
         // Outer rotating hexagon
         ctx.strokeStyle = '#00ffff';
         ctx.lineWidth = 2.5;
@@ -214,7 +234,7 @@ export class WebGameEngine extends GameEngine {
         ctx.beginPath();
         for (let i = 0; i < 6; i++) {
           const a = (i * Math.PI) / 3 + t;
-          const px = Math.cos(a) * 38, py = Math.sin(a) * 38;
+          const px = Math.cos(a) * hexR, py = Math.sin(a) * hexR;
           if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
         }
         ctx.closePath();
@@ -225,14 +245,14 @@ export class WebGameEngine extends GameEngine {
         ctx.lineWidth = 1;
         ctx.shadowBlur = 8;
         ctx.beginPath();
-        ctx.arc(0, 0, 28 + pulse * 4, 0, Math.PI * 2);
+        ctx.arc(0, 0, shieldR * 0.45 + pulse * (shieldR * 0.065), 0, Math.PI * 2);
         ctx.stroke();
         // Fill
         ctx.fillStyle = 'rgba(0,255,255,0.08)';
         ctx.beginPath();
         for (let i = 0; i < 6; i++) {
           const a = (i * Math.PI) / 3 + t;
-          const px = Math.cos(a) * 38, py = Math.sin(a) * 38;
+          const px = Math.cos(a) * hexR, py = Math.sin(a) * hexR;
           if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
         }
         ctx.closePath();
@@ -245,7 +265,7 @@ export class WebGameEngine extends GameEngine {
         ctx.globalAlpha = 0.7 + 0.3 * Math.sin(performance.now() * 0.03);
       }
 
-      drawVehicle(ctx, this.selectedCar, state.player.width, state.player.height, CAR_STATS[this.selectedCar].color);
+      drawVehicle(ctx, this.selectedCar, state.player.width * VISUAL_SCALE, state.player.height * VISUAL_SCALE, CAR_STATS[this.selectedCar].color);
       ctx.restore();
     }
 

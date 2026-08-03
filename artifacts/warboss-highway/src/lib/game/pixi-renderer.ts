@@ -13,6 +13,14 @@ const LAMP_HEIGHT = 60;
 const LAMP_SPAN = 6 * ROAD_TILE_DISPLAY_SIZE; // 480px between same-side posts
 const LAMP_PERIOD = 2 * LAMP_SPAN; // one left + one right post per period
 const EXPLOSION_FLASH_MS = 400;
+// Render-only oversize for vehicles/obstacles/player — collision hitboxes
+// (CAR_STATS/spawn dimensions in game-core's engine.ts, shared with the
+// mobile renderer) are untouched, this only changes how big the sprite is
+// drawn. Ported alongside the same fix in the mobile Skia renderer — see
+// GameCanvas.tsx's VISUAL_SCALE comment for the full reasoning (cars are
+// 21-33% of a lane's width, well under a real highway's ~50% car-to-lane
+// ratio, reading as "huge road, tiny car").
+const VISUAL_SCALE = 1.25;
 
 // Visual fix (2026-08-02), ported from the mobile Skia renderer
 // (GameCanvas.tsx's ROAD_BOOST/VEHICLE_BOOST) after a real-device playtest
@@ -236,8 +244,13 @@ export class PixiRenderer implements GameRenderer {
     this.worldContainer.addChild(this.playerSprite);
 
     this.worldContainer.addChild(this.shieldLayer);
+    // Redrawn every frame at its real target radius in sync() below
+    // instead of being drawn once at radius 1 and scaled up via
+    // Graphics.scale — scale.set() scales the stroke width along with the
+    // geometry, so a 3px stroke on a unit circle became a 3px * ~50 =
+    // ~150px-wide ring at gameplay size: a solid-looking blob many times
+    // the player's own size, not a thin ring around it.
     this.shieldRing = new Graphics();
-    this.shieldRing.circle(0, 0, 1).stroke({ width: 3, color: 0x00ffff, alpha: 0.9 });
     this.shieldRing.visible = false;
     this.shieldLayer.addChild(this.shieldRing);
 
@@ -317,8 +330,8 @@ export class PixiRenderer implements GameRenderer {
     // size. Harmless with small placeholder art, but the real sprite pack
     // ships at ~1373x2048px, so the player car rendered at ~full texture
     // resolution and filled/overflowed the entire canvas.
-    this.playerSprite.width = state.player.width;
-    this.playerSprite.height = state.player.height;
+    this.playerSprite.width = state.player.width * VISUAL_SCALE;
+    this.playerSprite.height = state.player.height * VISUAL_SCALE;
     this.playerSprite.alpha = state.player.isInvulnerable
       ? (Math.floor(performance.now() / 100) % 2 === 0 ? 0.4 : 1)
       : 1;
@@ -340,7 +353,9 @@ export class PixiRenderer implements GameRenderer {
       this.shieldRing.x = state.player.x;
       this.shieldRing.y = state.player.y;
       const pulse = 1 + Math.sin(performance.now() / 150) * 0.06;
-      this.shieldRing.scale.set((Math.max(state.player.width, state.player.height) * 0.75) * pulse);
+      const radius = Math.max(state.player.width, state.player.height) * VISUAL_SCALE * 0.75 * pulse;
+      this.shieldRing.clear();
+      this.shieldRing.circle(0, 0, radius).stroke({ width: 3, color: 0x00ffff, alpha: 0.9 });
     }
 
     if (this.motionBlur) {
@@ -353,8 +368,8 @@ export class PixiRenderer implements GameRenderer {
       this.vehiclePool, state.vehicles, this.gen, this.vehicleLayer,
       (v) => { const s = new Sprite(vehicleTexture(this.textures, v)); s.anchor.set(0.5); return s; },
       (v, s) => {
-        s.width = v.width;
-        s.height = v.height;
+        s.width = v.width * VISUAL_SCALE;
+        s.height = v.height * VISUAL_SCALE;
         s.x = v.x;
         s.y = v.y;
         // Mirrors the original ctx.rotate(Math.PI) applied to oncoming
@@ -367,7 +382,7 @@ export class PixiRenderer implements GameRenderer {
     syncPool(
       this.obstaclePool, state.obstacles, this.gen, this.obstacleLayer,
       (o) => { const s = new Sprite(o.type === 'OIL_SLICK' ? this.textures.oilSlick : this.textures.debris); s.anchor.set(0.5); return s; },
-      (o, s) => { s.x = o.x; s.y = o.y; s.width = o.width; s.height = o.height; }
+      (o, s) => { s.x = o.x; s.y = o.y; s.width = o.width * VISUAL_SCALE; s.height = o.height * VISUAL_SCALE; }
     );
 
     syncPool(

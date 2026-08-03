@@ -43,6 +43,16 @@ const LAMP_SPAN = 6 * ROAD_TILE_SIZE; // 480px between same-side posts
 // visibly swap a post's side mid-scroll.
 const LAMP_PERIOD = 2 * LAMP_SPAN; // 960px
 const EXPLOSION_FLASH_MS = 400;
+// Render-only oversize for vehicles/obstacles/player — collision hitboxes
+// (engine.ts's CAR_STATS/spawn dimensions, shared with the web renderer)
+// are untouched, this only changes how big the sprite is drawn, still
+// centered on the same collision-box center. Addresses "the road looks
+// huge and the cars look tiny" — lane width is 140px but cars are only
+// 30-46px wide (21-33%), well under a real highway's car-to-lane ratio
+// (~50%). A pure hitbox-width change would also require re-tuning spawn/
+// difficulty balance on both platforms; this gets most of the visual win
+// without that risk.
+const VISUAL_SCALE = 1.25;
 // Must mirror engine.ts's camera-follow clamp (cameraMax = height * 0.18)
 // and this file's own screen-shake ceiling ((300/300) * 9) — the road tiling
 // has to overscan by at least this much above the viewport, or dragging the
@@ -435,11 +445,15 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
 
         vehiclePool.sync(state.vehicles, (handle, v) => {
           const img = vehicleImage(images, v.type, v.variant);
-          (handle as SpriteSlotHandle).set(v.x - v.width / 2, v.y - v.height / 2, v.width, v.height, img ? 1 : 0, img, Math.PI);
+          const w = v.width * VISUAL_SCALE;
+          const h = v.height * VISUAL_SCALE;
+          (handle as SpriteSlotHandle).set(v.x - w / 2, v.y - h / 2, w, h, img ? 1 : 0, img, Math.PI);
         });
         obstaclePool.sync(state.obstacles, (handle, o) => {
           const img = o.type === 'OIL_SLICK' ? images.oilSlick : images.debris;
-          (handle as SpriteSlotHandle).set(o.x - o.width / 2, o.y - o.height / 2, o.width, o.height, img ? 1 : 0, img, 0);
+          const w = o.width * VISUAL_SCALE;
+          const h = o.height * VISUAL_SCALE;
+          (handle as SpriteSlotHandle).set(o.x - w / 2, o.y - h / 2, w, h, img ? 1 : 0, img, 0);
         });
         powerupPool.sync(state.powerups, (handle, p) => {
           const img = images.powerups[p.type];
@@ -473,10 +487,12 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
 
         const flickerVisible = !state.player.isInvulnerable || Math.floor(now / 80) % 2 === 0;
         const invulnAlpha = state.player.isInvulnerable ? 0.7 + 0.3 * Math.sin(now * 0.03) : 1;
-        playerX.value = state.player.x - state.player.width / 2;
-        playerY.value = state.player.y - state.player.height / 2;
-        playerW.value = state.player.width;
-        playerH.value = state.player.height;
+        const playerRenderW = state.player.width * VISUAL_SCALE;
+        const playerRenderH = state.player.height * VISUAL_SCALE;
+        playerX.value = state.player.x - playerRenderW / 2;
+        playerY.value = state.player.y - playerRenderH / 2;
+        playerW.value = playerRenderW;
+        playerH.value = playerRenderH;
         playerOpacity.value = flickerVisible ? invulnAlpha : 0;
         playerCenterX.value = state.player.x;
         playerCenterY.value = state.player.y;
@@ -502,8 +518,14 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
         const nowShieldActive = state.activePowerUp === 'SHIELD';
         if (nowShieldActive !== shieldActive) setShieldActive(nowShieldActive);
         if (nowShieldActive) {
-          shieldHexPath.value = hexagonPath(state.player.x, state.player.y, 38, now * 0.0012);
-          shieldRingR.value = 28 + (0.5 + 0.5 * Math.sin(now * 0.0012 * 4)) * 4;
+          // Was a fixed 38/28 regardless of car size — looked roughly
+          // right for a mid-size car but wildly oversized on the narrow
+          // ones (PHANTOM's 16px-wide body inside a 76px hexagon). Scaled
+          // to the player's own dimensions instead, matching the ratio
+          // the web Pixi renderer already used correctly (maxDim * 0.75).
+          const shieldR = Math.max(state.player.width, state.player.height);
+          shieldHexPath.value = hexagonPath(state.player.x, state.player.y, shieldR * 0.62, now * 0.0012);
+          shieldRingR.value = shieldR * 0.45 + (0.5 + 0.5 * Math.sin(now * 0.0012 * 4)) * (shieldR * 0.065);
         }
 
         const spd = state.speedMultiplier;
