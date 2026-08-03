@@ -153,3 +153,16 @@ Rule 12 / Rule 11. This register survives the session. Future agents resume from
   calling it done). Also wired the skyline parallax backdrop (`skyline_layer1/2.png`) into
   the mobile title screen (`TitleScreen.tsx`) — previously fully-rendered, good art with
   zero references anywhere in the codebase.
+- [2026-08-03] Supersedes the "still queued" list in the 2026-08-02 mobile visual-quality
+  entry above and the "not yet visually verified on web" note in the entry just above this
+  one — **status: resolved.** All items landed and were verified live (Chrome for web,
+  typecheck + code review for mobile pending an on-device re-check): lives/hearts icon,
+  speed dial styling, tab bar reskin, canvas framing/vignette, HUD text depth, garage
+  upgrade icons (web port), plus a follow-up pass fixing real gameplay-feel bugs found in
+  testing — keyboard movement speed (was ~13x too slow, then overcorrected too fast, now
+  settled), a Pixi shield-ring bug (`Graphics.scale.set()` scaling stroke width along with
+  radius into a solid-looking blob), 3→4 lanes with real oncoming/same-direction traffic,
+  and a Canvas 2D-fallback-flashes-on-load bug (Pixi loads async; a loading cover now masks
+  the older fallback renderer's briefly-different look). See PR #15's commit history for
+  full detail — this file's narrative entries lag actual PR state by design (append-only
+  log), so treat commit messages as the source of truth for exact current status.

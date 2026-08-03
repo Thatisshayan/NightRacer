@@ -145,6 +145,40 @@ interface SpriteSlotHandle {
 
 const IDENTITY_TRANSFORM: { rotate: number }[] = [{ rotate: 0 }];
 
+// Split out from SpriteSlot (CodeRabbit catch) — hooks can't be called
+// conditionally, so a SpriteSlot without `shadow` still had to instantiate
+// these four useDerivedValue worklets, which Reanimated then recomputes on
+// every x/y/w/h/opacity mutation even though obstacle/powerup slots never
+// render one. Mounting this as its own child component means non-shadow
+// slots never create the worklets at all.
+function GroundShadow({
+  x, y, w, h, opacity,
+}: {
+  x: ReturnType<typeof useSharedValue<number>>;
+  y: ReturnType<typeof useSharedValue<number>>;
+  w: ReturnType<typeof useSharedValue<number>>;
+  h: ReturnType<typeof useSharedValue<number>>;
+  opacity: ReturnType<typeof useSharedValue<number>>;
+}) {
+  // A soft dark ellipse anchored slightly below the sprite's center,
+  // derived reactively from the same x/y/w/h SharedValues rather than
+  // tracked separately, so it never needs its own imperative updates.
+  const shadowCx = useDerivedValue(() => x.value + w.value / 2);
+  const shadowCy = useDerivedValue(() => y.value + h.value * 0.62);
+  const shadowR = useDerivedValue(() => Math.max(w.value, h.value) * 0.42);
+  const shadowOpacity = useDerivedValue(() => opacity.value * 0.4);
+
+  return (
+    <Circle cx={shadowCx} cy={shadowCy} r={shadowR} color="#000000" opacity={shadowOpacity}>
+      {/* respectCTM: without it the blur radius is a fixed device-pixel
+          amount regardless of the canvas's own scale transform (see
+          GameCanvas's `scale` prop, applied per-device via groupTransform)
+          — CodeRabbit catch. */}
+      <BlurMask blur={6} style="normal" respectCTM />
+    </Circle>
+  );
+}
+
 const SpriteSlot = React.memo(
   forwardRef<SpriteSlotHandle, { fit: 'fill' | 'contain'; boost?: number[]; shadow?: boolean }>(function SpriteSlot(
     { fit, boost, shadow },
@@ -155,14 +189,6 @@ const SpriteSlot = React.memo(
     const w = useSharedValue(0);
     const h = useSharedValue(0);
     const opacity = useSharedValue(0);
-    // Ground shadow (vehicles only, see `shadow` prop) — a soft dark
-    // ellipse anchored slightly below the sprite's center, derived
-    // reactively from the same x/y/w/h SharedValues rather than tracked
-    // separately, so it never needs its own imperative updates.
-    const shadowCx = useDerivedValue(() => x.value + w.value / 2);
-    const shadowCy = useDerivedValue(() => y.value + h.value * 0.62);
-    const shadowR = useDerivedValue(() => Math.max(w.value, h.value) * 0.42);
-    const shadowOpacity = useDerivedValue(() => opacity.value * 0.4);
     // transform/origin are whole-object SharedValues (not derived from
     // x/y/w/h) so rotation always pivots on the entity's own center —
     // mutated together with x/y/w/h in `set()` below. Passing plain
@@ -200,11 +226,7 @@ const SpriteSlot = React.memo(
     if (!image) return null;
     return (
       <>
-        {shadow && (
-          <Circle cx={shadowCx} cy={shadowCy} r={shadowR} color="#000000" opacity={shadowOpacity}>
-            <BlurMask blur={6} style="normal" />
-          </Circle>
-        )}
+        {shadow && <GroundShadow x={x} y={y} w={w} h={h} opacity={opacity} />}
         <Image image={image} x={x} y={y} width={w} height={h} opacity={opacity} fit={fit} transform={transform} origin={origin}>
           {boost && <ColorMatrix matrix={boost} />}
         </Image>
@@ -322,6 +344,12 @@ function usePool<T extends object>(capacity: number) {
 // bar/safe-area insets eating into it) would otherwise clip gameplay and
 // the gesture surface, since the Canvas used to be hard-coded to that size
 // regardless of the device.
+//
+// Rendering behavior (road/vehicle contrast boosts, lane dividers,
+// guardrails/lamp posts, particle art) is documented inline at each
+// effect's own definition below rather than in a separate doc — see
+// WARBOSS_HIGHWAY_HANDOFF.md's "Key Files Reference" for where this file
+// sits in the overall architecture.
 export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; scale?: number }) {
   const images = useSpriteImages();
   const [ready, setReady] = useState(false);

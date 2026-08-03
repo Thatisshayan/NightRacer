@@ -14,6 +14,10 @@ const LAMP_WIDTH = 34;
 const LAMP_HEIGHT = 70;
 const LAMP_SPAN = 6 * ROAD_TILE_DISPLAY_SIZE; // between same-side posts
 const LAMP_PERIOD = 2 * LAMP_SPAN; // one left + one right post per period
+// Matches the mobile Skia renderer's DashPathEffect intervals={[18, 14]}.
+const LANE_DASH_LEN = 18;
+const LANE_DASH_GAP = 14;
+const LANE_DASH_PERIOD = LANE_DASH_LEN + LANE_DASH_GAP;
 const EXPLOSION_FLASH_MS = 400;
 // A prior pass addressed "cars look tiny vs. the road" with a render-only
 // VISUAL_SCALE multiplier (visual size inflated past the actual collision
@@ -165,22 +169,28 @@ export class PixiRenderer implements GameRenderer {
 
     // Lane markings — matches engine.ts's 4-lane math (`this.width / 4`).
     // Lanes 0-1 (oncoming) and 2-3 (same direction) are each dashed
-    // internally via alpha (ordinary lane splits); the boundary between
-    // lane 1 and 2 is the direction divide, drawn as a solid double-
-    // yellow center line like a real two-way road.
+    // internally (ordinary lane splits, matching the mobile Skia
+    // renderer's DashPathEffect); the boundary between lane 1 and 2 is
+    // the direction divide, drawn as a solid double-yellow center line
+    // like a real two-way road — never dashed, so it doesn't need the
+    // scroll treatment below (a shifted continuous line looks identical
+    // to a static one; only the dashes need real motion, see sync()).
     this.laneDividers = new Graphics();
     const laneWidth = app.screen.width / 4;
+    const dashSpan = app.screen.height + 2 * LANE_DASH_PERIOD;
     for (const divX of [laneWidth, laneWidth * 3]) {
-      this.laneDividers
-        .moveTo(divX, 0)
-        .lineTo(divX, app.screen.height)
-        .stroke({ width: 2, color: 0xffffff, alpha: 0.16 });
+      for (let y = -LANE_DASH_PERIOD; y < dashSpan; y += LANE_DASH_PERIOD) {
+        this.laneDividers
+          .moveTo(divX, y)
+          .lineTo(divX, y + LANE_DASH_LEN)
+          .stroke({ width: 2, color: 0xffffff, alpha: 0.16 });
+      }
     }
     const centerX = laneWidth * 2;
     for (const offset of [-2.5, 2.5]) {
       this.laneDividers
-        .moveTo(centerX + offset, 0)
-        .lineTo(centerX + offset, app.screen.height)
+        .moveTo(centerX + offset, -LANE_DASH_PERIOD)
+        .lineTo(centerX + offset, dashSpan)
         .stroke({ width: 2.5, color: 0xffcd3c, alpha: 0.55 });
     }
     this.worldContainer.addChild(this.laneDividers);
@@ -324,6 +334,13 @@ export class PixiRenderer implements GameRenderer {
     }
 
     this.road.tilePosition.y = -state.roadOffset;
+    // Dashes repeat every LANE_DASH_PERIOD and are uniform/indistinguishable
+    // from one another, so — like the road tiles — wrapping at that small
+    // period reads as true continuous scroll (CodeRabbit catch: this was
+    // previously never scrolled at all, invisible only because a static
+    // continuous line looks identical to a moving one; dashes don't have
+    // that luxury).
+    this.laneDividers.y = -(state.roadOffset % LANE_DASH_PERIOD);
     this.guardrailLeft.tilePosition.y = -state.roadOffset;
     this.guardrailRight.tilePosition.y = -state.roadOffset;
     // Road/guardrail tiles are uniform and repeat every 80px, so wrapping

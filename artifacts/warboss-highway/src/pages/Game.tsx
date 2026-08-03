@@ -459,7 +459,7 @@ export default function Game() {
                 closer, slightly brighter, for a cheap sense of depth
                 without real parallax scrolling. Pinned bottom, painted
                 before the rest of the title content so it sits behind it
-                in DOM stacking order despite the parent's own bg-black/95. */}
+                in DOM stacking order despite the parent's own bg-black/80. */}
             <img
               src={`${import.meta.env.BASE_URL}sprites-premium/skyline_layer1.png`}
               alt=""

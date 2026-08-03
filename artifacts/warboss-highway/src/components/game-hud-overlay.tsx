@@ -44,7 +44,7 @@ export function GameHudOverlay({ engine }: { engine: GameEngine }) {
 
   useEffect(() => {
     let rafId = 0;
-    const ARC_CIRCUMFERENCE = 2 * Math.PI * 36 * 0.75; // 270° of a r=36 circle
+    const ARC_CIRCUMFERENCE = 2 * Math.PI * 32.5 * 0.75; // 270° of a r=32.5 circle — must match the JSX circle radius below
 
     const tick = () => {
       const state = engine.getState();
@@ -205,11 +205,15 @@ export function GameHudOverlay({ engine }: { engine: GameEngine }) {
           mobile HUD pass's speedBezel). */}
       <div className="absolute right-[12px] bottom-[12px] w-[72px] h-[72px]">
         <div className="absolute inset-[4px] rounded-full bg-black/55 border border-white/10" />
+        {/* r=32.5, not 36 — a 7px stroke on a r=36 circle in a 72px SVG
+            extends to r=39.5, clipping ~3.5px of the ring off each edge
+            (CodeRabbit catch: this stroke width was bumped from 6 without
+            adjusting the radius to still fit). 32.5+3.5=36 fits exactly. */}
         <svg width="72" height="72" className="absolute inset-0 -rotate-[135deg]">
-          <circle cx="36" cy="36" r="36" fill="none" stroke="rgba(255,255,255,0.12)" strokeWidth="7"
-            strokeDasharray={`${2 * Math.PI * 36 * 0.75} ${2 * Math.PI * 36}`} />
-          <circle ref={speedArcRef} cx="36" cy="36" r="36" fill="none" strokeWidth="7" strokeLinecap="round"
-            strokeDasharray={`${2 * Math.PI * 36 * 0.75} ${2 * Math.PI * 36}`} />
+          <circle cx="36" cy="36" r="32.5" fill="none" stroke="rgba(255,255,255,0.12)" strokeWidth="7"
+            strokeDasharray={`${2 * Math.PI * 32.5 * 0.75} ${2 * Math.PI * 32.5}`} />
+          <circle ref={speedArcRef} cx="36" cy="36" r="32.5" fill="none" strokeWidth="7" strokeLinecap="round"
+            strokeDasharray={`${2 * Math.PI * 32.5 * 0.75} ${2 * Math.PI * 32.5}`} />
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
           <div ref={speedTextRef} className="text-sm font-bold" />
