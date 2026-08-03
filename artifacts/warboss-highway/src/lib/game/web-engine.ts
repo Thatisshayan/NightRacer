@@ -8,11 +8,6 @@ import {
 import { playAudio, stopAudio } from './audio';
 import { drawVehicle, drawObstacle } from './renderer';
 
-// Mirrors pixi-renderer.ts's VISUAL_SCALE — see its comment for the full
-// reasoning. Kept here too so the two renderers stay visually consistent
-// during the brief window before Pixi's sprite pack finishes loading.
-const VISUAL_SCALE = 1.25;
-
 // Web-specific subclass: wires real DOM input (keyboard/touch) into the
 // platform-agnostic GameEngine's public pointer/key API, supplies the
 // Web Audio-backed AudioAdapter and navigator.vibrate haptics, and restores
@@ -137,23 +132,20 @@ export class WebGameEngine extends GameEngine {
 
     this.drawRoad(ctx);
 
-    // Obstacles — VISUAL_SCALE ported from the Pixi renderer's own fix
-    // (see pixi-renderer.ts's constant comment); this Canvas 2D path is
-    // only ever visible transiently while Pixi's sprite pack is still
-    // loading, but should still match once it is.
     state.obstacles.forEach(o => {
       ctx.save();
       ctx.translate(o.x, o.y);
-      drawObstacle(ctx, o.type, o.width * VISUAL_SCALE, o.height * VISUAL_SCALE);
+      drawObstacle(ctx, o.type, o.width, o.height);
       ctx.restore();
     });
 
-    // Vehicles
+    // Vehicles — oncoming traffic (lanes 0-1) faces the player, same-
+    // direction traffic (lanes 2-3) faces away. See Vehicle.direction.
     state.vehicles.forEach(v => {
       ctx.save();
       ctx.translate(v.x, v.y);
-      ctx.rotate(Math.PI);
-      drawVehicle(ctx, v.type, v.width * VISUAL_SCALE, v.height * VISUAL_SCALE, v.color);
+      if (v.direction === 'OPPOSITE') ctx.rotate(Math.PI);
+      drawVehicle(ctx, v.type, v.width, v.height, v.color);
       ctx.restore();
     });
 
@@ -265,7 +257,7 @@ export class WebGameEngine extends GameEngine {
         ctx.globalAlpha = 0.7 + 0.3 * Math.sin(performance.now() * 0.03);
       }
 
-      drawVehicle(ctx, this.selectedCar, state.player.width * VISUAL_SCALE, state.player.height * VISUAL_SCALE, CAR_STATS[this.selectedCar].color);
+      drawVehicle(ctx, this.selectedCar, state.player.width, state.player.height, CAR_STATS[this.selectedCar].color);
       ctx.restore();
     }
 
@@ -305,7 +297,7 @@ export class WebGameEngine extends GameEngine {
     const state = this.getState();
     const W = this.width;
     const H = this.height;
-    const laneWidth = W / 3;
+    const laneWidth = W / 4;
     const speedMult = state.speedMultiplier;
 
     // === GUTTERS — textured shoulders ===
@@ -434,7 +426,7 @@ export class WebGameEngine extends GameEngine {
     ctx.lineWidth = 3;
     ctx.setLineDash([34, 26]);
     ctx.lineDashOffset = -(state.roadOffset * 2.8);
-    for (let i = 1; i < 3; i++) {
+    for (const i of [1, 3]) {
       ctx.beginPath();
       ctx.moveTo(laneWidth * i, 0);
       ctx.lineTo(laneWidth * i, H);
@@ -442,6 +434,18 @@ export class WebGameEngine extends GameEngine {
     }
     ctx.setLineDash([]);
     ctx.lineDashOffset = 0;
+
+    // Direction divide (between lanes 1 and 2) — solid double-yellow
+    // center line, like a real two-way road, instead of another dash.
+    ctx.strokeStyle = 'rgba(255,205,60,0.55)';
+    ctx.lineWidth = 2.5;
+    const centerX = laneWidth * 2;
+    for (const offset of [-2.5, 2.5]) {
+      ctx.beginPath();
+      ctx.moveTo(centerX + offset, 0);
+      ctx.lineTo(centerX + offset, H);
+      ctx.stroke();
+    }
 
     // === HORIZON FOG ===
     const fogGrad = ctx.createLinearGradient(0, 0, 0, H * 0.2);

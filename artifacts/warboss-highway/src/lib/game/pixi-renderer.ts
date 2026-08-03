@@ -5,22 +5,21 @@ import { loadSpriteTextures, generatePlaceholderTextures, type SpriteTextures } 
 import { Settings } from './settings';
 
 // Mirrors the mobile Skia renderer's ROAD_TILE_SIZE (GameCanvas.tsx) so the
-// road reads at the same in-game scale on both platforms.
-const ROAD_TILE_DISPLAY_SIZE = 80;
-const GUARDRAIL_WIDTH = 20;
-const LAMP_WIDTH = 30;
-const LAMP_HEIGHT = 60;
-const LAMP_SPAN = 6 * ROAD_TILE_DISPLAY_SIZE; // 480px between same-side posts
+// road reads at the same in-game scale on both platforms. Was 80 — real
+// playtesting called the asphalt texture too subtle/hard to make out at
+// that repeat size.
+const ROAD_TILE_DISPLAY_SIZE = 110;
+const GUARDRAIL_WIDTH = 24;
+const LAMP_WIDTH = 34;
+const LAMP_HEIGHT = 70;
+const LAMP_SPAN = 6 * ROAD_TILE_DISPLAY_SIZE; // between same-side posts
 const LAMP_PERIOD = 2 * LAMP_SPAN; // one left + one right post per period
 const EXPLOSION_FLASH_MS = 400;
-// Render-only oversize for vehicles/obstacles/player — collision hitboxes
-// (CAR_STATS/spawn dimensions in game-core's engine.ts, shared with the
-// mobile renderer) are untouched, this only changes how big the sprite is
-// drawn. Ported alongside the same fix in the mobile Skia renderer — see
-// GameCanvas.tsx's VISUAL_SCALE comment for the full reasoning (cars are
-// 21-33% of a lane's width, well under a real highway's ~50% car-to-lane
-// ratio, reading as "huge road, tiny car").
-const VISUAL_SCALE = 1.25;
+// A prior pass addressed "cars look tiny vs. the road" with a render-only
+// VISUAL_SCALE multiplier (visual size inflated past the actual collision
+// hitbox). Superseded (2026-08-03) by properly upsizing CAR_STATS/spawn
+// dimensions in engine.ts itself and narrowing lanes from 3 to 4 — real
+// hitbox and rendered size now match again, no separate multiplier needed.
 
 // Visual fix (2026-08-02), ported from the mobile Skia renderer
 // (GameCanvas.tsx's ROAD_BOOST/VEHICLE_BOOST) after a real-device playtest
@@ -157,20 +156,32 @@ export class PixiRenderer implements GameRenderer {
       ROAD_TILE_DISPLAY_SIZE / textures.roadTile.width,
       ROAD_TILE_DISPLAY_SIZE / textures.roadTile.height
     );
-    // Visual fix (2026-08-02): road boost + lane dividers, ported from the
-    // mobile Skia renderer (see GameCanvas.tsx's ROAD_BOOST and
-    // buildRoadGrid()'s lane-divider Lines) after a real-device playtest
-    // showed the road reading as flat and unmarked.
-    this.road.filters = [boostFilter(1.3, 0.05)];
+    // Visual fix, ported from the mobile Skia renderer (see GameCanvas.
+    // tsx's ROAD_BOOST). Contrast raised further (was 1.3/0.05) — real
+    // playtesting still called the asphalt too flat/hard to make out even
+    // with the first boost pass.
+    this.road.filters = [boostFilter(1.55, 0.08)];
     this.worldContainer.addChild(this.road);
 
+    // Lane markings — matches engine.ts's 4-lane math (`this.width / 4`).
+    // Lanes 0-1 (oncoming) and 2-3 (same direction) are each dashed
+    // internally via alpha (ordinary lane splits); the boundary between
+    // lane 1 and 2 is the direction divide, drawn as a solid double-
+    // yellow center line like a real two-way road.
     this.laneDividers = new Graphics();
-    const laneWidth = app.screen.width / 3;
-    for (const divX of [laneWidth, laneWidth * 2]) {
+    const laneWidth = app.screen.width / 4;
+    for (const divX of [laneWidth, laneWidth * 3]) {
       this.laneDividers
         .moveTo(divX, 0)
         .lineTo(divX, app.screen.height)
         .stroke({ width: 2, color: 0xffffff, alpha: 0.16 });
+    }
+    const centerX = laneWidth * 2;
+    for (const offset of [-2.5, 2.5]) {
+      this.laneDividers
+        .moveTo(centerX + offset, 0)
+        .lineTo(centerX + offset, app.screen.height)
+        .stroke({ width: 2.5, color: 0xffcd3c, alpha: 0.55 });
     }
     this.worldContainer.addChild(this.laneDividers);
 
@@ -178,13 +189,18 @@ export class PixiRenderer implements GameRenderer {
     // wired into either renderer (no shoulder in the full-bleed road
     // layout to place it in). Overlaid on the outermost road tiles at each
     // edge rather than narrowing the playable width, which is GameEngine's
-    // shared lane math (this.width / 3) — not worth touching for a
-    // decorative pass. Kept in sync with the road's own scroll below.
+    // shared lane math — not worth touching for a decorative pass. Kept in
+    // sync with the road's own scroll below. Boosted like vehicles/road —
+    // previously had no filter at all, dark art on a dark road with
+    // nothing pushing it forward, easy to miss entirely at a glance.
+    const roadsideBoost = boostFilter(1.4, 0.14);
     this.guardrailLeft = new TilingSprite({ texture: textures.guardrail, width: GUARDRAIL_WIDTH, height: app.screen.height });
     this.guardrailRight = new TilingSprite({ texture: textures.guardrail, width: GUARDRAIL_WIDTH, height: app.screen.height });
     this.guardrailLeft.tileScale.set(GUARDRAIL_WIDTH / textures.guardrail.width, ROAD_TILE_DISPLAY_SIZE / textures.guardrail.height);
     this.guardrailRight.tileScale.set(GUARDRAIL_WIDTH / textures.guardrail.width, ROAD_TILE_DISPLAY_SIZE / textures.guardrail.height);
     this.guardrailRight.x = app.screen.width - GUARDRAIL_WIDTH;
+    this.guardrailLeft.filters = [roadsideBoost];
+    this.guardrailRight.filters = [roadsideBoost];
     this.worldContainer.addChild(this.guardrailLeft);
     this.worldContainer.addChild(this.guardrailRight);
 
@@ -211,6 +227,7 @@ export class PixiRenderer implements GameRenderer {
       sprite.y = lampYStart + row * LAMP_SPAN;
       this.lampLayer.addChild(sprite);
     }
+    this.lampLayer.filters = [roadsideBoost];
     this.worldContainer.addChild(this.lampLayer);
 
     this.worldContainer.addChild(this.obstacleLayer);
@@ -330,8 +347,8 @@ export class PixiRenderer implements GameRenderer {
     // size. Harmless with small placeholder art, but the real sprite pack
     // ships at ~1373x2048px, so the player car rendered at ~full texture
     // resolution and filled/overflowed the entire canvas.
-    this.playerSprite.width = state.player.width * VISUAL_SCALE;
-    this.playerSprite.height = state.player.height * VISUAL_SCALE;
+    this.playerSprite.width = state.player.width;
+    this.playerSprite.height = state.player.height;
     this.playerSprite.alpha = state.player.isInvulnerable
       ? (Math.floor(performance.now() / 100) % 2 === 0 ? 0.4 : 1)
       : 1;
@@ -353,7 +370,7 @@ export class PixiRenderer implements GameRenderer {
       this.shieldRing.x = state.player.x;
       this.shieldRing.y = state.player.y;
       const pulse = 1 + Math.sin(performance.now() / 150) * 0.06;
-      const radius = Math.max(state.player.width, state.player.height) * VISUAL_SCALE * 0.75 * pulse;
+      const radius = Math.max(state.player.width, state.player.height) * 0.75 * pulse;
       this.shieldRing.clear();
       this.shieldRing.circle(0, 0, radius).stroke({ width: 3, color: 0x00ffff, alpha: 0.9 });
     }
@@ -368,21 +385,21 @@ export class PixiRenderer implements GameRenderer {
       this.vehiclePool, state.vehicles, this.gen, this.vehicleLayer,
       (v) => { const s = new Sprite(vehicleTexture(this.textures, v)); s.anchor.set(0.5); return s; },
       (v, s) => {
-        s.width = v.width * VISUAL_SCALE;
-        s.height = v.height * VISUAL_SCALE;
+        s.width = v.width;
+        s.height = v.height;
         s.x = v.x;
         s.y = v.y;
-        // Mirrors the original ctx.rotate(Math.PI) applied to oncoming
-        // traffic in GameEngine.draw() — see the Pixi rewrite plan's
-        // "sprite orientation" decision.
-        s.rotation = Math.PI;
+        // Oncoming traffic (lanes 0-1) faces the player, same-direction
+        // traffic (lanes 2-3) faces away — matches the player's own
+        // orientation, like real two-way traffic. See Vehicle.direction.
+        s.rotation = v.direction === 'OPPOSITE' ? Math.PI : 0;
       }
     );
 
     syncPool(
       this.obstaclePool, state.obstacles, this.gen, this.obstacleLayer,
       (o) => { const s = new Sprite(o.type === 'OIL_SLICK' ? this.textures.oilSlick : this.textures.debris); s.anchor.set(0.5); return s; },
-      (o, s) => { s.x = o.x; s.y = o.y; s.width = o.width * VISUAL_SCALE; s.height = o.height * VISUAL_SCALE; }
+      (o, s) => { s.x = o.x; s.y = o.y; s.width = o.width; s.height = o.height; }
     );
 
     syncPool(

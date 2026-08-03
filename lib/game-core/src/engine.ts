@@ -44,10 +44,18 @@ export interface CarStats {
   stats: string;
 }
 
+// Widths/heights scaled ×1.6 from their original values (2026-08-03) —
+// going from 3 lanes to 4 (see init()'s laneWidth) narrowed each lane from
+// 140px to 105px, and on top of that cars were already reading small
+// against the road (a 30px-wide WAR_RUNNER was 21% of even the old, wider
+// lane — a real highway lane is closer to 50% car-to-lane). ×1.6 puts
+// WAR_RUNNER at 46% of the new 105px lane, with RATTLETRAP/SCRAPQUEEN
+// intentionally tighter (61%/70%) to keep their "wide, hard to place"
+// identity meaningful instead of homogenizing every car to one ratio.
 export const CAR_STATS: Record<CarType, CarStats> = {
   RATTLETRAP: {
-    width: 40,
-    height: 62,
+    width: 64,
+    height: 99,
     speedMod: 0.85,
     color: '#a86b32',
     label: 'RATTLETRAP',
@@ -55,8 +63,8 @@ export const CAR_STATS: Record<CarType, CarStats> = {
     stats: 'SPD ██░░░  ARM █████',
   },
   WAR_RUNNER: {
-    width: 30,
-    height: 50,
+    width: 48,
+    height: 80,
     speedMod: 1.0,
     color: '#5e7a45',
     label: 'WAR-RUNNER',
@@ -67,8 +75,8 @@ export const CAR_STATS: Record<CarType, CarStats> = {
     // Was 22 — narrow enough that it could thread every gap in traffic
     // without ever overlapping an enemy's hitbox, making the car
     // effectively uncrashable. Widened while keeping it the 2nd-narrowest.
-    width: 30,
-    height: 46,
+    width: 48,
+    height: 74,
     speedMod: 1.15,
     color: '#3d6db8',
     label: 'DEATHSLED',
@@ -76,8 +84,8 @@ export const CAR_STATS: Record<CarType, CarStats> = {
     stats: 'SPD █████  ARM █░░░░',
   },
   SCRAPQUEEN: {
-    width: 46,
-    height: 70,
+    width: 74,
+    height: 112,
     speedMod: 0.72,
     color: '#7a4a8a',
     label: 'SCRAPQUEEN',
@@ -88,8 +96,8 @@ export const CAR_STATS: Record<CarType, CarStats> = {
     // Was 16 — same "practically unhittable" issue as DEATHSLED, worse.
     // Kept as the narrowest car for its "ghost-thin" identity, just no
     // longer thin enough to dodge everything by default.
-    width: 24,
-    height: 42,
+    width: 38,
+    height: 67,
     speedMod: 1.35,
     color: '#00ffcc',
     label: 'PHANTOM',
@@ -122,6 +130,15 @@ export interface Vehicle extends GameObject {
   // variants (e.g. sedan_v1/v2/v3) this instance renders as. Unused by BOSS,
   // which has a single dedicated sprite.
   variant: number;
+  // Lanes 0-1 are oncoming traffic (rushes toward the player, closing
+  // speed = currentSpeed + v.speed — the original, only behavior before
+  // this field existed); lanes 2-3 travel the same direction as the
+  // player (closing speed = currentSpeed - v.speed, so a slower-type
+  // vehicle drifts toward the player like traffic you're catching up to,
+  // and a faster one can pull away). Renderers use this to pick sprite
+  // rotation — oncoming traffic faces the player (rotated 180°), same-
+  // direction traffic faces away, matching the player's own orientation.
+  direction: 'SAME' | 'OPPOSITE';
 }
 
 export interface PowerUpItem extends GameObject {
@@ -365,9 +382,13 @@ export class GameEngine {
   }
 
   private init() {
-    const laneWidth = this.width / 3;
-    this.state.lanes = [laneWidth / 2, laneWidth * 1.5, laneWidth * 2.5];
-    this.state.player.x = this.state.lanes[1];
+    // 4 lanes instead of 3 (2026-08-03) — lanes 0-1 carry oncoming
+    // traffic, lanes 2-3 carry same-direction traffic (see Vehicle.
+    // direction). Player starts in lane 2, the near side of its own
+    // direction's pair.
+    const laneWidth = this.width / 4;
+    this.state.lanes = [laneWidth / 2, laneWidth * 1.5, laneWidth * 2.5, laneWidth * 3.5];
+    this.state.player.x = this.state.lanes[2];
     this.state.player.y = this.height - 80;
     this.initialPlayerY = this.state.player.y;
     // cameraY is a delta from initialPlayerY, so it starts at 0, not at the
@@ -601,13 +622,14 @@ export class GameEngine {
       if (len > 0) {
         // Base speed tuned so diagonal doesn't outrun horizontal/vertical.
         // Was 0.42 (≈25px/sec at 60fps) since this was first written —
-        // crossing a single 140px lane took ~5.6 seconds, an order of
+        // crossing a single lane took several seconds, an order of
         // magnitude slower than drag/touch input (which sets player.x
-        // directly, effectively instant). Keyboard/joystick players could
-        // never out-steer approaching traffic. Raised to a value that
-        // crosses a lane in well under half a second, in line with touch
-        // responsiveness.
-        const moveSpeed = 5.5 * (1 + this.upgrades.handling * 0.08) * (dt / 16);
+        // directly, effectively instant), so keyboard/joystick players
+        // could never out-steer approaching traffic. A first pass raised
+        // this to 5.5, which real playtesting called too twitchy; settled
+        // here at a pace that crosses one of the (now-narrower, 105px)
+        // lanes in a bit over half a second.
+        const moveSpeed = 3.2 * (1 + this.upgrades.handling * 0.08) * (dt / 16);
         state.player.x += (dx / len) * moveSpeed;
         state.player.y += (dy / len) * moveSpeed;
       }
@@ -700,7 +722,16 @@ export class GameEngine {
     // Update vehicles
     for (let i = state.vehicles.length - 1; i >= 0; i--) {
       const v = state.vehicles[i];
-      v.y += currentSpeed + v.speed * 0.5;
+      if (v.direction === 'SAME') {
+        // Same-direction traffic: closing speed is currentSpeed minus its
+        // own pace, not a sum — a slower type (BUS/TANK, low speed
+        // multiplier) drifts toward the player like highway traffic
+        // you're gaining on; a faster one (SPORTS) can pull away instead.
+        // Floor keeps it from ever fully stalling on screen.
+        v.y += Math.max(1.2, currentSpeed - v.speed * 0.7);
+      } else {
+        v.y += currentSpeed + v.speed * 0.5;
+      }
 
       if (v.y > this.height + 150) {
         if (v.type === 'TANK') {
@@ -866,11 +897,12 @@ export class GameEngine {
       ? 'TANK'
       : REGULAR_TYPES[Math.floor(this.rng() * REGULAR_TYPES.length)];
 
-    let width = 30, height = 50, speed = currentSpeed * 0.8;
-    if (type === 'BUS')      { width = 45; height = 90; speed = currentSpeed * 0.6; }
-    if (type === 'SPORTS')   { height = 45; speed = currentSpeed * 1.5; }
-    if (type === 'BOXTRUCK') { width = 35; height = 70; speed = currentSpeed * 0.7; }
-    if (type === 'TANK')     { width = 50; height = 80; speed = currentSpeed * 0.4; }
+    // Scaled ×1.6 alongside CAR_STATS — see its comment for why.
+    let width = 48, height = 80, speed = currentSpeed * 0.8;
+    if (type === 'BUS')      { width = 72; height = 144; speed = currentSpeed * 0.6; }
+    if (type === 'SPORTS')   { height = 72; speed = currentSpeed * 1.5; }
+    if (type === 'BOXTRUCK') { width = 56; height = 112; speed = currentSpeed * 0.7; }
+    if (type === 'TANK')     { width = 80; height = 128; speed = currentSpeed * 0.4; }
 
     const spot = this.findSafeSpawnX(width, excludeLane);
     if (!spot) return undefined;
@@ -878,8 +910,11 @@ export class GameEngine {
     const colors = ['#555', '#453c31', '#222', '#4b5320', '#cc0000', '#dcdcdc'];
     const color = colors[Math.floor(this.rng() * colors.length)];
     const variant = Math.floor(this.rng() * 3) + 1;
+    // Lanes 0-1 = oncoming, 2-3 = same direction as the player — see
+    // Vehicle.direction's doc comment.
+    const direction: Vehicle['direction'] = spot.lane < 2 ? 'OPPOSITE' : 'SAME';
 
-    state.vehicles.push({ type, x: spot.x, y: -100, width, height, color, speed, lane: spot.lane, passed: false, variant });
+    state.vehicles.push({ type, x: spot.x, y: -100, width, height, color, speed, lane: spot.lane, passed: false, variant, direction });
     return spot.lane;
   }
 
@@ -920,12 +955,12 @@ export class GameEngine {
   private spawnBoss(currentSpeed: number) {
     const state = this.state;
     state.bossActive = true;
-    const laneWidth = this.width / 3;
-    // Boss centers between lanes 0-1 or 1-2
-    const useLow = this.rng() < 0.5;
-    const centerX = useLow
-      ? (state.lanes[0] + state.lanes[1]) / 2
-      : (state.lanes[1] + state.lanes[2]) / 2;
+    const laneWidth = this.width / 4;
+    // Centers on the direction divide (between lanes 1 and 2) so it spans
+    // across both directions' lanes — a full-road blocker, matching its
+    // "rival boss" threat level regardless of which pair it visually
+    // overlaps more.
+    const centerX = (state.lanes[1] + state.lanes[2]) / 2;
 
     state.vehicles.push({
       type: 'BOSS',
@@ -938,6 +973,7 @@ export class GameEngine {
       lane: 1,
       passed: false,
       variant: 1,
+      direction: 'OPPOSITE',
     });
   }
 

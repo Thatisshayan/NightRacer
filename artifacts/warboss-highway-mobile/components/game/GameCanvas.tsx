@@ -26,10 +26,14 @@ import { useSpriteImages, vehicleImage } from './sprites';
 // GameEngine's lane math produces the same layout on both platforms.
 export const GAME_WIDTH = 420;
 export const GAME_HEIGHT = 800;
-const ROAD_TILE_SIZE = 80;
-const GUARDRAIL_WIDTH = 20;
-const LAMP_WIDTH = 30;
-const LAMP_HEIGHT = 60;
+// Was 80 — real playtesting called the asphalt texture too subtle/hard to
+// make out at that repeat size; bigger tiles mean more of the source
+// texture's own grain/crack detail is visible per tile instead of being
+// downsampled away.
+const ROAD_TILE_SIZE = 110;
+const GUARDRAIL_WIDTH = 24;
+const LAMP_WIDTH = 34;
+const LAMP_HEIGHT = 70;
 const LAMP_SPAN = 6 * ROAD_TILE_SIZE; // 480px between same-side posts
 // Road/guardrail tiles repeat every ROAD_TILE_SIZE (80px) and are visually
 // uniform, so scrolling the static grid by `roadOffset % ROAD_TILE_SIZE`
@@ -43,16 +47,11 @@ const LAMP_SPAN = 6 * ROAD_TILE_SIZE; // 480px between same-side posts
 // visibly swap a post's side mid-scroll.
 const LAMP_PERIOD = 2 * LAMP_SPAN; // 960px
 const EXPLOSION_FLASH_MS = 400;
-// Render-only oversize for vehicles/obstacles/player — collision hitboxes
-// (engine.ts's CAR_STATS/spawn dimensions, shared with the web renderer)
-// are untouched, this only changes how big the sprite is drawn, still
-// centered on the same collision-box center. Addresses "the road looks
-// huge and the cars look tiny" — lane width is 140px but cars are only
-// 30-46px wide (21-33%), well under a real highway's car-to-lane ratio
-// (~50%). A pure hitbox-width change would also require re-tuning spawn/
-// difficulty balance on both platforms; this gets most of the visual win
-// without that risk.
-const VISUAL_SCALE = 1.25;
+// A prior pass addressed "cars look tiny vs. the road" with a render-only
+// VISUAL_SCALE multiplier (visual size inflated past the actual collision
+// hitbox). Superseded (2026-08-03) by properly upsizing CAR_STATS/spawn
+// dimensions in engine.ts itself and narrowing lanes from 3 to 4 — real
+// hitbox and rendered size now match again, no separate multiplier needed.
 // Must mirror engine.ts's camera-follow clamp (cameraMax = height * 0.18)
 // and this file's own screen-shake ceiling ((300/300) * 9) — the road tiling
 // has to overscan by at least this much above the viewport, or dragging the
@@ -91,8 +90,13 @@ function contrastBrightnessMatrix(contrast: number, brightness: number): number[
     0, 0, 0, 1, 0,
   ];
 }
-const ROAD_BOOST = contrastBrightnessMatrix(1.3, 0.05);
+// Contrast raised further (was 1.3/0.05) — real playtesting still called
+// the asphalt too flat/hard to make out even with the first boost pass.
+const ROAD_BOOST = contrastBrightnessMatrix(1.55, 0.08);
 const VEHICLE_BOOST = contrastBrightnessMatrix(1.2, 0.12);
+// Guardrails/lamp posts had no boost at all — dark art on a dark road
+// with nothing pushing it forward, easy to miss entirely at a glance.
+const ROADSIDE_BOOST = contrastBrightnessMatrix(1.4, 0.14);
 
 function hexagonPath(cx: number, cy: number, r: number, rotation: number): string {
   let d = '';
@@ -445,15 +449,15 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
 
         vehiclePool.sync(state.vehicles, (handle, v) => {
           const img = vehicleImage(images, v.type, v.variant);
-          const w = v.width * VISUAL_SCALE;
-          const h = v.height * VISUAL_SCALE;
-          (handle as SpriteSlotHandle).set(v.x - w / 2, v.y - h / 2, w, h, img ? 1 : 0, img, Math.PI);
+          // Oncoming traffic (lanes 0-1) faces the player, same-direction
+          // traffic (lanes 2-3) faces away — matches the player's own
+          // orientation, like real two-way traffic. See Vehicle.direction.
+          const rotate = v.direction === 'OPPOSITE' ? Math.PI : 0;
+          (handle as SpriteSlotHandle).set(v.x - v.width / 2, v.y - v.height / 2, v.width, v.height, img ? 1 : 0, img, rotate);
         });
         obstaclePool.sync(state.obstacles, (handle, o) => {
           const img = o.type === 'OIL_SLICK' ? images.oilSlick : images.debris;
-          const w = o.width * VISUAL_SCALE;
-          const h = o.height * VISUAL_SCALE;
-          (handle as SpriteSlotHandle).set(o.x - w / 2, o.y - h / 2, w, h, img ? 1 : 0, img, 0);
+          (handle as SpriteSlotHandle).set(o.x - o.width / 2, o.y - o.height / 2, o.width, o.height, img ? 1 : 0, img, 0);
         });
         powerupPool.sync(state.powerups, (handle, p) => {
           const img = images.powerups[p.type];
@@ -487,12 +491,10 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
 
         const flickerVisible = !state.player.isInvulnerable || Math.floor(now / 80) % 2 === 0;
         const invulnAlpha = state.player.isInvulnerable ? 0.7 + 0.3 * Math.sin(now * 0.03) : 1;
-        const playerRenderW = state.player.width * VISUAL_SCALE;
-        const playerRenderH = state.player.height * VISUAL_SCALE;
-        playerX.value = state.player.x - playerRenderW / 2;
-        playerY.value = state.player.y - playerRenderH / 2;
-        playerW.value = playerRenderW;
-        playerH.value = playerRenderH;
+        playerX.value = state.player.x - state.player.width / 2;
+        playerY.value = state.player.y - state.player.height / 2;
+        playerW.value = state.player.width;
+        playerH.value = state.player.height;
         playerOpacity.value = flickerVisible ? invulnAlpha : 0;
         playerCenterX.value = state.player.x;
         playerCenterY.value = state.player.y;
@@ -624,8 +626,16 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
               {roadTiles}
             </Group>
           )}
-          {guardrails && <Group transform={roadTransform}>{guardrails}</Group>}
-          {lampPosts && <Group transform={lampTransform}>{lampPosts}</Group>}
+          {guardrails && (
+            <Group transform={roadTransform} layer={<Paint><ColorMatrix matrix={ROADSIDE_BOOST} /></Paint>}>
+              {guardrails}
+            </Group>
+          )}
+          {lampPosts && (
+            <Group transform={lampTransform} layer={<Paint><ColorMatrix matrix={ROADSIDE_BOOST} /></Paint>}>
+              {lampPosts}
+            </Group>
+          )}
 
           {obstaclePool.handles.map((ref, i) => (
             <SpriteSlot key={`obstacle-${i}`} ref={ref as React.RefObject<SpriteSlotHandle>} fit="fill" />
@@ -746,13 +756,16 @@ function buildRoadGrid(roadTile: NonNullable<ReturnType<typeof useSpriteImages>[
     }
   }
 
-  // Lane divider dashes — the road previously had zero markings, which
-  // was part of why it read as a flat dark surface rather than a road at
-  // a glance. Matches engine.ts's 3-lane math (`this.width / 3`) exactly
-  // so dividers line up with where vehicles actually spawn/travel.
-  const laneWidth = GAME_WIDTH / 3;
+  // Lane markings — matches engine.ts's 4-lane math (`this.width / 4`)
+  // exactly so dividers line up with where vehicles actually spawn/
+  // travel. Lanes 0-1 (oncoming) and 2-3 (same direction) are each
+  // dashed white internally (ordinary lane splits), but the boundary
+  // between lane 1 and 2 is the direction divide — drawn as a solid
+  // double-yellow center line, like a real two-way road, instead of
+  // reading as just another dashed lane split.
+  const laneWidth = GAME_WIDTH / 4;
   const gridHeight = rows * ROAD_TILE_SIZE;
-  for (const divX of [laneWidth, laneWidth * 2]) {
+  for (const divX of [laneWidth, laneWidth * 3]) {
     tiles.push(
       <Line
         key={`lane-divider-${divX}`}
@@ -764,6 +777,19 @@ function buildRoadGrid(roadTile: NonNullable<ReturnType<typeof useSpriteImages>[
       >
         <DashPathEffect intervals={[18, 14]} />
       </Line>
+    );
+  }
+  const centerX = laneWidth * 2;
+  for (const offset of [-2.5, 2.5]) {
+    tiles.push(
+      <Line
+        key={`center-divide-${offset}`}
+        p1={{ x: centerX + offset, y: yStart }}
+        p2={{ x: centerX + offset, y: yStart + gridHeight }}
+        color="rgba(255,205,60,0.55)"
+        style="stroke"
+        strokeWidth={2.5}
+      />
     );
   }
 

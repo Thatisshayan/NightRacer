@@ -129,6 +129,16 @@ export default function Game() {
   const [personalBest, setPersonalBest] = useState(0);
   const [newRecord, setNewRecord] = useState(false);
   const [isLandscape, setIsLandscape] = useState(false);
+  // True once the Pixi renderer has actually attached. Until then, the
+  // Canvas 2D fallback (WebGameEngine.renderFallback → draw()) is what's
+  // driving the frame — its own older, procedural road/guardrail/lamp-post
+  // rendering, visibly different from the sprite-pack-driven Pixi look.
+  // Pixi loads async (dynamic import + sprite pack fetch, see startGame()
+  // below), so without this a real user saw that older rendering flash
+  // for real time before Pixi swapped in. Covered instead of just letting
+  // it show, rather than changing what renderFallback() draws (it's still
+  // the real fallback if Pixi genuinely fails to load).
+  const [pixiReady, setPixiReady] = useState(false);
   const prefersReducedMotion = useReducedMotion();
 
   // Landscape detection
@@ -293,6 +303,7 @@ export default function Game() {
     setGameOverState(null);
     setNewRecord(false);
     setScreen('playing');
+    setPixiReady(!usePixiRenderer);
 
     engineRef.current = new WebGameEngine(
       canvasRef.current,
@@ -335,7 +346,11 @@ export default function Game() {
         // this would attach to (or leak) a renderer nothing owns anymore.
         if (unmountedRef.current || engineRef.current !== engine) { renderer.destroy(); return; }
         engine.attachRenderer(renderer);
-      }).catch((err) => console.error('[pixi-debug] failed to attach Pixi renderer', err));
+        setPixiReady(true);
+      }).catch((err) => {
+        console.error('[pixi-debug] failed to attach Pixi renderer', err);
+        setPixiReady(true); // uncover the Canvas 2D fallback — it's genuinely the active renderer now
+      });
     }
   }, [isDailyChallenge, selectedCar, joystickEnabled]);
 
@@ -408,6 +423,16 @@ export default function Game() {
             className="absolute inset-0 pointer-events-none"
             style={{ display: screen !== 'title' ? 'block' : 'none' }}
           />
+        )}
+
+        {/* Loading cover — masks the Canvas 2D fallback's older,
+            procedural road/guardrail/lamp-post rendering while Pixi's
+            bundle + sprite pack are still loading. See pixiReady's doc
+            comment. */}
+        {usePixiRenderer && screen === 'playing' && !pixiReady && (
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-black">
+            <div className="text-xs font-mono text-muted-foreground tracking-widest uppercase">Loading…</div>
+          </div>
         )}
 
         {/* HUD — DOM overlay, independent of which renderer (Canvas 2D or
