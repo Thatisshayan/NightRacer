@@ -64,7 +64,10 @@ export function HudOverlay({
   const powerUpSeconds = powerUp ? Math.max(0, Math.ceil(state.powerUpTimer / 1000)) : 0;
 
   const speedRatio = Math.min(1, state.speedMultiplier / 3);
-  const speedColor = state.speedMultiplier >= 2.5 ? '#ff3333' : state.speedMultiplier >= 1.8 ? '#ffaa00' : '#55ffaa';
+  // Amber-at-rest instead of the previous mint green — mint read as a
+  // generic fitness-app accent color, tonally off against the rest of the
+  // grimdark palette. Escalates through orange to red exactly as before.
+  const speedColor = state.speedMultiplier >= 2.5 ? '#ff3333' : state.speedMultiplier >= 1.8 ? '#ff8800' : '#cc8833';
 
   const showCombo = state.combo > 1;
   const showLevelUp = state.levelUpFlash > 0;
@@ -101,8 +104,8 @@ export function HudOverlay({
         {state.isDailyChallenge && <Text style={styles.dailyBadge}>◆ DAILY CHALLENGE</Text>}
         <View style={styles.lives}>
           {[0, 1, 2, 3, 4].map((i) => (
-            <Text key={i} style={[styles.heart, { opacity: i < state.lives ? 1 : 0 }]}>
-              {'♥'}
+            <Text key={i} style={[styles.heart, i < state.lives ? styles.heartAlive : styles.heartLost]}>
+              {'☠'}
             </Text>
           ))}
         </View>
@@ -120,16 +123,19 @@ export function HudOverlay({
         </View>
       )}
 
-      {/* Speedometer gauge (bottom right) */}
+      {/* Speedometer gauge (bottom right) — a dark metal bezel behind the
+          arc so it reads as an instrument-panel gauge welded onto the HUD
+          instead of a bare, floating fitness-app ring. */}
       <View style={styles.speedGauge}>
+        <View style={styles.speedBezel} />
         <Svg width={72} height={72} style={StyleSheet.absoluteFill} transform="rotate(-135 36 36)">
           <Circle
             cx={36}
             cy={36}
             r={ARC_R}
             fill="none"
-            stroke="rgba(255,255,255,0.15)"
-            strokeWidth={6}
+            stroke="rgba(255,255,255,0.12)"
+            strokeWidth={7}
             strokeDasharray={`${ARC_CIRCUMFERENCE} ${2 * Math.PI * ARC_R}`}
           />
           <Circle
@@ -138,7 +144,7 @@ export function HudOverlay({
             r={ARC_R}
             fill="none"
             stroke={speedColor}
-            strokeWidth={6}
+            strokeWidth={7}
             strokeLinecap="round"
             strokeDasharray={`${ARC_CIRCUMFERENCE} ${2 * Math.PI * ARC_R}`}
             strokeDashoffset={ARC_CIRCUMFERENCE * (1 - speedRatio)}
@@ -200,12 +206,57 @@ const styles = StyleSheet.create({
   pauseIcon: { fontSize: 14, color: '#fff' },
   muteButton: { position: 'absolute', right: 8, top: 6, width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
   muteIcon: { fontSize: 16 },
-  score: { position: 'absolute', left: 15, top: 32, fontSize: 22, fontWeight: 'bold', color: '#fff' },
-  dist: { position: 'absolute', left: 15, top: 62, fontSize: 13, color: '#888' },
-  combo: { position: 'absolute', left: 0, right: 0, top: 40, fontSize: 13, color: '#ffee22', textAlign: 'center' },
+  // A flat drop-shadow (not a glow) reads as text engraved on/backed by a
+  // metal plate rather than text floating with nothing behind it — cheap
+  // depth cue, matches the HUD bar's dark backing panel it already sits on.
+  score: {
+    position: 'absolute',
+    left: 15,
+    top: 32,
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#fff',
+    textShadowColor: 'rgba(0,0,0,0.9)',
+    textShadowRadius: 0,
+    textShadowOffset: { width: 0, height: 2 },
+  },
+  dist: {
+    position: 'absolute',
+    left: 15,
+    top: 62,
+    fontSize: 13,
+    color: '#999',
+    textShadowColor: 'rgba(0,0,0,0.9)',
+    textShadowRadius: 0,
+    textShadowOffset: { width: 0, height: 1 },
+  },
+  combo: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 40,
+    fontSize: 13,
+    color: '#ffee22',
+    textAlign: 'center',
+    textShadowColor: 'rgba(0,0,0,0.9)',
+    textShadowRadius: 0,
+    textShadowOffset: { width: 0, height: 1 },
+  },
   dailyBadge: { position: 'absolute', left: 0, right: 0, top: 68, fontSize: 10, color: '#55ffaa', textAlign: 'center' },
   lives: { position: 'absolute', right: 15, top: 34, flexDirection: 'row-reverse', gap: 4 },
-  heart: { color: '#cc0000', fontSize: 20, lineHeight: 20 },
+  // Skulls instead of hearts — a heart icon read as generic mobile-game
+  // chrome, out of place against the rest of the grimdark 40k styling
+  // (sprites, "WASTED" game-over screen, etc). Remaining lives get a
+  // bone-white skull with a faint red glow (textShadow); lost lives fade to
+  // a dim outline instead of just disappearing, so the pip stays visible.
+  heart: { fontSize: 20, lineHeight: 20 },
+  heartAlive: {
+    color: '#e8ded0',
+    textShadowColor: 'rgba(255,40,20,0.85)',
+    textShadowRadius: 4,
+    textShadowOffset: { width: 0, height: 0 },
+  },
+  heartLost: { color: 'rgba(255,255,255,0.15)' },
   oilWarning: { position: 'absolute', right: 12, top: 66, fontSize: 12, color: '#8888ff' },
   powerUpBar: {
     position: 'absolute',
@@ -222,6 +273,17 @@ const styles = StyleSheet.create({
   powerUpFill: { height: '100%' },
   powerUpTimer: { position: 'absolute', right: 12, bottom: 8, fontSize: 12, color: '#fff' },
   speedGauge: { position: 'absolute', right: 12, bottom: 12, width: 72, height: 72 },
+  speedBezel: {
+    position: 'absolute',
+    left: 4,
+    top: 4,
+    right: 4,
+    bottom: 4,
+    borderRadius: 32,
+    backgroundColor: 'rgba(10,10,10,0.55)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
   speedTextWrap: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
   speedText: { fontSize: 14, fontWeight: 'bold', color: '#fff' },
   speedLabel: { fontSize: 8, color: '#888' },

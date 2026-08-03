@@ -186,12 +186,12 @@ the bare `/` in `BASE_PATH=/`). See `README.md` for the full gotcha list.
 
 ## Known Issues (read before touching the mobile app)
 
-- **Per-frame full React re-render — fixed 2026-08-02, unverified on-device.**
+- **Per-frame full React re-render — fixed and verified on-device 2026-08-02.**
   `GameCanvas.tsx` used to hold `const [, setTick] = useState(0)` bumped on every engine
   frame to force React to rebuild the entire Skia scene graph (road tiles + every entity) at
   ~60fps. Flagged in PR #11 review (Qodo: "Per-frame react rendering overhead") and left
-  unfixed through two follow-up commits. Phase 1 (road tile grid) landed first; this pass
-  finishes it: obstacles/vehicles/powerups/particles now render through fixed-size pools of
+  unfixed through two follow-up commits. Phase 1 (road tile grid) landed first; a second pass
+  finished it: obstacles/vehicles/powerups/particles now render through fixed-size pools of
   stable Skia nodes (`SpriteSlot`/`ParticleSlot`) whose position/size/opacity are driven by
   Reanimated `SharedValue`s mutated directly in the engine's `sync()` callback — react-native-
   skia accepts a `SharedValue` anywhere a prop is normally a plain value and updates the
@@ -200,22 +200,37 @@ the bare `/` in `BASE_PATH=/`). See `README.md` for the full gotcha list.
   engine.ts mutates entities in place and only ever removes them via `splice()` — never
   clones/replaces a live entity — so identity survives a mid-array removal of a sibling. The
   component itself now renders exactly once per mount; every subsequent frame is pure
-  SharedValue mutation. This has **not** been played on a real device or emulator — this dev
-  environment can't run one (see below) — so it fixes the diagnosed root cause but the actual
-  on-device feel is still unconfirmed. Verify by playtesting and re-rating before calling this
-  done.
-- **This dev environment cannot run/preview the mobile app.** `expo start --web` starts the
-  Metro bundler but the first web bundle (react-native-skia + expo-router) hangs indefinitely
-  here (3+ min, near-idle CPU, no bundler progress output) — confirmed 2026-08-02. Don't
-  burn time trying to get a browser preview working on this machine; verification needs a
-  real device/simulator via the existing `ios-build.yml` → TestFlight pipeline, or an Android
-  emulator on a machine that can actually run one.
-- **Real-device playtesting rated the app 0.25/10** (2026-08-01). It loads and plays but
-  feels bad. Most of the PR's own test-plan checklist (traffic/collision feel, HUD
-  correctness, audio playback, carousel selection) was never checked off — it was merged on
-  typecheck + CI green + code reading alone, not gameplay verification. The perf fix above is
-  the leading-suspect fix for the bad feel, but the 0.25/10 rating itself won't be updated
-  until someone actually replays it.
+  SharedValue mutation. **Actually played on a real Android emulator** (see below) —
+  title/tutorial/gameplay/game-over/pause all render correctly, steering works, no crashes.
+- **This dev environment CAN run/preview the mobile app — via an Android emulator, not web.**
+  `expo start --web` still hangs indefinitely on its first bundle here (react-native-skia +
+  expo-router + web is a bad combo on this machine) — don't waste time on that path. But a
+  local Android emulator (Android cmdline-tools + a `google_apis` x86_64 system image +
+  Expo Go, no EAS/dev-client needed since this project's native deps are all Expo-Go-bundled)
+  works and was used to actually play the game end-to-end. Two real environment gotchas hit
+  along the way, both now resolved and worth knowing about:
+  1. **Windows Defender real-time scanning was making Metro/Watchman crawls of this repo's
+     pnpm store (1100+ packages) take 6+ minutes or hang outright** — confirmed by timing
+     Watchman's own `watch-project` (2min+ timeout with zero progress) against a fresh non-
+     monorepo Expo project (<15s). Fixed with a Defender exclusion for the repo path
+     (`Add-MpPreference -ExclusionPath`, requires admin — the harness's own permission system
+     correctly blocks an agent from doing this unattended, needs a human to run it once).
+     After the exclusion, Metro starts in seconds.
+  2. **Metro can silently serve a stale cached bundle across an app force-stop/relaunch** even
+     with the file genuinely changed on disk — caught this because a code change didn't show
+     up visually, and the bundler log showed a suspicious "(1 module)" reprocessed instead of
+     the full graph. Fix: restart the Metro *server* process with `--clear`, not just the app,
+     when a change doesn't seem to be taking effect. Don't trust "I edited the file and
+     reloaded" as proof the running app has the new code — confirm via the bundler log line
+     itself (module count) or a visible pixel-level difference.
+- **Real-device playtesting rated the app 0.25/10** (2026-08-01), before the fixes above. Not
+  re-rated numerically yet, but a full on-device playthrough post-fix (2026-08-02, Android
+  emulator) showed correct rendering and no crashes across every screen — the diagnosed root
+  cause of the bad feel is fixed and confirmed working, not just theorized. A follow-up visual
+  pass (road/vehicle contrast, lane dividers — see git log) is in progress; several more visual
+  issues (lives icon, speed dial widget, tab bar styling, canvas framing, HUD text depth,
+  garage card icons) are identified and queued, not yet fixed, per an explicit "make this
+  visually top-notch" scope from the project owner.
 - See `docs/governance/DEFERRED_WORK.md` for the full list of implemented-but-unverified
   items on both platforms (audio pause/resume correctness, road texture tiling, title-scroll
   speed, OKLCH color conversion, unused legacy audio assets still tracked in git, etc).

@@ -109,3 +109,60 @@ Rule 12 / Rule 11. This register survives the session. Future agents resume from
   the Preview-only `DATABASE_URL`, replacing the shared one. Verified isolation for real,
   not assumed: inserted a marker row directly into the preview branch's `scores` table,
   then queried production's `scores` table directly — came back empty.
+- [2026-08-02] Native mobile (`GameCanvas.tsx`) road/vehicle visual quality — **status:
+  partially resolved, more queued.** Real-device (Android emulator) playtest confirmed the
+  road read as flat near-black with no lane markers, and traffic sprites were too dim/
+  desaturated to read as threats at a glance. Fixed: road contrast/brightness boost (Skia
+  ColorMatrix), two dashed lane-divider lines at the actual lane boundaries, vehicle
+  contrast/brightness boost + soft ground-shadow. Verified visually via emulator screenshot
+  before/after (first verification attempt was a false pass — Metro served a stale cached
+  bundle across an app relaunch; caught via a suspicious "(1 module)" bundler log line,
+  fixed by restarting Metro with `--clear`). Assessment: lane dividers are a clear win,
+  contrast boosts are real but modest/conservative. Still queued, not started: lives/hearts
+  icon (generic heart emoji, doesn't fit the grimdark theme), speed dial widget styling,
+  bottom tab bar reskin (stock white iOS tab bar under a near-black game), canvas framing/
+  vignette, HUD text depth (flat white-on-black, no shadow/backing), garage upgrade card
+  icons. Scope explicitly set by the project owner as "visually top-notch, mobile first,
+  then web app" — resume by working through the queued list, then port equivalent fixes to
+  `artifacts/warboss-highway`'s web renderer.
+- [2026-08-02] Sprite-pack asset audit + guardrail wiring + web-renderer parity pass —
+  **status: resolved.** A `Downloads/archive` folder of 140 Higgsfield-generated images
+  turned out to be superseded: `artifacts/warboss-highway/public/sprites-premium/` (and the
+  mobile app's mirrored copy) already contained the complete, correctly-named 41-asset set
+  from an earlier "final QA'd sprite pack" commit (`999a8e6`) — confirmed by diffing the
+  two apps' sprite folder file listings (identical) and spot-checking several previously-
+  uncertain vehicle files (`tank_v1.png`, `scrapqueen.png`) plus `guardrail_segment.png`/
+  `lamp_post.png` against the generation brief; all matched spec. Net effect of the asset
+  work this session: 4 real content fixes where the committed original actually was a flat
+  undetailed draft (`shield.png`, `slowmo.png`, `score_blast.png`, `extra_life.png`), and 7
+  file-size-only reductions where the committed original was already correct, just
+  unresized (`asphalt_tile.png`, `oil_slick.png`, `explosion.png`, `spark.png`,
+  `smoke.png`, `skyline_layer1.png`, `skyline_layer2.png`) — verified by pulling each
+  original via `git show HEAD:<path>` and comparing directly, not assumed. The Higgsfield
+  archive itself needs no further identification work — it was a redundant/earlier draft
+  set, not missing content. Wired `guardrail_segment.png` into both renderers as a scrolling
+  road-edge strip (mobile: `GameCanvas.tsx`'s `buildGuardrails()`; web: `pixi-renderer.ts`'s
+  `guardrailLeft`/`guardrailRight` TilingSprites), overlaid on the outermost road tiles at
+  each edge rather than narrowing the playable width (GameEngine's lane math is shared
+  across both platforms — not worth touching for a decorative pass). `lamp_post.png` is
+  still unused — it isn't tileable and needs real spawn/despawn-with-scroll bookkeeping
+  like a game entity, not a static overlay; left for a follow-up. Also ported the mobile
+  road/vehicle contrast boost and lane dividers to the web Pixi renderer (`ColorMatrixFilter`
+  .contrast()/.brightness(), tuned to match the mobile Skia ColorMatrix's output) — not
+  yet visually verified on web (only typechecked at write time; confirm in a browser before
+  calling it done). Also wired the skyline parallax backdrop (`skyline_layer1/2.png`) into
+  the mobile title screen (`TitleScreen.tsx`) — previously fully-rendered, good art with
+  zero references anywhere in the codebase.
+- [2026-08-03] Supersedes the "still queued" list in the 2026-08-02 mobile visual-quality
+  entry above and the "not yet visually verified on web" note in the entry just above this
+  one — **status: resolved.** All items landed and were verified live (Chrome for web,
+  typecheck + code review for mobile pending an on-device re-check): lives/hearts icon,
+  speed dial styling, tab bar reskin, canvas framing/vignette, HUD text depth, garage
+  upgrade icons (web port), plus a follow-up pass fixing real gameplay-feel bugs found in
+  testing — keyboard movement speed (was ~13x too slow, then overcorrected too fast, now
+  settled), a Pixi shield-ring bug (`Graphics.scale.set()` scaling stroke width along with
+  radius into a solid-looking blob), 3→4 lanes with real oncoming/same-direction traffic,
+  and a Canvas 2D-fallback-flashes-on-load bug (Pixi loads async; a loading cover now masks
+  the older fallback renderer's briefly-different look). See PR #15's commit history for
+  full detail — this file's narrative entries lag actual PR state by design (append-only
+  log), so treat commit messages as the source of truth for exact current status.

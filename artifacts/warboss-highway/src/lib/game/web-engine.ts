@@ -132,7 +132,6 @@ export class WebGameEngine extends GameEngine {
 
     this.drawRoad(ctx);
 
-    // Obstacles
     state.obstacles.forEach(o => {
       ctx.save();
       ctx.translate(o.x, o.y);
@@ -140,11 +139,12 @@ export class WebGameEngine extends GameEngine {
       ctx.restore();
     });
 
-    // Vehicles
+    // Vehicles — oncoming traffic (lanes 0-1) faces the player, same-
+    // direction traffic (lanes 2-3) faces away. See Vehicle.direction.
     state.vehicles.forEach(v => {
       ctx.save();
       ctx.translate(v.x, v.y);
-      ctx.rotate(Math.PI);
+      if (v.direction === 'OPPOSITE') ctx.rotate(Math.PI);
       drawVehicle(ctx, v.type, v.width, v.height, v.color);
       ctx.restore();
     });
@@ -168,7 +168,12 @@ export class WebGameEngine extends GameEngine {
       ctx.arc(0, 0, p.width / 2, 0, Math.PI * 2);
       ctx.fill();
       ctx.shadowBlur = 0;
-      ctx.strokeStyle = '#fff';
+      // Was a solid white stroke — read as a bright white halo/background
+      // behind the icon against the dark road (this is the Canvas 2D
+      // fallback path only, used while the Pixi renderer's real sprite
+      // pack is still loading; matches the sprite art's own subtler rim
+      // better than pure white).
+      ctx.strokeStyle = 'rgba(255,255,255,0.35)';
       ctx.lineWidth = 2;
       ctx.stroke();
       ctx.fillStyle = '#000';
@@ -206,6 +211,13 @@ export class WebGameEngine extends GameEngine {
 
       if (state.activePowerUp === 'SHIELD') {
         const t = performance.now() * 0.0012;
+        // Was a fixed 38/28 regardless of car size — looked fine for a
+        // mid-size car but wildly oversized on the narrow ones (PHANTOM's
+        // 16px-wide body inside a 76px hexagon). Scaled to the player's
+        // own dimensions, matching the ratio the Pixi renderer already
+        // used correctly (maxDim * 0.75).
+        const shieldR = Math.max(state.player.width, state.player.height);
+        const hexR = shieldR * 0.62;
         // Outer rotating hexagon
         ctx.strokeStyle = '#00ffff';
         ctx.lineWidth = 2.5;
@@ -214,7 +226,7 @@ export class WebGameEngine extends GameEngine {
         ctx.beginPath();
         for (let i = 0; i < 6; i++) {
           const a = (i * Math.PI) / 3 + t;
-          const px = Math.cos(a) * 38, py = Math.sin(a) * 38;
+          const px = Math.cos(a) * hexR, py = Math.sin(a) * hexR;
           if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
         }
         ctx.closePath();
@@ -225,14 +237,14 @@ export class WebGameEngine extends GameEngine {
         ctx.lineWidth = 1;
         ctx.shadowBlur = 8;
         ctx.beginPath();
-        ctx.arc(0, 0, 28 + pulse * 4, 0, Math.PI * 2);
+        ctx.arc(0, 0, shieldR * 0.45 + pulse * (shieldR * 0.065), 0, Math.PI * 2);
         ctx.stroke();
         // Fill
         ctx.fillStyle = 'rgba(0,255,255,0.08)';
         ctx.beginPath();
         for (let i = 0; i < 6; i++) {
           const a = (i * Math.PI) / 3 + t;
-          const px = Math.cos(a) * 38, py = Math.sin(a) * 38;
+          const px = Math.cos(a) * hexR, py = Math.sin(a) * hexR;
           if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
         }
         ctx.closePath();
@@ -285,7 +297,7 @@ export class WebGameEngine extends GameEngine {
     const state = this.getState();
     const W = this.width;
     const H = this.height;
-    const laneWidth = W / 3;
+    const laneWidth = W / 4;
     const speedMult = state.speedMultiplier;
 
     // === GUTTERS — textured shoulders ===
@@ -414,7 +426,7 @@ export class WebGameEngine extends GameEngine {
     ctx.lineWidth = 3;
     ctx.setLineDash([34, 26]);
     ctx.lineDashOffset = -(state.roadOffset * 2.8);
-    for (let i = 1; i < 3; i++) {
+    for (const i of [1, 3]) {
       ctx.beginPath();
       ctx.moveTo(laneWidth * i, 0);
       ctx.lineTo(laneWidth * i, H);
@@ -422,6 +434,18 @@ export class WebGameEngine extends GameEngine {
     }
     ctx.setLineDash([]);
     ctx.lineDashOffset = 0;
+
+    // Direction divide (between lanes 1 and 2) — solid double-yellow
+    // center line, like a real two-way road, instead of another dash.
+    ctx.strokeStyle = 'rgba(255,205,60,0.55)';
+    ctx.lineWidth = 2.5;
+    const centerX = laneWidth * 2;
+    for (const offset of [-2.5, 2.5]) {
+      ctx.beginPath();
+      ctx.moveTo(centerX + offset, 0);
+      ctx.lineTo(centerX + offset, H);
+      ctx.stroke();
+    }
 
     // === HORIZON FOG ===
     const fogGrad = ctx.createLinearGradient(0, 0, 0, H * 0.2);

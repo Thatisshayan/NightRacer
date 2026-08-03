@@ -1,12 +1,50 @@
-import { Application, Container, Graphics, Sprite, TilingSprite } from 'pixi.js';
+import { Application, ColorMatrixFilter, Container, Graphics, Sprite, TilingSprite } from 'pixi.js';
 import { GlowFilter, MotionBlurFilter } from 'pixi-filters';
 import type { GameRenderer, GameState, CarType, Vehicle, Obstacle, PowerUpItem, Particle } from '@workspace/game-core';
 import { loadSpriteTextures, generatePlaceholderTextures, type SpriteTextures } from './sprites';
 import { Settings } from './settings';
 
 // Mirrors the mobile Skia renderer's ROAD_TILE_SIZE (GameCanvas.tsx) so the
-// road reads at the same in-game scale on both platforms.
-const ROAD_TILE_DISPLAY_SIZE = 80;
+// road reads at the same in-game scale on both platforms. Was 80 — real
+// playtesting called the asphalt texture too subtle/hard to make out at
+// that repeat size.
+const ROAD_TILE_DISPLAY_SIZE = 110;
+const GUARDRAIL_WIDTH = 24;
+const LAMP_WIDTH = 34;
+const LAMP_HEIGHT = 70;
+const LAMP_SPAN = 6 * ROAD_TILE_DISPLAY_SIZE; // between same-side posts
+const LAMP_PERIOD = 2 * LAMP_SPAN; // one left + one right post per period
+// Matches the mobile Skia renderer's DashPathEffect intervals={[18, 14]}.
+const LANE_DASH_LEN = 18;
+const LANE_DASH_GAP = 14;
+const LANE_DASH_PERIOD = LANE_DASH_LEN + LANE_DASH_GAP;
+const EXPLOSION_FLASH_MS = 400;
+// A prior pass addressed "cars look tiny vs. the road" with a render-only
+// VISUAL_SCALE multiplier (visual size inflated past the actual collision
+// hitbox). Superseded (2026-08-03) by properly upsizing CAR_STATS/spawn
+// dimensions in engine.ts itself and narrowing lanes from 3 to 4 — real
+// hitbox and rendered size now match again, no separate multiplier needed.
+
+// Visual fix (2026-08-02), ported from the mobile Skia renderer
+// (GameCanvas.tsx's ROAD_BOOST/VEHICLE_BOOST) after a real-device playtest
+// showed the road reading as near-flat black and traffic blending into it.
+// Pixi's ColorMatrixFilter.contrast()/.brightness() compose the same
+// standard CSS-filter-style transform the mobile renderer applies via a raw
+// Skia ColorMatrix, so both platforms end up with matching output despite
+// using different graphics backends.
+function boostFilter(contrast: number, brightness: number): ColorMatrixFilter {
+  const f = new ColorMatrixFilter();
+  // Pixi's contrast(amount) internally does v = amount + 1, so pass
+  // (contrast - 1) to land on the same multiplier as the mobile renderer's
+  // ROAD_BOOST/VEHICLE_BOOST constants (e.g. contrast=1.3 there == amount
+  // 0.3 here). brightness() is multiplicative (b=1 is a no-op) rather than
+  // additive like the CSS-filter formula the mobile side uses, so treat the
+  // mobile brightness offset as "1 + offset" — close enough at these small
+  // magnitudes that the two renderers read the same.
+  f.contrast(contrast - 1, true);
+  f.brightness(1 + brightness, true);
+  return f;
+}
 
 function vehicleTexture(textures: SpriteTextures, v: Vehicle) {
   if (v.type === 'BOSS') return textures.bossVehicle;
@@ -61,6 +99,10 @@ export class PixiRenderer implements GameRenderer {
   private textures: SpriteTextures;
   private worldContainer: Container;
   private road: TilingSprite;
+  private laneDividers: Graphics;
+  private guardrailLeft: TilingSprite;
+  private guardrailRight: TilingSprite;
+  private lampLayer: Container;
   // z-order back-to-front, matching the original Canvas 2D draw() sequence:
   // road -> obstacles -> vehicles -> powerups -> player.
   private obstacleLayer = new Container();
@@ -75,6 +117,9 @@ export class PixiRenderer implements GameRenderer {
   private particleLayer = new Container();
   private playerSprite: Sprite;
   private exhaustSprite: Sprite;
+  private explosionSprite: Sprite;
+  private prevScreenShake = 0;
+  private explosionUntil = 0;
   private shieldRing: Graphics;
   private currentCarType: CarType | null = null;
   private gen = 0;
@@ -115,26 +160,124 @@ export class PixiRenderer implements GameRenderer {
       ROAD_TILE_DISPLAY_SIZE / textures.roadTile.width,
       ROAD_TILE_DISPLAY_SIZE / textures.roadTile.height
     );
+    // Visual fix, ported from the mobile Skia renderer (see GameCanvas.
+    // tsx's ROAD_BOOST). Contrast raised further (was 1.3/0.05) — real
+    // playtesting still called the asphalt too flat/hard to make out even
+    // with the first boost pass.
+    this.road.filters = [boostFilter(1.55, 0.08)];
     this.worldContainer.addChild(this.road);
+
+    // Lane markings — matches engine.ts's 4-lane math (`this.width / 4`).
+    // Lanes 0-1 (oncoming) and 2-3 (same direction) are each dashed
+    // internally (ordinary lane splits, matching the mobile Skia
+    // renderer's DashPathEffect); the boundary between lane 1 and 2 is
+    // the direction divide, drawn as a solid double-yellow center line
+    // like a real two-way road — never dashed, so it doesn't need the
+    // scroll treatment below (a shifted continuous line looks identical
+    // to a static one; only the dashes need real motion, see sync()).
+    this.laneDividers = new Graphics();
+    const laneWidth = app.screen.width / 4;
+    const dashSpan = app.screen.height + 2 * LANE_DASH_PERIOD;
+    for (const divX of [laneWidth, laneWidth * 3]) {
+      for (let y = -LANE_DASH_PERIOD; y < dashSpan; y += LANE_DASH_PERIOD) {
+        this.laneDividers
+          .moveTo(divX, y)
+          .lineTo(divX, y + LANE_DASH_LEN)
+          .stroke({ width: 2, color: 0xffffff, alpha: 0.16 });
+      }
+    }
+    const centerX = laneWidth * 2;
+    for (const offset of [-2.5, 2.5]) {
+      this.laneDividers
+        .moveTo(centerX + offset, -LANE_DASH_PERIOD)
+        .lineTo(centerX + offset, dashSpan)
+        .stroke({ width: 2.5, color: 0xffcd3c, alpha: 0.55 });
+    }
+    this.worldContainer.addChild(this.laneDividers);
+
+    // Roadside guardrails — this asset shipped fully rendered but was never
+    // wired into either renderer (no shoulder in the full-bleed road
+    // layout to place it in). Overlaid on the outermost road tiles at each
+    // edge rather than narrowing the playable width, which is GameEngine's
+    // shared lane math — not worth touching for a decorative pass. Kept in
+    // sync with the road's own scroll below. Boosted like vehicles/road —
+    // previously had no filter at all, dark art on a dark road with
+    // nothing pushing it forward, easy to miss entirely at a glance.
+    const roadsideBoost = boostFilter(1.4, 0.14);
+    this.guardrailLeft = new TilingSprite({ texture: textures.guardrail, width: GUARDRAIL_WIDTH, height: app.screen.height });
+    this.guardrailRight = new TilingSprite({ texture: textures.guardrail, width: GUARDRAIL_WIDTH, height: app.screen.height });
+    this.guardrailLeft.tileScale.set(GUARDRAIL_WIDTH / textures.guardrail.width, ROAD_TILE_DISPLAY_SIZE / textures.guardrail.height);
+    this.guardrailRight.tileScale.set(GUARDRAIL_WIDTH / textures.guardrail.width, ROAD_TILE_DISPLAY_SIZE / textures.guardrail.height);
+    this.guardrailRight.x = app.screen.width - GUARDRAIL_WIDTH;
+    this.guardrailLeft.filters = [roadsideBoost];
+    this.guardrailRight.filters = [roadsideBoost];
+    this.worldContainer.addChild(this.guardrailLeft);
+    this.worldContainer.addChild(this.guardrailRight);
+
+    // Lamp posts — same reasoning as guardrails (real, unused art with no
+    // natural spawn point without touching shared lane math), but unlike
+    // the guardrail segment this one isn't seamlessly tileable, so
+    // TilingSprite doesn't apply. Built once as a repeating left/right pair
+    // spaced LAMP_SPAN apart, covering the full scroll range, then the
+    // whole container is translated by -(roadOffset % LAMP_PERIOD) each
+    // frame in sync() below — same "static build + scroll a transform"
+    // idea as the road grid, just via Container.y instead of tilePosition.
+    // The static grid has to extend a full LAMP_PERIOD beyond the viewport
+    // on both ends (not just LAMP_PERIOD total) — since lampLayer wraps at
+    // LAMP_PERIOD, a smaller grid would expose empty space above/below at
+    // the wrap boundary.
+    this.lampLayer = new Container();
+    const lampRows = Math.ceil((app.screen.height + 2 * LAMP_PERIOD) / LAMP_SPAN) + 1;
+    const lampYStart = -LAMP_PERIOD;
+    for (let row = 0; row < lampRows; row++) {
+      const sprite = new Sprite(textures.lampPost);
+      sprite.width = LAMP_WIDTH;
+      sprite.height = LAMP_HEIGHT;
+      sprite.x = row % 2 === 0 ? 0 : app.screen.width - LAMP_WIDTH;
+      sprite.y = lampYStart + row * LAMP_SPAN;
+      this.lampLayer.addChild(sprite);
+    }
+    this.lampLayer.filters = [roadsideBoost];
+    this.worldContainer.addChild(this.lampLayer);
+
     this.worldContainer.addChild(this.obstacleLayer);
+    this.vehicleLayer.filters = [boostFilter(1.2, 0.12)];
     this.worldContainer.addChild(this.vehicleLayer);
     this.worldContainer.addChild(this.powerupLayer);
     this.worldContainer.addChild(this.exhaustLayer);
 
-    this.exhaustSprite = new Sprite(textures.softGlow);
+    // smoke.png instead of the generated glow circle — normal blend (not
+    // 'add') so it reads as an actual plume instead of a bloom; the
+    // exhaustLayer's GlowFilter (quality:'high' only) still adds a heat
+    // shimmer on top of it.
+    this.exhaustSprite = new Sprite(textures.smoke);
     this.exhaustSprite.anchor.set(0.5);
     this.exhaustSprite.tint = 0xffaa33;
-    this.exhaustSprite.blendMode = 'add';
     this.exhaustSprite.visible = false;
     this.exhaustLayer.addChild(this.exhaustSprite);
+
+    // One-shot crash flash — explosion.png, triggered off a rising edge in
+    // state.screenShake (see sync() below) rather than a dedicated
+    // GameState field, so it needs no game-core changes. Sits above
+    // traffic/obstacles but behind the player, added here (same z-order
+    // point as exhaustLayer) before playerSprite is created below.
+    this.explosionSprite = new Sprite(textures.explosion);
+    this.explosionSprite.anchor.set(0.5);
+    this.explosionSprite.visible = false;
+    this.worldContainer.addChild(this.explosionSprite);
 
     this.playerSprite = new Sprite(Object.values(textures.playerCars)[0]);
     this.playerSprite.anchor.set(0.5);
     this.worldContainer.addChild(this.playerSprite);
 
     this.worldContainer.addChild(this.shieldLayer);
+    // Redrawn every frame at its real target radius in sync() below
+    // instead of being drawn once at radius 1 and scaled up via
+    // Graphics.scale — scale.set() scales the stroke width along with the
+    // geometry, so a 3px stroke on a unit circle became a 3px * ~50 =
+    // ~150px-wide ring at gameplay size: a solid-looking blob many times
+    // the player's own size, not a thin ring around it.
     this.shieldRing = new Graphics();
-    this.shieldRing.circle(0, 0, 1).stroke({ width: 3, color: 0x00ffff, alpha: 0.9 });
     this.shieldRing.visible = false;
     this.shieldLayer.addChild(this.shieldRing);
 
@@ -167,7 +310,47 @@ export class PixiRenderer implements GameRenderer {
     this.worldContainer.x = shakeAmp > 0 ? (Math.random() - 0.5) * shakeAmp : 0;
     this.worldContainer.y = (shakeAmp > 0 ? (Math.random() - 0.5) * shakeAmp : 0) - cameraY;
 
+    // Crash flash — a rising edge in screenShake (handleCrash() sets it to
+    // 300 in engine.ts) is the only "a real crash just happened" signal
+    // exposed to the renderer without a dedicated GameState field; the
+    // armor-save near-miss path creates particles but never sets
+    // screenShake, so this correctly skips that case.
+    if (screenShake > this.prevScreenShake) {
+      this.explosionUntil = performance.now() + EXPLOSION_FLASH_MS;
+    }
+    this.prevScreenShake = screenShake;
+    const explosionRemaining = this.explosionUntil - performance.now();
+    if (explosionRemaining > 0) {
+      const t = 1 - explosionRemaining / EXPLOSION_FLASH_MS;
+      this.explosionSprite.visible = true;
+      this.explosionSprite.x = state.player.x;
+      this.explosionSprite.y = state.player.y;
+      const scale = 0.7 + t * 0.9;
+      this.explosionSprite.width = state.player.width * 1.8 * scale;
+      this.explosionSprite.height = state.player.height * 1.8 * scale;
+      this.explosionSprite.alpha = 1 - t;
+    } else {
+      this.explosionSprite.visible = false;
+    }
+
     this.road.tilePosition.y = -state.roadOffset;
+    // Dashes repeat every LANE_DASH_PERIOD and are uniform/indistinguishable
+    // from one another, so — like the road tiles — wrapping at that small
+    // period reads as true continuous scroll (CodeRabbit catch: this was
+    // previously never scrolled at all, invisible only because a static
+    // continuous line looks identical to a moving one; dashes don't have
+    // that luxury).
+    this.laneDividers.y = -(state.roadOffset % LANE_DASH_PERIOD);
+    this.guardrailLeft.tilePosition.y = -state.roadOffset;
+    this.guardrailRight.tilePosition.y = -state.roadOffset;
+    // Road/guardrail tiles are uniform and repeat every 80px, so wrapping
+    // their transform at that small period is indistinguishable from true
+    // infinite scroll. Lamp posts are sparse, identical-looking objects
+    // with visible gaps between them — wrapping at 80px would just make
+    // each post jitter within a small band instead of travelling down the
+    // screen, so this uses its own dedicated LAMP_PERIOD instead (see the
+    // LAMP_PERIOD constant comment).
+    this.lampLayer.y = -(state.roadOffset % LAMP_PERIOD);
 
     if (this.currentCarType !== state.selectedCar) {
       this.playerSprite.texture = this.textures.playerCars[state.selectedCar];
@@ -204,7 +387,9 @@ export class PixiRenderer implements GameRenderer {
       this.shieldRing.x = state.player.x;
       this.shieldRing.y = state.player.y;
       const pulse = 1 + Math.sin(performance.now() / 150) * 0.06;
-      this.shieldRing.scale.set((Math.max(state.player.width, state.player.height) * 0.75) * pulse);
+      const radius = Math.max(state.player.width, state.player.height) * 0.75 * pulse;
+      this.shieldRing.clear();
+      this.shieldRing.circle(0, 0, radius).stroke({ width: 3, color: 0x00ffff, alpha: 0.9 });
     }
 
     if (this.motionBlur) {
@@ -221,10 +406,10 @@ export class PixiRenderer implements GameRenderer {
         s.height = v.height;
         s.x = v.x;
         s.y = v.y;
-        // Mirrors the original ctx.rotate(Math.PI) applied to oncoming
-        // traffic in GameEngine.draw() — see the Pixi rewrite plan's
-        // "sprite orientation" decision.
-        s.rotation = Math.PI;
+        // Oncoming traffic (lanes 0-1) faces the player, same-direction
+        // traffic (lanes 2-3) faces away — matches the player's own
+        // orientation, like real two-way traffic. See Vehicle.direction.
+        s.rotation = v.direction === 'OPPOSITE' ? Math.PI : 0;
       }
     );
 
@@ -245,7 +430,7 @@ export class PixiRenderer implements GameRenderer {
     const particles = this.quality === 'low' ? state.particles.slice(0, 20) : state.particles;
     syncPool(
       this.particlePool, particles, this.gen, this.particleLayer,
-      () => { const s = new Sprite(this.textures.softGlow); s.anchor.set(0.5); s.blendMode = 'add'; return s; },
+      () => { const s = new Sprite(this.textures.spark); s.anchor.set(0.5); s.blendMode = 'add'; return s; },
       (particle, s) => {
         s.tint = particle.color;
         s.x = particle.x;
@@ -281,6 +466,7 @@ export class PixiRenderer implements GameRenderer {
       this.textures.bossVehicle.destroy(true);
       this.textures.oilSlick.destroy(true);
       this.textures.debris.destroy(true);
+      this.textures.guardrail.destroy(true);
     }
     this.textures.softGlow.destroy(true); // always runtime-generated, never Assets-managed
 

@@ -129,6 +129,16 @@ export default function Game() {
   const [personalBest, setPersonalBest] = useState(0);
   const [newRecord, setNewRecord] = useState(false);
   const [isLandscape, setIsLandscape] = useState(false);
+  // True once the Pixi renderer has actually attached. Until then, the
+  // Canvas 2D fallback (WebGameEngine.renderFallback → draw()) is what's
+  // driving the frame — its own older, procedural road/guardrail/lamp-post
+  // rendering, visibly different from the sprite-pack-driven Pixi look.
+  // Pixi loads async (dynamic import + sprite pack fetch, see startGame()
+  // below), so without this a real user saw that older rendering flash
+  // for real time before Pixi swapped in. Covered instead of just letting
+  // it show, rather than changing what renderFallback() draws (it's still
+  // the real fallback if Pixi genuinely fails to load).
+  const [pixiReady, setPixiReady] = useState(false);
   const prefersReducedMotion = useReducedMotion();
 
   // Landscape detection
@@ -293,6 +303,7 @@ export default function Game() {
     setGameOverState(null);
     setNewRecord(false);
     setScreen('playing');
+    setPixiReady(!usePixiRenderer);
 
     engineRef.current = new WebGameEngine(
       canvasRef.current,
@@ -335,7 +346,11 @@ export default function Game() {
         // this would attach to (or leak) a renderer nothing owns anymore.
         if (unmountedRef.current || engineRef.current !== engine) { renderer.destroy(); return; }
         engine.attachRenderer(renderer);
-      }).catch((err) => console.error('[pixi-debug] failed to attach Pixi renderer', err));
+        setPixiReady(true);
+      }).catch((err) => {
+        console.error('[pixi-debug] failed to attach Pixi renderer', err);
+        setPixiReady(true); // uncover the Canvas 2D fallback — it's genuinely the active renderer now
+      });
     }
   }, [isDailyChallenge, selectedCar, joystickEnabled]);
 
@@ -378,7 +393,11 @@ export default function Game() {
         </div>
       )}
 
-      <div className="relative w-full max-w-[420px] h-full shadow-2xl shadow-primary/20">
+      {/* Border ported from the mobile app's gameFrame style — a thin red
+          instrument-viewport border, matching the grimdark accent used
+          elsewhere (HUD skulls, buttons), on top of the pre-existing glow
+          shadow. */}
+      <div className="relative w-full max-w-[420px] h-full shadow-2xl shadow-primary/20 border-2 border-primary/55">
         {/* Game canvas — always mounted (and always visible) so the engine can
             attach, and so the crash frame stays painted underneath the
             game-over overlay as it fades in instead of hard-cutting to black. */}
@@ -406,6 +425,16 @@ export default function Game() {
           />
         )}
 
+        {/* Loading cover — masks the Canvas 2D fallback's older,
+            procedural road/guardrail/lamp-post rendering while Pixi's
+            bundle + sprite pack are still loading. See pixiReady's doc
+            comment. */}
+        {usePixiRenderer && screen === 'playing' && !pixiReady && (
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-black">
+            <div className="text-xs font-mono text-muted-foreground tracking-widest uppercase">Loading…</div>
+          </div>
+        )}
+
         {/* HUD — DOM overlay, independent of which renderer (Canvas 2D or
             Pixi) is drawing the game world underneath it. */}
         {screen === 'playing' && engineRef.current && (
@@ -421,7 +450,26 @@ export default function Game() {
             initial="hidden"
             animate="visible"
             exit="exit"
-            className="absolute inset-0 flex flex-col items-center justify-between bg-black/95 z-10 py-10 px-5 overflow-y-auto">
+            className="absolute inset-0 flex flex-col items-center justify-between bg-black/80 z-10 py-10 px-5 overflow-y-auto">
+            {/* Skyline parallax backdrop — these two assets shipped in the
+                sprite pack fully rendered but were never referenced by any
+                code (mobile picked them up in a prior pass; this ports the
+                same treatment to web). layer1 is the darker, more-distant
+                ruins silhouette; layer2 (junkyard/fire barrels) sits lower/
+                closer, slightly brighter, for a cheap sense of depth
+                without real parallax scrolling. Pinned bottom, painted
+                before the rest of the title content so it sits behind it
+                in DOM stacking order despite the parent's own bg-black/80. */}
+            <img
+              src={`${import.meta.env.BASE_URL}sprites-premium/skyline_layer1.png`}
+              alt=""
+              className="absolute left-0 right-0 bottom-0 w-full h-[220px] object-cover opacity-55 pointer-events-none"
+            />
+            <img
+              src={`${import.meta.env.BASE_URL}sprites-premium/skyline_layer2.png`}
+              alt=""
+              className="absolute left-0 right-0 bottom-0 w-full h-[150px] object-cover opacity-80 pointer-events-none"
+            />
             {/* Logo */}
             <motion.div variants={titleItemVariants} className="text-center mb-2">
               <h1 className="text-5xl font-black text-primary drop-shadow-[0_0_10px_rgba(220,38,38,0.8)] tracking-tighter leading-none mb-1">

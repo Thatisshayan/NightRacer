@@ -41,19 +41,20 @@ function makeEngine(onGameOver: (state: GameState) => void = () => {}, selectedC
 }
 
 describe('GameEngine construction', () => {
-  it('lays out 3 lane centers evenly across the play-field width', () => {
+  it('lays out 4 lane centers evenly across the play-field width', () => {
     const engine = makeEngine();
     const { lanes } = engine.getState();
-    expect(lanes).toHaveLength(3);
-    expect(lanes[0]).toBeCloseTo(420 / 6);
-    expect(lanes[1]).toBeCloseTo(420 / 2);
-    expect(lanes[2]).toBeCloseTo((420 * 5) / 6);
+    expect(lanes).toHaveLength(4);
+    expect(lanes[0]).toBeCloseTo(420 / 8);
+    expect(lanes[1]).toBeCloseTo((420 * 3) / 8);
+    expect(lanes[2]).toBeCloseTo((420 * 5) / 8);
+    expect(lanes[3]).toBeCloseTo((420 * 7) / 8);
   });
 
-  it('starts the player centered in the middle lane', () => {
+  it('starts the player centered in lane 2 (the near same-direction lane)', () => {
     const engine = makeEngine();
     const state = engine.getState();
-    expect(state.player.x).toBeCloseTo(state.lanes[1]);
+    expect(state.player.x).toBeCloseTo(state.lanes[2]);
   });
 
   it('sizes the player to the selected car\'s stats', () => {
@@ -118,7 +119,7 @@ describe('GameEngine simulation over time', () => {
   it('spawns traffic across the full lane width, not just dead-center', () => {
     const engine = makeEngine();
     const state = engine.getState();
-    const laneWidth = 420 / 3;
+    const laneWidth = 420 / 4;
     const spawnXs: number[] = [];
 
     for (let i = 0; i < 4000; i++) {

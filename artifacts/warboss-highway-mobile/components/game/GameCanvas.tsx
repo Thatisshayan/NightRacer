@@ -1,18 +1,22 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import {
+  BlendColor,
   BlurMask,
   Canvas,
   Circle,
+  ColorMatrix,
+  DashPathEffect,
   Group,
   Image,
   Line,
   LinearGradient,
+  Paint,
   Path,
   RadialGradient,
   type SkImage,
 } from '@shopify/react-native-skia';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import { runOnJS, useSharedValue } from 'react-native-reanimated';
+import { runOnJS, useDerivedValue, useSharedValue } from 'react-native-reanimated';
 import { CAR_STATS, type GameRenderer, type GameState, type Obstacle, type Particle, type PowerUpItem, type Vehicle } from '@workspace/game-core';
 import type { NativeGameEngine } from './native-engine';
 import { useSpriteImages, vehicleImage } from './sprites';
@@ -22,7 +26,32 @@ import { useSpriteImages, vehicleImage } from './sprites';
 // GameEngine's lane math produces the same layout on both platforms.
 export const GAME_WIDTH = 420;
 export const GAME_HEIGHT = 800;
-const ROAD_TILE_SIZE = 80;
+// Was 80 — real playtesting called the asphalt texture too subtle/hard to
+// make out at that repeat size; bigger tiles mean more of the source
+// texture's own grain/crack detail is visible per tile instead of being
+// downsampled away.
+const ROAD_TILE_SIZE = 110;
+const GUARDRAIL_WIDTH = 24;
+const LAMP_WIDTH = 34;
+const LAMP_HEIGHT = 70;
+const LAMP_SPAN = 6 * ROAD_TILE_SIZE; // 480px between same-side posts
+// Road/guardrail tiles repeat every ROAD_TILE_SIZE (80px) and are visually
+// uniform, so scrolling the static grid by `roadOffset % ROAD_TILE_SIZE`
+// (a tiny, bounded oscillation) is indistinguishable from true infinite
+// scroll — you can't tell tile N from tile N+1. Lamp posts break that
+// trick: they're sparse, identical-looking objects with visible gaps of
+// bare road between them, so reusing the road's 80px modulo would just
+// make each post jitter in place within an 80px band forever instead of
+// travelling down the screen. They need their own transform, wrapped at
+// their own *pair* period (one left + one right post) so the wrap doesn't
+// visibly swap a post's side mid-scroll.
+const LAMP_PERIOD = 2 * LAMP_SPAN; // 960px
+const EXPLOSION_FLASH_MS = 400;
+// A prior pass addressed "cars look tiny vs. the road" with a render-only
+// VISUAL_SCALE multiplier (visual size inflated past the actual collision
+// hitbox). Superseded (2026-08-03) by properly upsizing CAR_STATS/spawn
+// dimensions in engine.ts itself and narrowing lanes from 3 to 4 — real
+// hitbox and rendered size now match again, no separate multiplier needed.
 // Must mirror engine.ts's camera-follow clamp (cameraMax = height * 0.18)
 // and this file's own screen-shake ceiling ((300/300) * 9) — the road tiling
 // has to overscan by at least this much above the viewport, or dragging the
@@ -42,6 +71,32 @@ const MAX_VEHICLES = 24;
 const MAX_OBSTACLES = 12;
 const MAX_POWERUPS = 6;
 const MAX_PARTICLES = 60;
+
+// Visual fix (2026-08-02): a real device/emulator playtest showed the road
+// reading as near-flat black (grid seams barely visible, no lane markers)
+// and traffic sprites blending into it (correct art, but too dim/desaturated
+// to read as threats at a glance — the whole point of a dodge game). Rather
+// than re-author the source PNGs (shared with the web renderer — recoloring
+// them risks visual divergence across platforms), boost contrast/brightness
+// at draw time via a Skia ColorMatrix, the same standard contrast/brightness
+// transform used by CSS filters: output = (input - 0.5) * contrast + 0.5 +
+// brightness, applied per RGB channel, alpha untouched.
+function contrastBrightnessMatrix(contrast: number, brightness: number): number[] {
+  const t = (1 - contrast) / 2 + brightness;
+  return [
+    contrast, 0, 0, 0, t,
+    0, contrast, 0, 0, t,
+    0, 0, contrast, 0, t,
+    0, 0, 0, 1, 0,
+  ];
+}
+// Contrast raised further (was 1.3/0.05) — real playtesting still called
+// the asphalt too flat/hard to make out even with the first boost pass.
+const ROAD_BOOST = contrastBrightnessMatrix(1.55, 0.08);
+const VEHICLE_BOOST = contrastBrightnessMatrix(1.2, 0.12);
+// Guardrails/lamp posts had no boost at all — dark art on a dark road
+// with nothing pushing it forward, easy to miss entirely at a glance.
+const ROADSIDE_BOOST = contrastBrightnessMatrix(1.4, 0.14);
 
 function hexagonPath(cx: number, cy: number, r: number, rotation: number): string {
   let d = '';
@@ -90,8 +145,45 @@ interface SpriteSlotHandle {
 
 const IDENTITY_TRANSFORM: { rotate: number }[] = [{ rotate: 0 }];
 
+// Split out from SpriteSlot (CodeRabbit catch) — hooks can't be called
+// conditionally, so a SpriteSlot without `shadow` still had to instantiate
+// these four useDerivedValue worklets, which Reanimated then recomputes on
+// every x/y/w/h/opacity mutation even though obstacle/powerup slots never
+// render one. Mounting this as its own child component means non-shadow
+// slots never create the worklets at all.
+function GroundShadow({
+  x, y, w, h, opacity,
+}: {
+  x: ReturnType<typeof useSharedValue<number>>;
+  y: ReturnType<typeof useSharedValue<number>>;
+  w: ReturnType<typeof useSharedValue<number>>;
+  h: ReturnType<typeof useSharedValue<number>>;
+  opacity: ReturnType<typeof useSharedValue<number>>;
+}) {
+  // A soft dark ellipse anchored slightly below the sprite's center,
+  // derived reactively from the same x/y/w/h SharedValues rather than
+  // tracked separately, so it never needs its own imperative updates.
+  const shadowCx = useDerivedValue(() => x.value + w.value / 2);
+  const shadowCy = useDerivedValue(() => y.value + h.value * 0.62);
+  const shadowR = useDerivedValue(() => Math.max(w.value, h.value) * 0.42);
+  const shadowOpacity = useDerivedValue(() => opacity.value * 0.4);
+
+  return (
+    <Circle cx={shadowCx} cy={shadowCy} r={shadowR} color="#000000" opacity={shadowOpacity}>
+      {/* respectCTM: without it the blur radius is a fixed device-pixel
+          amount regardless of the canvas's own scale transform (see
+          GameCanvas's `scale` prop, applied per-device via groupTransform)
+          — CodeRabbit catch. */}
+      <BlurMask blur={6} style="normal" respectCTM />
+    </Circle>
+  );
+}
+
 const SpriteSlot = React.memo(
-  forwardRef<SpriteSlotHandle, { fit: 'fill' | 'contain' }>(function SpriteSlot({ fit }, ref) {
+  forwardRef<SpriteSlotHandle, { fit: 'fill' | 'contain'; boost?: number[]; shadow?: boolean }>(function SpriteSlot(
+    { fit, boost, shadow },
+    ref
+  ) {
     const x = useSharedValue(0);
     const y = useSharedValue(0);
     const w = useSharedValue(0);
@@ -133,36 +225,44 @@ const SpriteSlot = React.memo(
 
     if (!image) return null;
     return (
-      <Image image={image} x={x} y={y} width={w} height={h} opacity={opacity} fit={fit} transform={transform} origin={origin} />
+      <>
+        {shadow && <GroundShadow x={x} y={y} w={w} h={h} opacity={opacity} />}
+        <Image image={image} x={x} y={y} width={w} height={h} opacity={opacity} fit={fit} transform={transform} origin={origin}>
+          {boost && <ColorMatrix matrix={boost} />}
+        </Image>
+      </>
     );
   })
 );
 SpriteSlot.displayName = 'SpriteSlot';
 
 interface ParticleSlotHandle {
-  set(x: number, y: number, r: number, opacity: number, color: string, blur: number): void;
+  set(x: number, y: number, r: number, opacity: number, color: string): void;
   hide(): void;
 }
 
+// Renders spark.png tinted per-particle via BlendColor('srcIn') instead of
+// a generated circle+BlurMask — the art is white/neutral specifically so
+// it can be recolored this way (per the sprite-pack generation brief) and
+// already bakes in its own soft radial falloff, so no BlurMask is needed
+// on top of it.
 const ParticleSlot = React.memo(
-  forwardRef<ParticleSlotHandle, object>(function ParticleSlot(_props, ref) {
+  forwardRef<ParticleSlotHandle, { sparkImage: SkImage | null }>(function ParticleSlot({ sparkImage }, ref) {
     const cx = useSharedValue(0);
     const cy = useSharedValue(0);
     const r = useSharedValue(0);
     const opacity = useSharedValue(0);
-    const blur = useSharedValue(1);
     const [color, setColor] = useState<string | null>(null);
     const colorRef = useRef<string | null>(null);
 
     useImperativeHandle(
       ref,
       () => ({
-        set(nx, ny, nr, nOpacity, nColor, nBlur) {
+        set(nx, ny, nr, nOpacity, nColor) {
           cx.value = nx;
           cy.value = ny;
           r.value = nr;
           opacity.value = nOpacity;
-          blur.value = nBlur;
           if (colorRef.current !== nColor) {
             colorRef.current = nColor;
             setColor(nColor);
@@ -172,14 +272,18 @@ const ParticleSlot = React.memo(
           opacity.value = 0;
         },
       }),
-      [cx, cy, r, opacity, blur]
+      [cx, cy, r, opacity]
     );
 
-    if (!color) return null;
+    const x = useDerivedValue(() => cx.value - r.value);
+    const y = useDerivedValue(() => cy.value - r.value);
+    const size = useDerivedValue(() => r.value * 2);
+
+    if (!color || !sparkImage) return null;
     return (
-      <Circle cx={cx} cy={cy} r={r} color={color} opacity={opacity}>
-        <BlurMask blur={blur} style="normal" />
-      </Circle>
+      <Image image={sparkImage} x={x} y={y} width={size} height={size} opacity={opacity}>
+        <BlendColor color={color} mode="srcIn" />
+      </Image>
     );
   })
 );
@@ -240,6 +344,12 @@ function usePool<T extends object>(capacity: number) {
 // bar/safe-area insets eating into it) would otherwise clip gameplay and
 // the gesture surface, since the Canvas used to be hard-coded to that size
 // regardless of the device.
+//
+// Rendering behavior (road/vehicle contrast boosts, lane dividers,
+// guardrails/lamp posts, particle art) is documented inline at each
+// effect's own definition below rather than in a separate doc — see
+// WARBOSS_HIGHWAY_HANDOFF.md's "Key Files Reference" for where this file
+// sits in the overall architecture.
 export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; scale?: number }) {
   const images = useSpriteImages();
   const [ready, setReady] = useState(false);
@@ -249,7 +359,26 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
   // depends on the road tile image loading), and scroll it via a
   // SharedValue-driven transform instead of rebuilding it every tick.
   const roadTiles = useMemo(() => (images.roadTile ? buildRoadGrid(images.roadTile) : null), [images.roadTile]);
+  // Roadside guardrails — this asset (and lamp_post.png) sat in the sprite
+  // pack fully rendered but completely unused: the road is full-bleed
+  // (buildRoadGrid tiles edge-to-edge across GAME_WIDTH), so there was no
+  // shoulder for roadside scenery. Rather than shrink the playable width
+  // (that's GameEngine's lane math too — shared with the web renderer, not
+  // worth the risk for a decorative pass), this overlays a tiled strip on
+  // top of the outermost road tiles at each edge, scrolling in the same
+  // transform group as the road so it reads as a road-edge barrier instead
+  // of drifting independently.
+  const guardrails = useMemo(() => (images.guardrail ? buildGuardrails(images.guardrail) : null), [images.guardrail]);
+  // Lamp posts — same reasoning as guardrails (real, unused art, no natural
+  // spawn point without touching shared lane math), but unlike the
+  // guardrail segment this one isn't seamlessly tileable, so it can't just
+  // repeat every row without looking like a fence. Sparsely spaced instead
+  // (every LAMP_SPAN, alternating edges), with its own dedicated scroll
+  // transform wrapped at LAMP_PERIOD instead of reusing roadTransform —
+  // see the LAMP_PERIOD comment above for why.
+  const lampPosts = useMemo(() => (images.lampPost ? buildLampPosts(images.lampPost) : null), [images.lampPost]);
   const roadTransform = useSharedValue<{ translateY: number }[]>([{ translateY: 0 }]);
+  const lampTransform = useSharedValue<{ translateY: number }[]>([{ translateY: 0 }]);
   const groupTransform = useSharedValue<({ scale: number } | { translateX: number } | { translateY: number })[]>([
     { scale },
     { translateX: 0 },
@@ -297,6 +426,30 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
   const exhaustCOpacity = useSharedValue(0);
   const exhaustBigOpacity = useSharedValue(0);
   const exhaustBigWidth = useSharedValue(0);
+  // smoke.png overlay, layered behind the existing gradient-line plumes
+  // rather than replacing them — the lines already read well and carry the
+  // speed-tier color escalation, this just adds the real particle art
+  // (previously unused on both platforms) as a soft puff at the plume
+  // base instead of reworking the whole effect around a sprite.
+  const smokeCx = useSharedValue(0);
+  const smokeCy = useSharedValue(0);
+  const smokeSize = useSharedValue(0);
+  const smokeOpacity = useSharedValue(0);
+  // One-shot crash flash (explosion.png) — triggered off a rising edge in
+  // state.screenShake (set to 300 in engine.ts's handleCrash()) rather
+  // than a dedicated GameState field, so it needs no game-core changes.
+  // The armor-save near-miss path creates particles but never sets
+  // screenShake, so this correctly skips that case.
+  const explosionCx = useSharedValue(0);
+  const explosionCy = useSharedValue(0);
+  const explosionSize = useSharedValue(0);
+  const explosionOpacity = useSharedValue(0);
+  const prevScreenShakeRef = useRef(0);
+  const explosionUntilRef = useRef(0);
+  const smokeX = useDerivedValue(() => smokeCx.value - smokeSize.value / 2);
+  const smokeY = useDerivedValue(() => smokeCy.value - smokeSize.value / 2);
+  const explosionX = useDerivedValue(() => explosionCx.value - explosionSize.value / 2);
+  const explosionY = useDerivedValue(() => explosionCy.value - explosionSize.value / 2);
 
   // Low-frequency booleans — these gate whether whole subtrees mount at
   // all (shield ring, oil-slick glow), so they stay as real React state,
@@ -320,10 +473,15 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
         const shakeY = shakeAmp > 0 ? (Math.random() - 0.5) * shakeAmp : 0;
         groupTransform.value = [{ scale }, { translateX: shakeX }, { translateY: shakeY - cameraY }];
         roadTransform.value = [{ translateY: state.roadOffset % ROAD_TILE_SIZE }];
+        lampTransform.value = [{ translateY: state.roadOffset % LAMP_PERIOD }];
 
         vehiclePool.sync(state.vehicles, (handle, v) => {
           const img = vehicleImage(images, v.type, v.variant);
-          (handle as SpriteSlotHandle).set(v.x - v.width / 2, v.y - v.height / 2, v.width, v.height, img ? 1 : 0, img, Math.PI);
+          // Oncoming traffic (lanes 0-1) faces the player, same-direction
+          // traffic (lanes 2-3) faces away — matches the player's own
+          // orientation, like real two-way traffic. See Vehicle.direction.
+          const rotate = v.direction === 'OPPOSITE' ? Math.PI : 0;
+          (handle as SpriteSlotHandle).set(v.x - v.width / 2, v.y - v.height / 2, v.width, v.height, img ? 1 : 0, img, rotate);
         });
         obstaclePool.sync(state.obstacles, (handle, o) => {
           const img = o.type === 'OIL_SLICK' ? images.oilSlick : images.debris;
@@ -335,8 +493,26 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
         });
         particlePool.sync(state.particles, (handle, p) => {
           const life = Math.max(0, p.life / p.maxLife);
-          (handle as ParticleSlotHandle).set(p.x, p.y, p.size * 1.2, life, p.color, p.size * 0.8);
+          (handle as ParticleSlotHandle).set(p.x, p.y, p.size * 1.2, life, p.color);
         });
+
+        // Crash flash — see the explosionCx/Cy/Size/Opacity declaration
+        // comment above for why this keys off screenShake instead of a
+        // dedicated field.
+        if (state.screenShake > prevScreenShakeRef.current) {
+          explosionUntilRef.current = now + EXPLOSION_FLASH_MS;
+        }
+        prevScreenShakeRef.current = state.screenShake;
+        const explosionRemaining = explosionUntilRef.current - now;
+        if (explosionRemaining > 0) {
+          const t = 1 - explosionRemaining / EXPLOSION_FLASH_MS;
+          explosionOpacity.value = 1 - t;
+          explosionCx.value = state.player.x;
+          explosionCy.value = state.player.y;
+          explosionSize.value = Math.max(state.player.width, state.player.height) * 1.8 * (0.7 + t * 0.9);
+        } else {
+          explosionOpacity.value = 0;
+        }
 
         const carColor = CAR_STATS[state.selectedCar].color;
         carColorRef.current = carColor;
@@ -372,8 +548,14 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
         const nowShieldActive = state.activePowerUp === 'SHIELD';
         if (nowShieldActive !== shieldActive) setShieldActive(nowShieldActive);
         if (nowShieldActive) {
-          shieldHexPath.value = hexagonPath(state.player.x, state.player.y, 38, now * 0.0012);
-          shieldRingR.value = 28 + (0.5 + 0.5 * Math.sin(now * 0.0012 * 4)) * 4;
+          // Was a fixed 38/28 regardless of car size — looked roughly
+          // right for a mid-size car but wildly oversized on the narrow
+          // ones (PHANTOM's 16px-wide body inside a 76px hexagon). Scaled
+          // to the player's own dimensions instead, matching the ratio
+          // the web Pixi renderer already used correctly (maxDim * 0.75).
+          const shieldR = Math.max(state.player.width, state.player.height);
+          shieldHexPath.value = hexagonPath(state.player.x, state.player.y, shieldR * 0.62, now * 0.0012);
+          shieldRingR.value = shieldR * 0.45 + (0.5 + 0.5 * Math.sin(now * 0.0012 * 4)) * (shieldR * 0.065);
         }
 
         const spd = state.speedMultiplier;
@@ -398,6 +580,13 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
           exhaustBigWidth.value = state.player.width * 0.7;
           const hot = spd >= 2.2;
           if (hot !== exhaustHot) setExhaustHot(hot);
+
+          smokeCx.value = px;
+          smokeCy.value = py + len * 0.5;
+          smokeSize.value = state.player.width * 0.9 + len * 0.4;
+          smokeOpacity.value = 0.3 + Math.min(0.3, spd * 0.08);
+        } else {
+          smokeOpacity.value = 0;
         }
 
         if (!ready) setReady(true);
@@ -460,14 +649,28 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
     <GestureDetector gesture={pan}>
       <Canvas style={{ width: displayWidth, height: displayHeight, backgroundColor: '#0c0c0e' }}>
         <Group transform={groupTransform}>
-          {roadTiles && <Group transform={roadTransform}>{roadTiles}</Group>}
+          {roadTiles && (
+            <Group transform={roadTransform} layer={<Paint><ColorMatrix matrix={ROAD_BOOST} /></Paint>}>
+              {roadTiles}
+            </Group>
+          )}
+          {guardrails && (
+            <Group transform={roadTransform} layer={<Paint><ColorMatrix matrix={ROADSIDE_BOOST} /></Paint>}>
+              {guardrails}
+            </Group>
+          )}
+          {lampPosts && (
+            <Group transform={lampTransform} layer={<Paint><ColorMatrix matrix={ROADSIDE_BOOST} /></Paint>}>
+              {lampPosts}
+            </Group>
+          )}
 
           {obstaclePool.handles.map((ref, i) => (
             <SpriteSlot key={`obstacle-${i}`} ref={ref as React.RefObject<SpriteSlotHandle>} fit="fill" />
           ))}
 
           {vehiclePool.handles.map((ref, i) => (
-            <SpriteSlot key={`vehicle-${i}`} ref={ref as React.RefObject<SpriteSlotHandle>} fit="fill" />
+            <SpriteSlot key={`vehicle-${i}`} ref={ref as React.RefObject<SpriteSlotHandle>} fit="fill" boost={VEHICLE_BOOST} shadow />
           ))}
 
           {powerupPool.handles.map((ref, i) => (
@@ -481,6 +684,11 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
               bound directly to both the Line and its LinearGradient so
               updates never require a React re-render. */}
           <Group opacity={exhaustOpacity}>
+            {images.smoke && (
+              <Image image={images.smoke} x={smokeX} y={smokeY} width={smokeSize} height={smokeSize} opacity={smokeOpacity}>
+                <BlendColor color={exhaustHot ? '#ffaa33' : '#b4bec8'} mode="srcIn" />
+              </Image>
+            )}
             <Line p1={exhaustLP1} p2={exhaustLP2} style="stroke" strokeWidth={2.5} strokeCap="round">
               <LinearGradient start={exhaustLP1} end={exhaustLP2} colors={[exhaustHot ? 'rgba(255,90,10,0.6)' : 'rgba(180,190,200,0.4)', 'rgba(0,0,0,0)']} />
             </Line>
@@ -503,6 +711,12 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
           <Circle cx={underglowCx} cy={underglowCy} r={underglowR} opacity={0.33}>
             <RadialGradient c={underglowCenter} r={underglowR} colors={[carColor, 'rgba(0,0,0,0)']} />
           </Circle>
+
+          {/* Crash flash — see the explosionCx/Cy/Size/Opacity declaration
+              comment above for the screenShake-rising-edge trigger. */}
+          {images.explosion && (
+            <Image image={images.explosion} x={explosionX} y={explosionY} width={explosionSize} height={explosionSize} opacity={explosionOpacity} fit="contain" />
+          )}
 
           {/* Player car */}
           {playerImg && (
@@ -527,7 +741,7 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
           {/* Crash/hit particles — glowing circles, matches web draw()'s
               radial-gradient particle rendering. */}
           {particlePool.handles.map((ref, i) => (
-            <ParticleSlot key={`particle-${i}`} ref={ref as React.RefObject<ParticleSlotHandle>} />
+            <ParticleSlot key={`particle-${i}`} ref={ref as React.RefObject<ParticleSlotHandle>} sparkImage={images.spark} />
           ))}
         </Group>
       </Canvas>
@@ -569,5 +783,103 @@ function buildRoadGrid(roadTile: NonNullable<ReturnType<typeof useSpriteImages>[
       );
     }
   }
+
+  // Lane markings — matches engine.ts's 4-lane math (`this.width / 4`)
+  // exactly so dividers line up with where vehicles actually spawn/
+  // travel. Lanes 0-1 (oncoming) and 2-3 (same direction) are each
+  // dashed white internally (ordinary lane splits), but the boundary
+  // between lane 1 and 2 is the direction divide — drawn as a solid
+  // double-yellow center line, like a real two-way road, instead of
+  // reading as just another dashed lane split.
+  const laneWidth = GAME_WIDTH / 4;
+  const gridHeight = rows * ROAD_TILE_SIZE;
+  for (const divX of [laneWidth, laneWidth * 3]) {
+    tiles.push(
+      <Line
+        key={`lane-divider-${divX}`}
+        p1={{ x: divX, y: yStart }}
+        p2={{ x: divX, y: yStart + gridHeight }}
+        color="rgba(255,255,255,0.16)"
+        style="stroke"
+        strokeWidth={2}
+      >
+        <DashPathEffect intervals={[18, 14]} />
+      </Line>
+    );
+  }
+  const centerX = laneWidth * 2;
+  for (const offset of [-2.5, 2.5]) {
+    tiles.push(
+      <Line
+        key={`center-divide-${offset}`}
+        p1={{ x: centerX + offset, y: yStart }}
+        p2={{ x: centerX + offset, y: yStart + gridHeight }}
+        color="rgba(255,205,60,0.55)"
+        style="stroke"
+        strokeWidth={2.5}
+      />
+    );
+  }
+
   return <>{tiles}</>;
+}
+
+// Left/right road-edge barrier — same scroll grid math as buildRoadGrid
+// (identical yStart/rows so the two stay pixel-locked to each other while
+// scrolling), just narrower columns pinned to the two edges instead of
+// filling the width.
+function buildGuardrails(guardrail: SkImage) {
+  const rails: React.ReactNode[] = [];
+  const rows = Math.ceil((GAME_HEIGHT + TOP_OVERSCAN) / ROAD_TILE_SIZE) + 2;
+  const yStart = -ROAD_TILE_SIZE - TOP_OVERSCAN;
+
+  for (let row = 0; row < rows; row++) {
+    const y = yStart + row * ROAD_TILE_SIZE;
+    rails.push(
+      <Image key={`guardrail-l-${row}`} image={guardrail} x={0} y={y} width={GUARDRAIL_WIDTH} height={ROAD_TILE_SIZE} fit="fill" />
+    );
+    rails.push(
+      <Image
+        key={`guardrail-r-${row}`}
+        image={guardrail}
+        x={GAME_WIDTH - GUARDRAIL_WIDTH}
+        y={y}
+        width={GUARDRAIL_WIDTH}
+        height={ROAD_TILE_SIZE}
+        fit="fill"
+      />
+    );
+  }
+
+  return <>{rails}</>;
+}
+
+// Sparse roadside lamp posts, alternating left/right every LAMP_SPAN.
+// Unlike buildRoadGrid/buildGuardrails, this can't reuse the road's own
+// row range/transform — since lampTransform wraps at the much larger
+// LAMP_PERIOD (960px, not the road's 80px tile), the static grid has to
+// extend a full LAMP_PERIOD beyond the viewport on both ends, or the wrap
+// would expose empty space above/below.
+function buildLampPosts(lampPost: SkImage) {
+  const posts: React.ReactNode[] = [];
+  const yStart = -LAMP_PERIOD;
+  const rows = Math.ceil((GAME_HEIGHT + 2 * LAMP_PERIOD) / LAMP_SPAN) + 1;
+
+  for (let row = 0; row < rows; row++) {
+    const y = yStart + row * LAMP_SPAN;
+    const onLeft = row % 2 === 0;
+    posts.push(
+      <Image
+        key={`lamp-${row}`}
+        image={lampPost}
+        x={onLeft ? 0 : GAME_WIDTH - LAMP_WIDTH}
+        y={y}
+        width={LAMP_WIDTH}
+        height={LAMP_HEIGHT}
+        fit="fill"
+      />
+    );
+  }
+
+  return <>{posts}</>;
 }

@@ -46,6 +46,11 @@ export interface SpriteImages {
   bossVehicle: SkImage | null;
   oilSlick: SkImage | null;
   debris: SkImage | null;
+  guardrail: SkImage | null;
+  lampPost: SkImage | null;
+  spark: SkImage | null;
+  smoke: SkImage | null;
+  explosion: SkImage | null;
   powerups: Record<PowerUpType, SkImage | null>;
 }
 
@@ -121,6 +126,11 @@ export function useSpriteImages(): SpriteImages {
     bossVehicle: useImage(require('../../assets/sprites/boss.png')),
     oilSlick: useImage(require('../../assets/sprites/oil_slick.png')),
     debris: useImage(require('../../assets/sprites/debris.png')),
+    guardrail: useImage(require('../../assets/sprites/guardrail_segment.png')),
+    lampPost: useImage(require('../../assets/sprites/lamp_post.png')),
+    spark: useImage(require('../../assets/sprites/spark.png')),
+    smoke: useImage(require('../../assets/sprites/smoke.png')),
+    explosion: useImage(require('../../assets/sprites/explosion.png')),
     powerups,
   };
 }

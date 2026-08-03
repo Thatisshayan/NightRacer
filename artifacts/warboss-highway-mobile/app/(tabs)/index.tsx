@@ -162,7 +162,12 @@ export default function TabOneScreen() {
             setAvailableSize({ width, height });
           }}
         >
-          <View style={{ width: GAME_WIDTH * scale, height: GAME_HEIGHT * scale }}>
+          {/* Frame the viewport — previously the canvas just cut off abruptly
+              into the tab bar/status bar with no border, so "game" and
+              "chrome" had no visual seam between them. A thin accent-colored
+              border reads as an instrument viewport, matches the grimdark
+              accent used elsewhere (HUD skulls, buttons). */}
+          <View style={[styles.gameFrame, { width: GAME_WIDTH * scale, height: GAME_HEIGHT * scale }]}>
             {engine && <GameCanvas engine={engine} scale={scale} />}
             {engine && (
               <HudOverlay
@@ -213,5 +218,14 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  gameFrame: {
+    borderWidth: 2,
+    borderColor: 'rgba(184,30,30,0.55)',
+    shadowColor: '#b81e1e',
+    shadowOpacity: 0.5,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 8,
   },
 });
