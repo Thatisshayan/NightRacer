@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image as RNImage, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Canvas, Image } from '@shopify/react-native-skia';
 import { CAR_STATS, type CarType } from '@workspace/game-core';
 import { usePlayerCarImages } from './sprites';
@@ -73,7 +73,17 @@ export function TitleScreen({
   const carImage = carImages[selectedCar];
 
   return (
-    <ScrollView contentContainerStyle={styles.root}>
+    <View style={styles.screen}>
+      {/* Skyline parallax backdrop — these two assets sat in the project
+          completely unused (no code referenced them at all) despite being
+          genuinely good art; the title screen is the one place with open
+          canvas around the UI for a backdrop to actually show. layer1 is
+          the darker, more-distant ruins silhouette; layer2 (junkyard/fire
+          barrels) sits lower/closer, slightly brighter, for a cheap sense
+          of depth without real parallax scrolling. */}
+      <RNImage source={require('../../assets/sprites/skyline_layer1.png')} style={styles.skylineLayer1} resizeMode="cover" />
+      <RNImage source={require('../../assets/sprites/skyline_layer2.png')} style={styles.skylineLayer2} resizeMode="cover" />
+      <ScrollView contentContainerStyle={styles.root}>
       <Text style={styles.titleLine1}>WARBOSS</Text>
       <Text style={styles.titleLine2}>HIGHWAY</Text>
 
@@ -164,12 +174,22 @@ export function TitleScreen({
       <Pressable style={styles.startButton} onPress={onStart}>
         <Text style={styles.startButtonText}>START ENGINE</Text>
       </Pressable>
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flexGrow: 1, alignItems: 'center', backgroundColor: '#000', padding: 16, gap: 10 },
+  screen: { flex: 1, backgroundColor: '#000' },
+  // Both layers pinned to the bottom edge (skylines read along a horizon),
+  // full width, a fixed height tall enough to read clearly without
+  // swallowing the whole screen. layer1 sits further back/dimmer; layer2
+  // is drawn on top of it, shorter and slightly brighter for depth.
+  skylineLayer1: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 220, opacity: 0.55 },
+  skylineLayer2: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 150, opacity: 0.8 },
+  // Was opaque black — now transparent so the skyline backdrop shows
+  // through behind the scrollable content.
+  root: { flexGrow: 1, alignItems: 'center', backgroundColor: 'transparent', padding: 16, gap: 10 },
   titleLine1: { fontSize: 40, fontWeight: '900', color: '#dc2626', letterSpacing: 1 },
   titleLine2: { fontSize: 28, fontWeight: '900', color: '#fff', marginTop: -8, marginBottom: 8 },
   sectionLabel: { fontSize: 11, color: '#888', letterSpacing: 2, textTransform: 'uppercase' },

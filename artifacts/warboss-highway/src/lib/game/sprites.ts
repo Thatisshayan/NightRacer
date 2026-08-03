@@ -17,6 +17,7 @@ export interface SpriteTextures {
   bossVehicle: Texture;
   oilSlick: Texture;
   debris: Texture;
+  guardrail: Texture;
   powerups: Record<PowerUpType, Texture>;
   // Soft-edged circle for particle bursts and the exhaust plume — no
   // dedicated art asset for this, generated at runtime same as before.
@@ -79,6 +80,7 @@ export async function loadSpriteTextures(
     assetUrl(base, 'asphalt_tile.png'),
     assetUrl(base, 'oil_slick.png'),
     assetUrl(base, 'debris.png'),
+    assetUrl(base, 'guardrail_segment.png'),
     ...Object.values(POWERUP_FILES).map((f) => assetUrl(base, f)),
   ];
 
@@ -134,6 +136,7 @@ export async function loadSpriteTextures(
     bossVehicle: get('boss.png'),
     oilSlick: get('oil_slick.png'),
     debris: get('debris.png'),
+    guardrail: get('guardrail_segment.png'),
     powerups,
     softGlow,
     assetUrls: urls,
@@ -197,10 +200,17 @@ export function generatePlaceholderTextures(renderer: Renderer): SpriteTextures 
     g.destroy();
   });
 
+  const guardrailG = new Graphics();
+  guardrailG.rect(0, 0, 20, 80).fill(0xdcb400);
+  guardrailG.rect(0, 0, 20, 20).fill(0x1a1a1a);
+  guardrailG.rect(0, 40, 20, 20).fill(0x1a1a1a);
+  const guardrail = renderer.generateTexture(guardrailG);
+  guardrailG.destroy();
+
   const glowG = new Graphics();
   glowG.circle(0, 0, 16).fill(0xffffff);
   const softGlow = renderer.generateTexture(glowG);
   glowG.destroy();
 
-  return { playerCars, roadTile, enemyVehicles, bossVehicle: enemySolid, oilSlick, debris, powerups, softGlow };
+  return { playerCars, roadTile, enemyVehicles, bossVehicle: enemySolid, oilSlick, debris, guardrail, powerups, softGlow };
 }

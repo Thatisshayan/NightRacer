@@ -26,6 +26,7 @@ import { useSpriteImages, vehicleImage } from './sprites';
 export const GAME_WIDTH = 420;
 export const GAME_HEIGHT = 800;
 const ROAD_TILE_SIZE = 80;
+const GUARDRAIL_WIDTH = 20;
 // Must mirror engine.ts's camera-follow clamp (cameraMax = height * 0.18)
 // and this file's own screen-shake ceiling ((300/300) * 9) — the road tiling
 // has to overscan by at least this much above the viewport, or dragging the
@@ -293,6 +294,18 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
   // depends on the road tile image loading), and scroll it via a
   // SharedValue-driven transform instead of rebuilding it every tick.
   const roadTiles = useMemo(() => (images.roadTile ? buildRoadGrid(images.roadTile) : null), [images.roadTile]);
+  // Roadside guardrails — this asset (and lamp_post.png) sat in the sprite
+  // pack fully rendered but completely unused: the road is full-bleed
+  // (buildRoadGrid tiles edge-to-edge across GAME_WIDTH), so there was no
+  // shoulder for roadside scenery. Rather than shrink the playable width
+  // (that's GameEngine's lane math too — shared with the web renderer, not
+  // worth the risk for a decorative pass), this overlays a tiled strip on
+  // top of the outermost road tiles at each edge, scrolling in the same
+  // transform group as the road so it reads as a road-edge barrier instead
+  // of drifting independently. lamp_post.png isn't tileable and needs its
+  // own spawn/despawn-with-scroll bookkeeping like a real entity — left for
+  // a follow-up rather than bolted on here.
+  const guardrails = useMemo(() => (images.guardrail ? buildGuardrails(images.guardrail) : null), [images.guardrail]);
   const roadTransform = useSharedValue<{ translateY: number }[]>([{ translateY: 0 }]);
   const groupTransform = useSharedValue<({ scale: number } | { translateX: number } | { translateY: number })[]>([
     { scale },
@@ -509,6 +522,7 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
               {roadTiles}
             </Group>
           )}
+          {guardrails && <Group transform={roadTransform}>{guardrails}</Group>}
 
           {obstaclePool.handles.map((ref, i) => (
             <SpriteSlot key={`obstacle-${i}`} ref={ref as React.RefObject<SpriteSlotHandle>} fit="fill" />
@@ -640,4 +654,34 @@ function buildRoadGrid(roadTile: NonNullable<ReturnType<typeof useSpriteImages>[
   }
 
   return <>{tiles}</>;
+}
+
+// Left/right road-edge barrier — same scroll grid math as buildRoadGrid
+// (identical yStart/rows so the two stay pixel-locked to each other while
+// scrolling), just narrower columns pinned to the two edges instead of
+// filling the width.
+function buildGuardrails(guardrail: SkImage) {
+  const rails: React.ReactNode[] = [];
+  const rows = Math.ceil((GAME_HEIGHT + TOP_OVERSCAN) / ROAD_TILE_SIZE) + 2;
+  const yStart = -ROAD_TILE_SIZE - TOP_OVERSCAN;
+
+  for (let row = 0; row < rows; row++) {
+    const y = yStart + row * ROAD_TILE_SIZE;
+    rails.push(
+      <Image key={`guardrail-l-${row}`} image={guardrail} x={0} y={y} width={GUARDRAIL_WIDTH} height={ROAD_TILE_SIZE} fit="fill" />
+    );
+    rails.push(
+      <Image
+        key={`guardrail-r-${row}`}
+        image={guardrail}
+        x={GAME_WIDTH - GUARDRAIL_WIDTH}
+        y={y}
+        width={GUARDRAIL_WIDTH}
+        height={ROAD_TILE_SIZE}
+        fit="fill"
+      />
+    );
+  }
+
+  return <>{rails}</>;
 }

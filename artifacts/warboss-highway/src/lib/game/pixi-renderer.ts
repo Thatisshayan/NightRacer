@@ -1,4 +1,4 @@
-import { Application, Container, Graphics, Sprite, TilingSprite } from 'pixi.js';
+import { Application, ColorMatrixFilter, Container, Graphics, Sprite, TilingSprite } from 'pixi.js';
 import { GlowFilter, MotionBlurFilter } from 'pixi-filters';
 import type { GameRenderer, GameState, CarType, Vehicle, Obstacle, PowerUpItem, Particle } from '@workspace/game-core';
 import { loadSpriteTextures, generatePlaceholderTextures, type SpriteTextures } from './sprites';
@@ -7,6 +7,28 @@ import { Settings } from './settings';
 // Mirrors the mobile Skia renderer's ROAD_TILE_SIZE (GameCanvas.tsx) so the
 // road reads at the same in-game scale on both platforms.
 const ROAD_TILE_DISPLAY_SIZE = 80;
+const GUARDRAIL_WIDTH = 20;
+
+// Visual fix (2026-08-02), ported from the mobile Skia renderer
+// (GameCanvas.tsx's ROAD_BOOST/VEHICLE_BOOST) after a real-device playtest
+// showed the road reading as near-flat black and traffic blending into it.
+// Pixi's ColorMatrixFilter.contrast()/.brightness() compose the same
+// standard CSS-filter-style transform the mobile renderer applies via a raw
+// Skia ColorMatrix, so both platforms end up with matching output despite
+// using different graphics backends.
+function boostFilter(contrast: number, brightness: number): ColorMatrixFilter {
+  const f = new ColorMatrixFilter();
+  // Pixi's contrast(amount) internally does v = amount + 1, so pass
+  // (contrast - 1) to land on the same multiplier as the mobile renderer's
+  // ROAD_BOOST/VEHICLE_BOOST constants (e.g. contrast=1.3 there == amount
+  // 0.3 here). brightness() is multiplicative (b=1 is a no-op) rather than
+  // additive like the CSS-filter formula the mobile side uses, so treat the
+  // mobile brightness offset as "1 + offset" — close enough at these small
+  // magnitudes that the two renderers read the same.
+  f.contrast(contrast - 1, true);
+  f.brightness(1 + brightness, true);
+  return f;
+}
 
 function vehicleTexture(textures: SpriteTextures, v: Vehicle) {
   if (v.type === 'BOSS') return textures.bossVehicle;
@@ -61,6 +83,9 @@ export class PixiRenderer implements GameRenderer {
   private textures: SpriteTextures;
   private worldContainer: Container;
   private road: TilingSprite;
+  private laneDividers: Graphics;
+  private guardrailLeft: TilingSprite;
+  private guardrailRight: TilingSprite;
   // z-order back-to-front, matching the original Canvas 2D draw() sequence:
   // road -> obstacles -> vehicles -> powerups -> player.
   private obstacleLayer = new Container();
@@ -115,8 +140,39 @@ export class PixiRenderer implements GameRenderer {
       ROAD_TILE_DISPLAY_SIZE / textures.roadTile.width,
       ROAD_TILE_DISPLAY_SIZE / textures.roadTile.height
     );
+    // Visual fix (2026-08-02): road boost + lane dividers, ported from the
+    // mobile Skia renderer (see GameCanvas.tsx's ROAD_BOOST and
+    // buildRoadGrid()'s lane-divider Lines) after a real-device playtest
+    // showed the road reading as flat and unmarked.
+    this.road.filters = [boostFilter(1.3, 0.05)];
     this.worldContainer.addChild(this.road);
+
+    this.laneDividers = new Graphics();
+    const laneWidth = app.screen.width / 3;
+    for (const divX of [laneWidth, laneWidth * 2]) {
+      this.laneDividers
+        .moveTo(divX, 0)
+        .lineTo(divX, app.screen.height)
+        .stroke({ width: 2, color: 0xffffff, alpha: 0.16 });
+    }
+    this.worldContainer.addChild(this.laneDividers);
+
+    // Roadside guardrails — this asset shipped fully rendered but was never
+    // wired into either renderer (no shoulder in the full-bleed road
+    // layout to place it in). Overlaid on the outermost road tiles at each
+    // edge rather than narrowing the playable width, which is GameEngine's
+    // shared lane math (this.width / 3) — not worth touching for a
+    // decorative pass. Kept in sync with the road's own scroll below.
+    this.guardrailLeft = new TilingSprite({ texture: textures.guardrail, width: GUARDRAIL_WIDTH, height: app.screen.height });
+    this.guardrailRight = new TilingSprite({ texture: textures.guardrail, width: GUARDRAIL_WIDTH, height: app.screen.height });
+    this.guardrailLeft.tileScale.set(GUARDRAIL_WIDTH / textures.guardrail.width, ROAD_TILE_DISPLAY_SIZE / textures.guardrail.height);
+    this.guardrailRight.tileScale.set(GUARDRAIL_WIDTH / textures.guardrail.width, ROAD_TILE_DISPLAY_SIZE / textures.guardrail.height);
+    this.guardrailRight.x = app.screen.width - GUARDRAIL_WIDTH;
+    this.worldContainer.addChild(this.guardrailLeft);
+    this.worldContainer.addChild(this.guardrailRight);
+
     this.worldContainer.addChild(this.obstacleLayer);
+    this.vehicleLayer.filters = [boostFilter(1.2, 0.12)];
     this.worldContainer.addChild(this.vehicleLayer);
     this.worldContainer.addChild(this.powerupLayer);
     this.worldContainer.addChild(this.exhaustLayer);
@@ -168,6 +224,8 @@ export class PixiRenderer implements GameRenderer {
     this.worldContainer.y = (shakeAmp > 0 ? (Math.random() - 0.5) * shakeAmp : 0) - cameraY;
 
     this.road.tilePosition.y = -state.roadOffset;
+    this.guardrailLeft.tilePosition.y = -state.roadOffset;
+    this.guardrailRight.tilePosition.y = -state.roadOffset;
 
     if (this.currentCarType !== state.selectedCar) {
       this.playerSprite.texture = this.textures.playerCars[state.selectedCar];
@@ -281,6 +339,7 @@ export class PixiRenderer implements GameRenderer {
       this.textures.bossVehicle.destroy(true);
       this.textures.oilSlick.destroy(true);
       this.textures.debris.destroy(true);
+      this.textures.guardrail.destroy(true);
     }
     this.textures.softGlow.destroy(true); // always runtime-generated, never Assets-managed
 
