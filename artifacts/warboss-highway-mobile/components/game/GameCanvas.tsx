@@ -1,5 +1,6 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import {
+  BlendColor,
   BlurMask,
   Canvas,
   Circle,
@@ -27,6 +28,21 @@ export const GAME_WIDTH = 420;
 export const GAME_HEIGHT = 800;
 const ROAD_TILE_SIZE = 80;
 const GUARDRAIL_WIDTH = 20;
+const LAMP_WIDTH = 30;
+const LAMP_HEIGHT = 60;
+const LAMP_SPAN = 6 * ROAD_TILE_SIZE; // 480px between same-side posts
+// Road/guardrail tiles repeat every ROAD_TILE_SIZE (80px) and are visually
+// uniform, so scrolling the static grid by `roadOffset % ROAD_TILE_SIZE`
+// (a tiny, bounded oscillation) is indistinguishable from true infinite
+// scroll — you can't tell tile N from tile N+1. Lamp posts break that
+// trick: they're sparse, identical-looking objects with visible gaps of
+// bare road between them, so reusing the road's 80px modulo would just
+// make each post jitter in place within an 80px band forever instead of
+// travelling down the screen. They need their own transform, wrapped at
+// their own *pair* period (one left + one right post) so the wrap doesn't
+// visibly swap a post's side mid-scroll.
+const LAMP_PERIOD = 2 * LAMP_SPAN; // 960px
+const EXPLOSION_FLASH_MS = 400;
 // Must mirror engine.ts's camera-follow clamp (cameraMax = height * 0.18)
 // and this file's own screen-shake ceiling ((300/300) * 9) — the road tiling
 // has to overscan by at least this much above the viewport, or dragging the
@@ -185,29 +201,32 @@ const SpriteSlot = React.memo(
 SpriteSlot.displayName = 'SpriteSlot';
 
 interface ParticleSlotHandle {
-  set(x: number, y: number, r: number, opacity: number, color: string, blur: number): void;
+  set(x: number, y: number, r: number, opacity: number, color: string): void;
   hide(): void;
 }
 
+// Renders spark.png tinted per-particle via BlendColor('srcIn') instead of
+// a generated circle+BlurMask — the art is white/neutral specifically so
+// it can be recolored this way (per the sprite-pack generation brief) and
+// already bakes in its own soft radial falloff, so no BlurMask is needed
+// on top of it.
 const ParticleSlot = React.memo(
-  forwardRef<ParticleSlotHandle, object>(function ParticleSlot(_props, ref) {
+  forwardRef<ParticleSlotHandle, { sparkImage: SkImage | null }>(function ParticleSlot({ sparkImage }, ref) {
     const cx = useSharedValue(0);
     const cy = useSharedValue(0);
     const r = useSharedValue(0);
     const opacity = useSharedValue(0);
-    const blur = useSharedValue(1);
     const [color, setColor] = useState<string | null>(null);
     const colorRef = useRef<string | null>(null);
 
     useImperativeHandle(
       ref,
       () => ({
-        set(nx, ny, nr, nOpacity, nColor, nBlur) {
+        set(nx, ny, nr, nOpacity, nColor) {
           cx.value = nx;
           cy.value = ny;
           r.value = nr;
           opacity.value = nOpacity;
-          blur.value = nBlur;
           if (colorRef.current !== nColor) {
             colorRef.current = nColor;
             setColor(nColor);
@@ -217,14 +236,18 @@ const ParticleSlot = React.memo(
           opacity.value = 0;
         },
       }),
-      [cx, cy, r, opacity, blur]
+      [cx, cy, r, opacity]
     );
 
-    if (!color) return null;
+    const x = useDerivedValue(() => cx.value - r.value);
+    const y = useDerivedValue(() => cy.value - r.value);
+    const size = useDerivedValue(() => r.value * 2);
+
+    if (!color || !sparkImage) return null;
     return (
-      <Circle cx={cx} cy={cy} r={r} color={color} opacity={opacity}>
-        <BlurMask blur={blur} style="normal" />
-      </Circle>
+      <Image image={sparkImage} x={x} y={y} width={size} height={size} opacity={opacity}>
+        <BlendColor color={color} mode="srcIn" />
+      </Image>
     );
   })
 );
@@ -302,11 +325,18 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
   // worth the risk for a decorative pass), this overlays a tiled strip on
   // top of the outermost road tiles at each edge, scrolling in the same
   // transform group as the road so it reads as a road-edge barrier instead
-  // of drifting independently. lamp_post.png isn't tileable and needs its
-  // own spawn/despawn-with-scroll bookkeeping like a real entity — left for
-  // a follow-up rather than bolted on here.
+  // of drifting independently.
   const guardrails = useMemo(() => (images.guardrail ? buildGuardrails(images.guardrail) : null), [images.guardrail]);
+  // Lamp posts — same reasoning as guardrails (real, unused art, no natural
+  // spawn point without touching shared lane math), but unlike the
+  // guardrail segment this one isn't seamlessly tileable, so it can't just
+  // repeat every row without looking like a fence. Sparsely spaced instead
+  // (every LAMP_SPAN, alternating edges), with its own dedicated scroll
+  // transform wrapped at LAMP_PERIOD instead of reusing roadTransform —
+  // see the LAMP_PERIOD comment above for why.
+  const lampPosts = useMemo(() => (images.lampPost ? buildLampPosts(images.lampPost) : null), [images.lampPost]);
   const roadTransform = useSharedValue<{ translateY: number }[]>([{ translateY: 0 }]);
+  const lampTransform = useSharedValue<{ translateY: number }[]>([{ translateY: 0 }]);
   const groupTransform = useSharedValue<({ scale: number } | { translateX: number } | { translateY: number })[]>([
     { scale },
     { translateX: 0 },
@@ -354,6 +384,30 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
   const exhaustCOpacity = useSharedValue(0);
   const exhaustBigOpacity = useSharedValue(0);
   const exhaustBigWidth = useSharedValue(0);
+  // smoke.png overlay, layered behind the existing gradient-line plumes
+  // rather than replacing them — the lines already read well and carry the
+  // speed-tier color escalation, this just adds the real particle art
+  // (previously unused on both platforms) as a soft puff at the plume
+  // base instead of reworking the whole effect around a sprite.
+  const smokeCx = useSharedValue(0);
+  const smokeCy = useSharedValue(0);
+  const smokeSize = useSharedValue(0);
+  const smokeOpacity = useSharedValue(0);
+  // One-shot crash flash (explosion.png) — triggered off a rising edge in
+  // state.screenShake (set to 300 in engine.ts's handleCrash()) rather
+  // than a dedicated GameState field, so it needs no game-core changes.
+  // The armor-save near-miss path creates particles but never sets
+  // screenShake, so this correctly skips that case.
+  const explosionCx = useSharedValue(0);
+  const explosionCy = useSharedValue(0);
+  const explosionSize = useSharedValue(0);
+  const explosionOpacity = useSharedValue(0);
+  const prevScreenShakeRef = useRef(0);
+  const explosionUntilRef = useRef(0);
+  const smokeX = useDerivedValue(() => smokeCx.value - smokeSize.value / 2);
+  const smokeY = useDerivedValue(() => smokeCy.value - smokeSize.value / 2);
+  const explosionX = useDerivedValue(() => explosionCx.value - explosionSize.value / 2);
+  const explosionY = useDerivedValue(() => explosionCy.value - explosionSize.value / 2);
 
   // Low-frequency booleans — these gate whether whole subtrees mount at
   // all (shield ring, oil-slick glow), so they stay as real React state,
@@ -377,6 +431,7 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
         const shakeY = shakeAmp > 0 ? (Math.random() - 0.5) * shakeAmp : 0;
         groupTransform.value = [{ scale }, { translateX: shakeX }, { translateY: shakeY - cameraY }];
         roadTransform.value = [{ translateY: state.roadOffset % ROAD_TILE_SIZE }];
+        lampTransform.value = [{ translateY: state.roadOffset % LAMP_PERIOD }];
 
         vehiclePool.sync(state.vehicles, (handle, v) => {
           const img = vehicleImage(images, v.type, v.variant);
@@ -392,8 +447,26 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
         });
         particlePool.sync(state.particles, (handle, p) => {
           const life = Math.max(0, p.life / p.maxLife);
-          (handle as ParticleSlotHandle).set(p.x, p.y, p.size * 1.2, life, p.color, p.size * 0.8);
+          (handle as ParticleSlotHandle).set(p.x, p.y, p.size * 1.2, life, p.color);
         });
+
+        // Crash flash — see the explosionCx/Cy/Size/Opacity declaration
+        // comment above for why this keys off screenShake instead of a
+        // dedicated field.
+        if (state.screenShake > prevScreenShakeRef.current) {
+          explosionUntilRef.current = now + EXPLOSION_FLASH_MS;
+        }
+        prevScreenShakeRef.current = state.screenShake;
+        const explosionRemaining = explosionUntilRef.current - now;
+        if (explosionRemaining > 0) {
+          const t = 1 - explosionRemaining / EXPLOSION_FLASH_MS;
+          explosionOpacity.value = 1 - t;
+          explosionCx.value = state.player.x;
+          explosionCy.value = state.player.y;
+          explosionSize.value = Math.max(state.player.width, state.player.height) * 1.8 * (0.7 + t * 0.9);
+        } else {
+          explosionOpacity.value = 0;
+        }
 
         const carColor = CAR_STATS[state.selectedCar].color;
         carColorRef.current = carColor;
@@ -455,6 +528,13 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
           exhaustBigWidth.value = state.player.width * 0.7;
           const hot = spd >= 2.2;
           if (hot !== exhaustHot) setExhaustHot(hot);
+
+          smokeCx.value = px;
+          smokeCy.value = py + len * 0.5;
+          smokeSize.value = state.player.width * 0.9 + len * 0.4;
+          smokeOpacity.value = 0.3 + Math.min(0.3, spd * 0.08);
+        } else {
+          smokeOpacity.value = 0;
         }
 
         if (!ready) setReady(true);
@@ -523,6 +603,7 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
             </Group>
           )}
           {guardrails && <Group transform={roadTransform}>{guardrails}</Group>}
+          {lampPosts && <Group transform={lampTransform}>{lampPosts}</Group>}
 
           {obstaclePool.handles.map((ref, i) => (
             <SpriteSlot key={`obstacle-${i}`} ref={ref as React.RefObject<SpriteSlotHandle>} fit="fill" />
@@ -543,6 +624,11 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
               bound directly to both the Line and its LinearGradient so
               updates never require a React re-render. */}
           <Group opacity={exhaustOpacity}>
+            {images.smoke && (
+              <Image image={images.smoke} x={smokeX} y={smokeY} width={smokeSize} height={smokeSize} opacity={smokeOpacity}>
+                <BlendColor color={exhaustHot ? '#ffaa33' : '#b4bec8'} mode="srcIn" />
+              </Image>
+            )}
             <Line p1={exhaustLP1} p2={exhaustLP2} style="stroke" strokeWidth={2.5} strokeCap="round">
               <LinearGradient start={exhaustLP1} end={exhaustLP2} colors={[exhaustHot ? 'rgba(255,90,10,0.6)' : 'rgba(180,190,200,0.4)', 'rgba(0,0,0,0)']} />
             </Line>
@@ -565,6 +651,12 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
           <Circle cx={underglowCx} cy={underglowCy} r={underglowR} opacity={0.33}>
             <RadialGradient c={underglowCenter} r={underglowR} colors={[carColor, 'rgba(0,0,0,0)']} />
           </Circle>
+
+          {/* Crash flash — see the explosionCx/Cy/Size/Opacity declaration
+              comment above for the screenShake-rising-edge trigger. */}
+          {images.explosion && (
+            <Image image={images.explosion} x={explosionX} y={explosionY} width={explosionSize} height={explosionSize} opacity={explosionOpacity} fit="contain" />
+          )}
 
           {/* Player car */}
           {playerImg && (
@@ -589,7 +681,7 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
           {/* Crash/hit particles — glowing circles, matches web draw()'s
               radial-gradient particle rendering. */}
           {particlePool.handles.map((ref, i) => (
-            <ParticleSlot key={`particle-${i}`} ref={ref as React.RefObject<ParticleSlotHandle>} />
+            <ParticleSlot key={`particle-${i}`} ref={ref as React.RefObject<ParticleSlotHandle>} sparkImage={images.spark} />
           ))}
         </Group>
       </Canvas>
@@ -684,4 +776,34 @@ function buildGuardrails(guardrail: SkImage) {
   }
 
   return <>{rails}</>;
+}
+
+// Sparse roadside lamp posts, alternating left/right every LAMP_SPAN.
+// Unlike buildRoadGrid/buildGuardrails, this can't reuse the road's own
+// row range/transform — since lampTransform wraps at the much larger
+// LAMP_PERIOD (960px, not the road's 80px tile), the static grid has to
+// extend a full LAMP_PERIOD beyond the viewport on both ends, or the wrap
+// would expose empty space above/below.
+function buildLampPosts(lampPost: SkImage) {
+  const posts: React.ReactNode[] = [];
+  const yStart = -LAMP_PERIOD;
+  const rows = Math.ceil((GAME_HEIGHT + 2 * LAMP_PERIOD) / LAMP_SPAN) + 1;
+
+  for (let row = 0; row < rows; row++) {
+    const y = yStart + row * LAMP_SPAN;
+    const onLeft = row % 2 === 0;
+    posts.push(
+      <Image
+        key={`lamp-${row}`}
+        image={lampPost}
+        x={onLeft ? 0 : GAME_WIDTH - LAMP_WIDTH}
+        y={y}
+        width={LAMP_WIDTH}
+        height={LAMP_HEIGHT}
+        fit="fill"
+      />
+    );
+  }
+
+  return <>{posts}</>;
 }

@@ -71,7 +71,16 @@ export function GameHudOverlay({ engine }: { engine: GameEngine }) {
       }
       if (livesRef.current) {
         for (let i = 0; i < livesRef.current.children.length; i++) {
-          (livesRef.current.children[i] as HTMLElement).style.visibility = i < state.lives ? 'visible' : 'hidden';
+          const el = livesRef.current.children[i] as HTMLElement;
+          const alive = i < state.lives;
+          // Skulls ported from the mobile HUD pass — a heart icon read as
+          // generic mobile-game chrome against the grimdark 40k styling.
+          // Remaining lives get a bone-white skull with a faint red glow;
+          // lost lives fade to a dim outline instead of disappearing, so
+          // the pip stays visible (mirrors HudOverlay.tsx's heartAlive/
+          // heartLost split).
+          el.style.color = alive ? '#e8ded0' : 'rgba(255,255,255,0.15)';
+          el.style.textShadow = alive ? '0 0 4px rgba(255,40,20,0.85)' : 'none';
         }
       }
       if (oilWarningRef.current) {
@@ -106,8 +115,11 @@ export function GameHudOverlay({ engine }: { engine: GameEngine }) {
       const speedRatio = Math.min(1, state.speedMultiplier / 3);
       if (speedArcRef.current) {
         speedArcRef.current.style.strokeDashoffset = String(ARC_CIRCUMFERENCE * (1 - speedRatio));
+        // Amber-at-rest instead of mint green — ported from the mobile HUD
+        // pass (HudOverlay.tsx): mint read as a generic fitness-app accent,
+        // tonally off against the grimdark palette everywhere else.
         speedArcRef.current.style.stroke =
-          state.speedMultiplier >= 2.5 ? '#ff3333' : state.speedMultiplier >= 1.8 ? '#ffaa00' : '#55ffaa';
+          state.speedMultiplier >= 2.5 ? '#ff3333' : state.speedMultiplier >= 1.8 ? '#ff8800' : '#cc8833';
       }
       if (speedTextRef.current) speedTextRef.current.textContent = `${state.speedMultiplier.toFixed(1)}×`;
 
@@ -154,15 +166,23 @@ export function GameHudOverlay({ engine }: { engine: GameEngine }) {
     <div className="absolute inset-0 pointer-events-none select-none font-mono text-white z-10">
       {/* Top HUD bar */}
       <div className="absolute top-0 left-0 right-0 h-[72px] bg-black/55">
-        <div ref={scoreRef} className="absolute left-[15px] top-[14px] origin-left text-2xl font-['Russo_One',sans-serif]" />
-        <div ref={distRef} className="absolute left-[15px] top-[44px] text-[13px] text-[#888]" />
-        <div ref={comboRef} className="absolute left-1/2 top-[22px] -translate-x-1/2 text-[13px] text-[#ffee22]" style={{ display: 'none' }} />
+        <div
+          ref={scoreRef}
+          className="absolute left-[15px] top-[14px] origin-left text-2xl font-['Russo_One',sans-serif]"
+          style={{ textShadow: '0 2px 0 rgba(0,0,0,0.9)' }}
+        />
+        <div ref={distRef} className="absolute left-[15px] top-[44px] text-[13px] text-[#888]" style={{ textShadow: '0 1px 0 rgba(0,0,0,0.9)' }} />
+        <div
+          ref={comboRef}
+          className="absolute left-1/2 top-[22px] -translate-x-1/2 text-[13px] text-[#ffee22]"
+          style={{ display: 'none', textShadow: '0 1px 0 rgba(0,0,0,0.9)' }}
+        />
         <div ref={dailyBadgeRef} className="absolute left-1/2 top-[50px] -translate-x-1/2 text-[10px] text-[#55ffaa]" style={{ display: 'none' }}>
           {'◆ DAILY CHALLENGE'}
         </div>
         <div ref={livesRef} className="absolute right-[15px] top-[15px] flex flex-row-reverse gap-[4px]">
           {[0, 1, 2, 3, 4].map((i) => (
-            <span key={i} className="text-[#cc0000] text-xl leading-none">{'♥'}</span>
+            <span key={i} className="text-xl leading-none">{'☠'}</span>
           ))}
         </div>
         <div ref={oilWarningRef} className="absolute right-[12px] top-[48px] text-xs text-[#8888ff]" style={{ display: 'none' }}>
@@ -179,12 +199,16 @@ export function GameHudOverlay({ engine }: { engine: GameEngine }) {
         <div ref={powerUpTimerRef} className="absolute right-3 bottom-2 text-xs" />
       </div>
 
-      {/* Speedometer gauge (bottom right) */}
+      {/* Speedometer gauge (bottom right) — a dark metal bezel behind the
+          arc so it reads as an instrument-panel gauge welded onto the HUD
+          instead of a bare, floating fitness-app ring (ported from the
+          mobile HUD pass's speedBezel). */}
       <div className="absolute right-[12px] bottom-[12px] w-[72px] h-[72px]">
+        <div className="absolute inset-[4px] rounded-full bg-black/55 border border-white/10" />
         <svg width="72" height="72" className="absolute inset-0 -rotate-[135deg]">
-          <circle cx="36" cy="36" r="36" fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="6"
+          <circle cx="36" cy="36" r="36" fill="none" stroke="rgba(255,255,255,0.12)" strokeWidth="7"
             strokeDasharray={`${2 * Math.PI * 36 * 0.75} ${2 * Math.PI * 36}`} />
-          <circle ref={speedArcRef} cx="36" cy="36" r="36" fill="none" strokeWidth="6" strokeLinecap="round"
+          <circle ref={speedArcRef} cx="36" cy="36" r="36" fill="none" strokeWidth="7" strokeLinecap="round"
             strokeDasharray={`${2 * Math.PI * 36 * 0.75} ${2 * Math.PI * 36}`} />
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">

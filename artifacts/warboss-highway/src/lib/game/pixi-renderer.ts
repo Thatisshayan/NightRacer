@@ -8,6 +8,11 @@ import { Settings } from './settings';
 // road reads at the same in-game scale on both platforms.
 const ROAD_TILE_DISPLAY_SIZE = 80;
 const GUARDRAIL_WIDTH = 20;
+const LAMP_WIDTH = 30;
+const LAMP_HEIGHT = 60;
+const LAMP_SPAN = 6 * ROAD_TILE_DISPLAY_SIZE; // 480px between same-side posts
+const LAMP_PERIOD = 2 * LAMP_SPAN; // one left + one right post per period
+const EXPLOSION_FLASH_MS = 400;
 
 // Visual fix (2026-08-02), ported from the mobile Skia renderer
 // (GameCanvas.tsx's ROAD_BOOST/VEHICLE_BOOST) after a real-device playtest
@@ -86,6 +91,7 @@ export class PixiRenderer implements GameRenderer {
   private laneDividers: Graphics;
   private guardrailLeft: TilingSprite;
   private guardrailRight: TilingSprite;
+  private lampLayer: Container;
   // z-order back-to-front, matching the original Canvas 2D draw() sequence:
   // road -> obstacles -> vehicles -> powerups -> player.
   private obstacleLayer = new Container();
@@ -100,6 +106,9 @@ export class PixiRenderer implements GameRenderer {
   private particleLayer = new Container();
   private playerSprite: Sprite;
   private exhaustSprite: Sprite;
+  private explosionSprite: Sprite;
+  private prevScreenShake = 0;
+  private explosionUntil = 0;
   private shieldRing: Graphics;
   private currentCarType: CarType | null = null;
   private gen = 0;
@@ -171,18 +180,56 @@ export class PixiRenderer implements GameRenderer {
     this.worldContainer.addChild(this.guardrailLeft);
     this.worldContainer.addChild(this.guardrailRight);
 
+    // Lamp posts — same reasoning as guardrails (real, unused art with no
+    // natural spawn point without touching shared lane math), but unlike
+    // the guardrail segment this one isn't seamlessly tileable, so
+    // TilingSprite doesn't apply. Built once as a repeating left/right pair
+    // spaced LAMP_SPAN apart, covering the full scroll range, then the
+    // whole container is translated by -(roadOffset % LAMP_PERIOD) each
+    // frame in sync() below — same "static build + scroll a transform"
+    // idea as the road grid, just via Container.y instead of tilePosition.
+    // The static grid has to extend a full LAMP_PERIOD beyond the viewport
+    // on both ends (not just LAMP_PERIOD total) — since lampLayer wraps at
+    // LAMP_PERIOD, a smaller grid would expose empty space above/below at
+    // the wrap boundary.
+    this.lampLayer = new Container();
+    const lampRows = Math.ceil((app.screen.height + 2 * LAMP_PERIOD) / LAMP_SPAN) + 1;
+    const lampYStart = -LAMP_PERIOD;
+    for (let row = 0; row < lampRows; row++) {
+      const sprite = new Sprite(textures.lampPost);
+      sprite.width = LAMP_WIDTH;
+      sprite.height = LAMP_HEIGHT;
+      sprite.x = row % 2 === 0 ? 0 : app.screen.width - LAMP_WIDTH;
+      sprite.y = lampYStart + row * LAMP_SPAN;
+      this.lampLayer.addChild(sprite);
+    }
+    this.worldContainer.addChild(this.lampLayer);
+
     this.worldContainer.addChild(this.obstacleLayer);
     this.vehicleLayer.filters = [boostFilter(1.2, 0.12)];
     this.worldContainer.addChild(this.vehicleLayer);
     this.worldContainer.addChild(this.powerupLayer);
     this.worldContainer.addChild(this.exhaustLayer);
 
-    this.exhaustSprite = new Sprite(textures.softGlow);
+    // smoke.png instead of the generated glow circle — normal blend (not
+    // 'add') so it reads as an actual plume instead of a bloom; the
+    // exhaustLayer's GlowFilter (quality:'high' only) still adds a heat
+    // shimmer on top of it.
+    this.exhaustSprite = new Sprite(textures.smoke);
     this.exhaustSprite.anchor.set(0.5);
     this.exhaustSprite.tint = 0xffaa33;
-    this.exhaustSprite.blendMode = 'add';
     this.exhaustSprite.visible = false;
     this.exhaustLayer.addChild(this.exhaustSprite);
+
+    // One-shot crash flash — explosion.png, triggered off a rising edge in
+    // state.screenShake (see sync() below) rather than a dedicated
+    // GameState field, so it needs no game-core changes. Sits above
+    // traffic/obstacles but behind the player, added here (same z-order
+    // point as exhaustLayer) before playerSprite is created below.
+    this.explosionSprite = new Sprite(textures.explosion);
+    this.explosionSprite.anchor.set(0.5);
+    this.explosionSprite.visible = false;
+    this.worldContainer.addChild(this.explosionSprite);
 
     this.playerSprite = new Sprite(Object.values(textures.playerCars)[0]);
     this.playerSprite.anchor.set(0.5);
@@ -223,9 +270,40 @@ export class PixiRenderer implements GameRenderer {
     this.worldContainer.x = shakeAmp > 0 ? (Math.random() - 0.5) * shakeAmp : 0;
     this.worldContainer.y = (shakeAmp > 0 ? (Math.random() - 0.5) * shakeAmp : 0) - cameraY;
 
+    // Crash flash — a rising edge in screenShake (handleCrash() sets it to
+    // 300 in engine.ts) is the only "a real crash just happened" signal
+    // exposed to the renderer without a dedicated GameState field; the
+    // armor-save near-miss path creates particles but never sets
+    // screenShake, so this correctly skips that case.
+    if (screenShake > this.prevScreenShake) {
+      this.explosionUntil = performance.now() + EXPLOSION_FLASH_MS;
+    }
+    this.prevScreenShake = screenShake;
+    const explosionRemaining = this.explosionUntil - performance.now();
+    if (explosionRemaining > 0) {
+      const t = 1 - explosionRemaining / EXPLOSION_FLASH_MS;
+      this.explosionSprite.visible = true;
+      this.explosionSprite.x = state.player.x;
+      this.explosionSprite.y = state.player.y;
+      const scale = 0.7 + t * 0.9;
+      this.explosionSprite.width = state.player.width * 1.8 * scale;
+      this.explosionSprite.height = state.player.height * 1.8 * scale;
+      this.explosionSprite.alpha = 1 - t;
+    } else {
+      this.explosionSprite.visible = false;
+    }
+
     this.road.tilePosition.y = -state.roadOffset;
     this.guardrailLeft.tilePosition.y = -state.roadOffset;
     this.guardrailRight.tilePosition.y = -state.roadOffset;
+    // Road/guardrail tiles are uniform and repeat every 80px, so wrapping
+    // their transform at that small period is indistinguishable from true
+    // infinite scroll. Lamp posts are sparse, identical-looking objects
+    // with visible gaps between them — wrapping at 80px would just make
+    // each post jitter within a small band instead of travelling down the
+    // screen, so this uses its own dedicated LAMP_PERIOD instead (see the
+    // LAMP_PERIOD constant comment).
+    this.lampLayer.y = -(state.roadOffset % LAMP_PERIOD);
 
     if (this.currentCarType !== state.selectedCar) {
       this.playerSprite.texture = this.textures.playerCars[state.selectedCar];
@@ -303,7 +381,7 @@ export class PixiRenderer implements GameRenderer {
     const particles = this.quality === 'low' ? state.particles.slice(0, 20) : state.particles;
     syncPool(
       this.particlePool, particles, this.gen, this.particleLayer,
-      () => { const s = new Sprite(this.textures.softGlow); s.anchor.set(0.5); s.blendMode = 'add'; return s; },
+      () => { const s = new Sprite(this.textures.spark); s.anchor.set(0.5); s.blendMode = 'add'; return s; },
       (particle, s) => {
         s.tint = particle.color;
         s.x = particle.x;

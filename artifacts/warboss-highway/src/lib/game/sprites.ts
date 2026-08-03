@@ -18,9 +18,18 @@ export interface SpriteTextures {
   oilSlick: Texture;
   debris: Texture;
   guardrail: Texture;
+  lampPost: Texture;
   powerups: Record<PowerUpType, Texture>;
-  // Soft-edged circle for particle bursts and the exhaust plume — no
-  // dedicated art asset for this, generated at runtime same as before.
+  // Hand-drawn particle art — spark.png (crash/armor-save burst particles,
+  // white/neutral so it tints per-use), smoke.png (exhaust plume), and
+  // explosion.png (one-shot crash flash). Previously all three effects
+  // shared a single runtime-generated soft-glow circle.
+  spark: Texture;
+  smoke: Texture;
+  explosion: Texture;
+  // Soft-edged circle — no longer used for particles/exhaust (see above),
+  // kept only as the placeholder-texture fallback's stand-in for all three
+  // when the real sprite pack fails to load.
   softGlow: Texture;
   // Present only when textures came from loadSpriteTextures (real PNGs,
   // Assets-cache-managed). PixiRenderer.destroy() uses this to tell real
@@ -81,6 +90,10 @@ export async function loadSpriteTextures(
     assetUrl(base, 'oil_slick.png'),
     assetUrl(base, 'debris.png'),
     assetUrl(base, 'guardrail_segment.png'),
+    assetUrl(base, 'lamp_post.png'),
+    assetUrl(base, 'spark.png'),
+    assetUrl(base, 'smoke.png'),
+    assetUrl(base, 'explosion.png'),
     ...Object.values(POWERUP_FILES).map((f) => assetUrl(base, f)),
   ];
 
@@ -137,6 +150,10 @@ export async function loadSpriteTextures(
     oilSlick: get('oil_slick.png'),
     debris: get('debris.png'),
     guardrail: get('guardrail_segment.png'),
+    lampPost: get('lamp_post.png'),
+    spark: get('spark.png'),
+    smoke: get('smoke.png'),
+    explosion: get('explosion.png'),
     powerups,
     softGlow,
     assetUrls: urls,
@@ -207,10 +224,30 @@ export function generatePlaceholderTextures(renderer: Renderer): SpriteTextures 
   const guardrail = renderer.generateTexture(guardrailG);
   guardrailG.destroy();
 
+  const lampG = new Graphics();
+  lampG.rect(6, 20, 18, 40).fill(0x3a2a1a);
+  lampG.circle(15, 14, 10).fill(0xffdd88);
+  const lampPost = renderer.generateTexture(lampG);
+  lampG.destroy();
+
   const glowG = new Graphics();
   glowG.circle(0, 0, 16).fill(0xffffff);
   const softGlow = renderer.generateTexture(glowG);
   glowG.destroy();
 
-  return { playerCars, roadTile, enemyVehicles, bossVehicle: enemySolid, oilSlick, debris, guardrail, powerups, softGlow };
+  return {
+    playerCars,
+    roadTile,
+    enemyVehicles,
+    bossVehicle: enemySolid,
+    oilSlick,
+    debris,
+    guardrail,
+    lampPost,
+    spark: softGlow,
+    smoke: softGlow,
+    explosion: softGlow,
+    powerups,
+    softGlow,
+  };
 }
