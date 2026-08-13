@@ -198,3 +198,12 @@ Rule 12 / Rule 11. This register survives the session. Future agents resume from
   Expo app on a device/simulator and confirming: streaks read as speed not clutter at MAX SPEED,
   and the shield bloom looks right (not overblown). Mobile `tsc` typecheck still hangs under
   MSYS locally; CI on Linux is the real gate.
+- [2026-08-12] Framerate-dependent traffic speed (gameplay fairness + leaderboard integrity bug)
+  — **status: fixed.** In `lib/game-core/src/engine.ts`, vehicle/powerup/obstacle/particle
+  movement advanced by a fixed per-frame amount with NO `dt` scaling, while the player/distance/
+  score already scaled by `dt/16`. Result: at 30fps traffic fell ~half-speed, at 120fps ~2x —
+  breaks fairness across devices and makes scores framerate-dependent. Fixed by adding
+  `frameScale = dt/16` and multiplying all four movement sites by it. Regression test added in
+  `engine.test.ts` (asserts traffic drops the same distance at 16ms vs 33ms steps over 3s);
+  full engine suite 12/12 pass under vitest. Branch `agent/hermes-framerate-independence` (commit
+  `803e294`). Same MSYS `tsc`/`vite`/pnpm hang prevents local build verification; CI is the gate.
