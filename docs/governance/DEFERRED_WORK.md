@@ -6,6 +6,22 @@ Rule 12 / Rule 11. This register survives the session. Future agents resume from
 - `[DATE] <scope>: <what> — <why deferred> — <resume hint> — <status>`
 
 ## Items
+- [2026-08-13] **Governance gate (PR #16) was red for a non-code reason** — `scripts/verify.sh`'s
+  `deploy-dry` block ran `vercel build --dry-run` *unconditionally* whenever `vercel.json` exists,
+  but `VERCEL_TOKEN` is not set in CI (confirmed: the workflow's own `Vercel deploy-dry check`
+  step reported `skipped` because its `[ -n "$VERCEL_TOKEN" ]` guard failed). So the dry-run
+  failed on missing auth alone — never a real build error — and `VERIFY FAILED` made the whole
+  `gate` red even though the app build+test passed (windows-smoke green; verify.sh reported
+  "build ok"/"test ok" before the deploy-dry step). Fixed: `verify.sh` now mirrors the workflow —
+  skips the vercel dry-run with a `::notice` when `VERCEL_TOKEN` is unset, runs it (and treats
+  failure as an error) only when the token is present. This unblocks the gate without masking a
+  real deploy/build failure. **status: fixed** — `scripts/verify.sh` patched; branch
+  `agent/hermes-gate-verify-sh-vercel-guard` (PR pending). Note: `mockup-sandbox` (`artifacts/`)
+  `vite build` errors under the recursive `pnpm run build --if-present` on linux CI, but that
+  error is *non-fatal* to the gate (verify.sh line-93 `||`-chain absorbs it and still reports
+  "build ok"); it is a separate latent bug, not what broke the gate. Recommended separate pass:
+  investigate the mockup-sandbox linux vite build error (case-sensitive import or missing asset)
+  on its own branch.
 - [2026-07-25] api-server local dev: no local Postgres/Docker available in this
   environment to satisfy `DATABASE_URL` (required, throws in `lib/db/src/index.ts`) —
   deferred because provisioning a DB is an infra/credentials decision, not a code fix —
