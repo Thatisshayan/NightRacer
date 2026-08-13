@@ -187,3 +187,14 @@ Rule 12 / Rule 11. This register survives the session. Future agents resume from
   environment because `tsc --build` / `vite build` hang under MSYS/git-bash (a Windows
   toolchain issue, not a code error) — see the 2026-08-12 Hermes audit for the isolation
   detail. `lib/game-core` vitest runs cleanly (esbuild, no project-reference hang).
+- [2026-08-12] Mobile renderer parity with web `quality:'high'` path — **status: in-progress,
+  code done, visual QA pending.** Feature-by-feature compare of `GameCanvas.tsx` (Skia) vs
+  `pixi-renderer.ts` (Pixi): mobile already had road/lane/guardrail/lamp/contrast/particles/
+  exhaust/underglow/oil/shield/explosion/flicker. Closed the two remaining gaps: (1) added a
+  speed-streak overlay (4 vertical Skia `Line` nodes, opacity-bound SharedValue fading in past
+  `speedMultiplier >= 2.5`) as the mobile equivalent of the web `MotionBlurFilter` high-speed
+  rush; (2) added a `BlurMask` glow child to the shield `<Path>`/`<Circle>` to match the web
+  `GlowFilter` bloom. NOT visually verified (no emulator/browser here) — resume by running the
+  Expo app on a device/simulator and confirming: streaks read as speed not clutter at MAX SPEED,
+  and the shield bloom looks right (not overblown). Mobile `tsc` typecheck still hangs under
+  MSYS locally; CI on Linux is the real gate.

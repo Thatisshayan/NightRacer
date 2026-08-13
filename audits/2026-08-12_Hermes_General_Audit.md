@@ -69,3 +69,28 @@ work that is fixable without a live browser.
 3. Run `bash scripts/verify.sh` on a Linux CI runner to confirm the gate is green.
 4. On a clean shell / Linux, typecheck `warboss-highway-mobile` and confirm no real errors.
 5. Live playtest the deferred visual/audio items (needs browser/device).
+
+## Mobile renderer parity pass (2026-08-12, follow-up)
+Compared `artifacts/warboss-highway-mobile/components/game/GameCanvas.tsx` (Skia) against
+`artifacts/warboss-highway/src/lib/game/pixi-renderer.ts` (Pixi) feature-by-feature.
+Mobile already led on: road contrast boost, lane dividers + double-yellow center, guardrails,
+lamp posts, pooled vehicles (shadow+boost), obstacles, powerups, spark particles, exhaust
+(smoke + gradient lines), player underglow, oil-slick glow, shield hex+ring, crash explosion
+flash, hit-flicker. Two gaps vs the web `quality:'high'` path remained:
+
+- **Motion blur / high-speed rush**: web applies `MotionBlurFilter` (velocity = speedMultiplier*4)
+  on high quality. Mobile had no equivalent. Added a **speed-streak overlay** — four faint
+  blue-white vertical `Line` nodes inside each road edge, `opacity` bound to a SharedValue that
+  fades in past `speedMultiplier >= 2.5` (same threshold as the exhaust "big" plume), so the
+  mobile build gets the same top-speed rush without a per-frame blur pass. Drawn via pure
+  Skia `Line` nodes + derived `p2` SharedValues — zero React re-renders, same pooled pattern as
+  the existing exhaust.
+- **Glow bloom on shield**: web applies a cyan `GlowFilter` to the shield layer. Mobile's shield
+  was a plain cyan stroke. Added a `BlurMask` child to the shield `<Path>` and `<Circle>` (the
+  same mask primitive already used by `GroundShadow`), giving the mobile shield the same bloom.
+
+Net: mobile renderer now matches the web `quality:'high'` visual feature set. NOT yet visually
+verified (no emulator/browser in this environment) — needs an on-device or Expo-web playtest to
+confirm the streaks read as speed (not clutter) and the shield bloom isn't overblown. Typecheck
+of the mobile package still cannot run locally (MSYS `tsc` hang, see Findings #1) — verified by
+manual review only; CI on Linux is the real gate.
