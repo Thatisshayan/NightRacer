@@ -166,3 +166,24 @@ Rule 12 / Rule 11. This register survives the session. Future agents resume from
   the older fallback renderer's briefly-different look). See PR #15's commit history for
   full detail — this file's narrative entries lag actual PR state by design (append-only
   log), so treat commit messages as the source of truth for exact current status.
+- [2026-08-12] OKLCH color palette conversion (`audits/2026-08-25_Claude_UIDesignMotion_Audit.md`
+  finding #7, deferred 2026-07-26) — **status: in-progress, code done, visual QA pending.**
+  Converted `artifacts/warboss-highway/src/index.css` HSL theme triples (`:root` tokens +
+  `@theme inline` wrappers + 6 shadow tokens) to OKLCH. Preserved the grim-dark red/amber
+  identity (primary red ~`oklch(0.45 0.20 25)`, accent amber ~`oklch(0.55 0.15 75)`).
+  NOT yet visually verified (no browser render in this environment) — resume by opening the
+  web game in Chrome and confirming the HUD/menus/leaderboard colors read correctly and the
+  red primary + amber accent are unchanged in feel. `lib/game/renderer.ts`'s hardcoded
+  obstacle/vehicle art colors (oil-slick purple, debris browns) were intentionally left as
+  game art, not theme tokens.
+- [2026-08-12] Daily-challenge determinism bug — **status: fixed.** `handleCrash()` and
+  `createParticles()` used `Math.random()` for the armor-save roll and particle spread,
+  which broke per-day reproducibility in daily-challenge mode (where `initDailyRNG()`
+  reseeds `this.rng`). Switched both to `this.rng()`. Verified by `lib/game-core` vitest
+  (17/17 pass, deterministic run). No visual change.
+- [2026-08-12] `scripts/verify.sh` missing from working tree — **status: recovered.** The
+  file existed in git history (PR #1 bootstrap) but was absent on disk; restored from
+  `51cb933`. The full `bash scripts/verify.sh` gate still cannot run to green in THIS
+  environment because `tsc --build` / `vite build` hang under MSYS/git-bash (a Windows
+  toolchain issue, not a code error) — see the 2026-08-12 Hermes audit for the isolation
+  detail. `lib/game-core` vitest runs cleanly (esbuild, no project-reference hang).

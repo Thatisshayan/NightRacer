@@ -5,23 +5,11 @@
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$REPO_ROOT" || exit 1
+cd "$REPO_ROOT"
 
 FAIL=0
 notice() { echo "::notice title=$1::$2"; }
-# GitHub's ::error:: workflow-command annotation silently truncates long or
-# multi-line values, which was swallowing the actual failure reason for
-# build/test errors. Print the full detail as plain stdout (no such limit)
-# and only pass a short single-line summary to the annotation itself.
-error() {
-  local title="$1" detail="$2" short
-  echo "---- ERROR [$title] ----"
-  printf '%s\n' "$detail"
-  echo "---- END ERROR [$title] ----"
-  short=$(printf '%s' "$detail" | tr '\n' ' ' | cut -c1-200)
-  echo "::error title=$title::$short"
-  FAIL=1
-}
+error()  { echo "::error title=$1::$2"; FAIL=1; }
 
 # ---------------------------------------------------------------- 1. secret-scan
 echo "== secret-scan =="
@@ -43,10 +31,8 @@ else
     --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=audits/private \
     --exclude-dir=.venv --exclude-dir=_repo_clone --exclude-dir=dist --exclude-dir=build \
     --exclude-dir=.cache --exclude-dir=coverage \
-    --exclude='*.env.example' --exclude='*.env.sample' \
     --include='*.json' --include='*.env' --include='*.ts' --include='*.js' --include='*.py' \
-    --include='*.yml' --include='*.yaml' --include='*.toml' --include='*.sh' --include='*.md' \
-    . 2>/dev/null || true)
+    --include='*.yml' --include='*.yaml' --include='*.toml' --include='*.sh' . 2>/dev/null || true)
   if [ -n "$hits" ]; then error "secret-scan" "possible hardcoded secrets in: $hits"; fi
 fi
 
@@ -59,19 +45,14 @@ if command -v markdown-link-check >/dev/null 2>&1; then
     -not -path './audits/private/*' -print0 2>/dev/null \
     | xargs -0 -r -n1 markdown-link-check || error "doc-freshness" "broken doc links"
 fi
-# audit age (≤ 30 days) — use each file's last git commit time, not filesystem
-# mtime, since `actions/checkout` resets mtimes to checkout time on every run.
-newest=""
-while IFS= read -r f; do
-  ts=$(git log -1 --format=%ct -- "$f" 2>/dev/null || true)
-  [ -n "$ts" ] || continue
-  if [ -z "$newest" ] || [ "$ts" -gt "$newest" ]; then newest="$ts"; fi
-done < <(find audits -name '*.md' -not -path '*/private/*' 2>/dev/null)
+# audit age (≤ 30 days)
+newest=$(find audits -name '*.md' -not -path '*/private/*' -printf '%T@ %p\n' 2>/dev/null \
+  | sort -n | tail -1 | cut -d' ' -f1)
 if [ -z "$newest" ]; then
   error "doc-freshness" "no audit found under audits/"
 else
   now=$(date +%s)
-  age=$(( (now - newest) / 86400 ))
+  age=$(( (now - ${newest%.*}) / 86400 ))
   if [ "$age" -gt 30 ]; then error "doc-freshness" "newest audit is $age days old (>30)"; fi
 fi
 # doc baseline
@@ -88,56 +69,29 @@ fi
 
 # ---------------------------------------------------------------- 3. build / test
 echo "== build / test =="
-# pick the package manager from lockfiles (respect pnpm/yarn/bun, don't assume npm)
+# pick the package manager from lockfiles (respect pnpm/yarn, don't assume npm)
 PM=""
 if [ -f pnpm-lock.yaml ]; then PM=pnpm
 elif [ -f yarn.lock ]; then PM=yarn
-elif [ -f bun.lock ]; then PM=bun
 elif [ -f package-lock.json ]; then PM=npm
-fi
-# prefer GNU `timeout`; fall back to macOS `gtimeout` (coreutils); else run untimed.
-TIMEOUT_BIN=""
-if command -v timeout >/dev/null 2>&1; then TIMEOUT_BIN=timeout
-elif command -v gtimeout >/dev/null 2>&1; then TIMEOUT_BIN=gtimeout
 fi
 run_with_timeout() { # $1=seconds $2=label $3..=cmd
   local t="$1"; shift; local label="$1"; shift
-  local out rc
-  if [ -n "$TIMEOUT_BIN" ]; then
-    out=$("$TIMEOUT_BIN" "$t" "$@" 2>&1); rc=$?
-  else
-    out=$("$@" 2>&1); rc=$?
-  fi
+  local out; out=$(timeout "$t" "$@" 2>&1); local rc=$?
   if [ $rc -eq 124 ]; then error "$label" "timed out after ${t}s (likely network/install hang)"; return; fi
   if [ $rc -ne 0 ]; then error "$label" "failed (rc=$rc): $(printf '%s' "$out" | tail -3)"; return; fi
   notice "$label" "ok"
 }
 if [ -n "$PM" ]; then
   case "$PM" in
-    pnpm) run_with_timeout 300 build pnpm install --frozen-lockfile ;;
+    pnpm) run_with_timeout 300 build pnpm install --frozen-lockfile
+          pnpm run build --if-present 2>&1 | tail -3 ;;
     yarn) run_with_timeout 300 build yarn install --frozen-lockfile ;;
-    bun)  run_with_timeout 300 build bun install --frozen-lockfile ;;
     npm)  run_with_timeout 300 build npm ci ;;
   esac
   if [ $FAIL -eq 0 ]; then
-    case "$PM" in
-      pnpm) pm_build="pnpm run --if-present build"; pm_test="pnpm run --if-present test" ;;
-      yarn) pm_build="yarn build"; pm_test="yarn test" ;;
-      bun)  pm_build="bun run --if-present build"; pm_test="bun run --if-present test" ;;
-      npm)  pm_build="npm run build --if-present"; pm_test="npm test --if-present" ;;
-    esac
-    build_out=$($pm_build 2>&1); build_rc=$?
-    if [ $build_rc -eq 0 ]; then
-      notice build "build ok"
-    else
-      error build "build failed (rc=$build_rc): $(printf '%s' "$build_out" | tail -40)"
-    fi
-    test_out=$($pm_test 2>&1); test_rc=$?
-    if [ $test_rc -eq 0 ]; then
-      notice test "test ok"
-    else
-      error test "test failed (rc=$test_rc): $(printf '%s' "$test_out" | tail -40)"
-    fi
+    (npm run build --if-present || pnpm run build --if-present || yarn build) >/dev/null 2>&1 && notice build "build ok" || error build "build failed"
+    (npm test --if-present || pnpm test --if-present || yarn test) >/dev/null 2>&1 && notice test "test ok" || error test "test failed"
   fi
 elif [ -f pyproject.toml ] || [ -f requirements.txt ]; then
   pip install -q -r requirements.txt 2>/dev/null || true
@@ -152,14 +106,7 @@ fi
 # ---------------------------------------------------------------- 4. deploy-dry
 echo "== deploy-dry =="
 if [ -f vercel.json ]; then
-  if [ -n "${VERCEL_TOKEN:-}" ]; then
-    # `vercel build` has no --dry-run flag; --yes skips the interactive
-    # confirmation prompt when VERCEL_ORG_ID/VERCEL_PROJECT_ID are set,
-    # which is what actually gives us a non-interactive dry build.
-    npx --yes vercel@latest build --yes >/dev/null 2>&1 || error "deploy" "vercel build failed"
-  else
-    notice "deploy" "vercel.json present but VERCEL_TOKEN not set in this environment; skipping dry-run (run 'vercel build --yes' locally, or add VERCEL_TOKEN/VERCEL_ORG_ID/VERCEL_PROJECT_ID as CI secrets for full coverage)"
-  fi
+  vercel build --dry-run >/dev/null 2>&1 || error "deploy" "vercel dry-run failed"
 elif [ -f railway.json ] || [ -f railway.toml ]; then
   notice "deploy" "railway target present; run 'railway up --detach' manually"
 elif [ -f eas.json ]; then

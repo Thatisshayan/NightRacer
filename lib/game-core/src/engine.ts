@@ -992,7 +992,9 @@ export class GameEngine {
 
   private handleCrash() {
     if (this.state.player.isInvulnerable) return;
-    if (this.upgrades.armor > 0 && Math.random() < this.upgrades.armor * 0.1) {
+    // Use the seeded rng (not Math.random) so daily-challenge runs stay
+    // deterministic — initDailyRNG() reseeds this for reproducible days.
+    if (this.upgrades.armor > 0 && this.rng() < this.upgrades.armor * 0.1) {
       this.state.player.isInvulnerable = true;
       this.state.player.invulnTimer = 1500;
       this.createParticles(this.state.player.x, this.state.player.y, '#ffaa00', 10);
@@ -1039,12 +1041,13 @@ export class GameEngine {
     for (let i = 0; i < count; i++) {
       this.state.particles.push({
         x, y,
-        vx: (Math.random() - 0.5) * 10,
-        vy: (Math.random() - 0.5) * 10,
-        life: 500 + Math.random() * 500,
+        // Use the seeded rng (not Math.random) for daily-challenge determinism.
+        vx: (this.rng() - 0.5) * 10,
+        vy: (this.rng() - 0.5) * 10,
+        life: 500 + this.rng() * 500,
         maxLife: 1000,
         color,
-        size: 2 + Math.random() * 4,
+        size: 2 + this.rng() * 4,
       });
     }
   }
