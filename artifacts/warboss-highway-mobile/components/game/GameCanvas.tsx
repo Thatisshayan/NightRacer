@@ -426,6 +426,24 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
   const exhaustCOpacity = useSharedValue(0);
   const exhaustBigOpacity = useSharedValue(0);
   const exhaustBigWidth = useSharedValue(0);
+  // Speed streaks — mirrors the web Pixi renderer's MotionBlurFilter
+  // (velocity = speedMultiplier * 4, quality:'high' only) for a sense of
+  // velocity at top speed. The web path only runs the blur on 'high'
+  // quality; this Skia equivalent is a few faint radial-ish streaks that
+  // fade in as speedMultiplier climbs past 2.5 (the same threshold the
+  // exhaust's "big" plume uses), giving the mobile build the same
+  // high-speed rush without a per-frame blur pass. Drawn as thin vertical
+  // lines at fixed-ish x positions, opacity-bound to a SharedValue so no
+  // React re-render happens.
+  const streakOpacity = useSharedValue(0);
+  const streakL1 = useSharedValue({ x: 0, y: 0 });
+  const streakL2 = useSharedValue({ x: 0, y: 0 });
+  const streakR1 = useSharedValue({ x: 0, y: 0 });
+  const streakR2 = useSharedValue({ x: 0, y: 0 });
+  const streakL1y2 = useSharedValue(0);
+  const streakL2y2 = useSharedValue(0);
+  const streakR1y2 = useSharedValue(0);
+  const streakR2y2 = useSharedValue(0);
   // smoke.png overlay, layered behind the existing gradient-line plumes
   // rather than replacing them — the lines already read well and carry the
   // speed-tier color escalation, this just adds the real particle art
@@ -450,6 +468,10 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
   const smokeY = useDerivedValue(() => smokeCy.value - smokeSize.value / 2);
   const explosionX = useDerivedValue(() => explosionCx.value - explosionSize.value / 2);
   const explosionY = useDerivedValue(() => explosionCy.value - explosionSize.value / 2);
+  const streakL1Y2 = useDerivedValue(() => ({ x: streakL1.value.x, y: streakL1y2.value }));
+  const streakL2Y2 = useDerivedValue(() => ({ x: streakL2.value.x, y: streakL2y2.value }));
+  const streakR1Y2 = useDerivedValue(() => ({ x: streakR1.value.x, y: streakR1y2.value }));
+  const streakR2Y2 = useDerivedValue(() => ({ x: streakR2.value.x, y: streakR2y2.value }));
 
   // Low-frequency booleans — these gate whether whole subtrees mount at
   // all (shield ring, oil-slick glow), so they stay as real React state,
@@ -589,6 +611,25 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
           smokeOpacity.value = 0;
         }
 
+        // Speed streaks — fade in past the same 2.5 threshold the exhaust's
+        // "big" plume uses, so the high-speed rush matches the web build's
+        // MotionBlur. Streaks sit just inside each road edge and span the
+        // viewport, anchored to the player's lane band.
+        const streakAmt = spd >= 2.5 ? Math.min(1, (spd - 2.5) / 0.5) : 0;
+        streakOpacity.value = streakAmt * 0.5;
+        if (streakAmt > 0) {
+          const top = state.player.y - GAME_HEIGHT * 0.55;
+          const bottom = state.player.y + GAME_HEIGHT * 0.45;
+          streakL1.value = { x: GUARDRAIL_WIDTH + 18, y: top };
+          streakL2.value = { x: GUARDRAIL_WIDTH + 40, y: top };
+          streakR1.value = { x: GAME_WIDTH - GUARDRAIL_WIDTH - 18, y: top };
+          streakR2.value = { x: GAME_WIDTH - GUARDRAIL_WIDTH - 40, y: top };
+          streakL1y2.value = bottom;
+          streakL2y2.value = bottom;
+          streakR1y2.value = bottom;
+          streakR2y2.value = bottom;
+        }
+
         if (!ready) setReady(true);
       },
       destroy() {},
@@ -707,6 +748,14 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
             </Group>
           </Group>
 
+          {/* Speed streaks — parity with web Pixi MotionBlur at high speed. */}
+          <Group opacity={streakOpacity}>
+            <Line p1={streakL1} p2={streakL1Y2} style="stroke" strokeWidth={2} strokeCap="round" color="rgba(180,210,255,0.6)" />
+            <Line p1={streakL2} p2={streakL2Y2} style="stroke" strokeWidth={1.5} strokeCap="round" color="rgba(180,210,255,0.4)" />
+            <Line p1={streakR1} p2={streakR1Y2} style="stroke" strokeWidth={2} strokeCap="round" color="rgba(180,210,255,0.6)" />
+            <Line p1={streakR2} p2={streakR2Y2} style="stroke" strokeWidth={1.5} strokeCap="round" color="rgba(180,210,255,0.4)" />
+          </Group>
+
           {/* Player underglow */}
           <Circle cx={underglowCx} cy={underglowCy} r={underglowR} opacity={0.33}>
             <RadialGradient c={underglowCenter} r={underglowR} colors={[carColor, 'rgba(0,0,0,0)']} />
@@ -729,8 +778,12 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
 
               {shieldActive && (
                 <Group>
-                  <Path path={shieldHexPath} color="#00ffff" style="stroke" strokeWidth={2.5} opacity={0.9} />
-                  <Circle cx={playerCenterX} cy={playerCenterY} r={shieldRingR} color="#00ffff" style="stroke" strokeWidth={1} opacity={0.5} />
+                  <Path path={shieldHexPath} color="#00ffff" style="stroke" strokeWidth={2.5} opacity={0.9}>
+                    <BlurMask blur={3} style="normal" respectCTM />
+                  </Path>
+                  <Circle cx={playerCenterX} cy={playerCenterY} r={shieldRingR} color="#00ffff" style="stroke" strokeWidth={1} opacity={0.5}>
+                    <BlurMask blur={3} style="normal" respectCTM />
+                  </Circle>
                 </Group>
               )}
 

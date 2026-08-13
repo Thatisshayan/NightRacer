@@ -6,6 +6,22 @@ Rule 12 / Rule 11. This register survives the session. Future agents resume from
 - `[DATE] <scope>: <what> — <why deferred> — <resume hint> — <status>`
 
 ## Items
+- [2026-08-13] **Governance gate (PR #16) was red for a non-code reason** — `scripts/verify.sh`'s
+  `deploy-dry` block ran `vercel build --dry-run` *unconditionally* whenever `vercel.json` exists,
+  but `VERCEL_TOKEN` is not set in CI (confirmed: the workflow's own `Vercel deploy-dry check`
+  step reported `skipped` because its `[ -n "$VERCEL_TOKEN" ]` guard failed). So the dry-run
+  failed on missing auth alone — never a real build error — and `VERIFY FAILED` made the whole
+  `gate` red even though the app build+test passed (windows-smoke green; verify.sh reported
+  "build ok"/"test ok" before the deploy-dry step). Fixed: `verify.sh` now mirrors the workflow —
+  skips the vercel dry-run with a `::notice` when `VERCEL_TOKEN` is unset, runs it (and treats
+  failure as an error) only when the token is present. This unblocks the gate without masking a
+  real deploy/build failure. **status: fixed** — `scripts/verify.sh` patched; branch
+  `agent/hermes-gate-verify-sh-vercel-guard` (PR pending). Note: `mockup-sandbox` (`artifacts/`)
+  `vite build` errors under the recursive `pnpm run build --if-present` on linux CI, but that
+  error is *non-fatal* to the gate (verify.sh line-93 `||`-chain absorbs it and still reports
+  "build ok"); it is a separate latent bug, not what broke the gate. Recommended separate pass:
+  investigate the mockup-sandbox linux vite build error (case-sensitive import or missing asset)
+  on its own branch.
 - [2026-07-25] api-server local dev: no local Postgres/Docker available in this
   environment to satisfy `DATABASE_URL` (required, throws in `lib/db/src/index.ts`) —
   deferred because provisioning a DB is an infra/credentials decision, not a code fix —
@@ -80,9 +96,15 @@ Rule 12 / Rule 11. This register survives the session. Future agents resume from
   `startMusic()` where `AudioContext.resume()` is fire-and-forget so `musicPlaying` can be
   set true before the context has actually resumed (only matters on rapid
   title/gameplay music switches on an autoplay-blocked context) — resume by re-reading
-  both findings on PR #5's review thread and deciding if they're worth the churn — status:
-  open, deliberately not started.
-- [2026-07-27] `artifacts/warboss-highway` has no test files and no `test` script — the
+  both findings on PR #5's review thread and deciding if they're worth the churn — **status:
+  resolved 2026-08-13.** (1) Added a one-line public-API doc note (autoplay policy +
+  double-start guard) near `playAudio`/`startMusic`. (2) Fixed the race: extracted a
+  `begin()` closure that builds+starts the graph and only then sets `musicPlaying=true`;
+  added a `musicStarting` guard so a second `startMusic()` call during the async
+  `resume()` gap is a no-op (no double-start, no falsely-reported "playing" before the
+  graph runs); `stopMusic()` now also clears `musicStarting`. Runtime behavior still needs
+  a browser to confirm (no Web Audio in this env) — same as the other audio.ts QA items.
+
   `gate` CI check's test step no-ops via `--if-present` — so "CI green" on PR #5 means
   typecheck + build succeeded only, not that gameplay behavior was verified by anything
   automated — resume by adding at least smoke tests around `GameEngine` (spawn/collision/
@@ -166,3 +188,44 @@ Rule 12 / Rule 11. This register survives the session. Future agents resume from
   the older fallback renderer's briefly-different look). See PR #15's commit history for
   full detail — this file's narrative entries lag actual PR state by design (append-only
   log), so treat commit messages as the source of truth for exact current status.
+- [2026-08-12] OKLCH color palette conversion (`audits/2026-08-25_Claude_UIDesignMotion_Audit.md`
+  finding #7, deferred 2026-07-26) — **status: in-progress, code done, visual QA pending.**
+  Converted `artifacts/warboss-highway/src/index.css` HSL theme triples (`:root` tokens +
+  `@theme inline` wrappers + 6 shadow tokens) to OKLCH. Preserved the grim-dark red/amber
+  identity (primary red ~`oklch(0.45 0.20 25)`, accent amber ~`oklch(0.55 0.15 75)`).
+  NOT yet visually verified (no browser render in this environment) — resume by opening the
+  web game in Chrome and confirming the HUD/menus/leaderboard colors read correctly and the
+  red primary + amber accent are unchanged in feel. `lib/game/renderer.ts`'s hardcoded
+  obstacle/vehicle art colors (oil-slick purple, debris browns) were intentionally left as
+  game art, not theme tokens.
+- [2026-08-12] Daily-challenge determinism bug — **status: fixed.** `handleCrash()` and
+  `createParticles()` used `Math.random()` for the armor-save roll and particle spread,
+  which broke per-day reproducibility in daily-challenge mode (where `initDailyRNG()`
+  reseeds `this.rng`). Switched both to `this.rng()`. Verified by `lib/game-core` vitest
+  (17/17 pass, deterministic run). No visual change.
+- [2026-08-12] `scripts/verify.sh` missing from working tree — **status: recovered.** The
+  file existed in git history (PR #1 bootstrap) but was absent on disk; restored from
+  `51cb933`. The full `bash scripts/verify.sh` gate still cannot run to green in THIS
+  environment because `tsc --build` / `vite build` hang under MSYS/git-bash (a Windows
+  toolchain issue, not a code error) — see the 2026-08-12 Hermes audit for the isolation
+  detail. `lib/game-core` vitest runs cleanly (esbuild, no project-reference hang).
+- [2026-08-12] Mobile renderer parity with web `quality:'high'` path — **status: in-progress,
+  code done, visual QA pending.** Feature-by-feature compare of `GameCanvas.tsx` (Skia) vs
+  `pixi-renderer.ts` (Pixi): mobile already had road/lane/guardrail/lamp/contrast/particles/
+  exhaust/underglow/oil/shield/explosion/flicker. Closed the two remaining gaps: (1) added a
+  speed-streak overlay (4 vertical Skia `Line` nodes, opacity-bound SharedValue fading in past
+  `speedMultiplier >= 2.5`) as the mobile equivalent of the web `MotionBlurFilter` high-speed
+  rush; (2) added a `BlurMask` glow child to the shield `<Path>`/`<Circle>` to match the web
+  `GlowFilter` bloom. NOT visually verified (no emulator/browser here) — resume by running the
+  Expo app on a device/simulator and confirming: streaks read as speed not clutter at MAX SPEED,
+  and the shield bloom looks right (not overblown). Mobile `tsc` typecheck still hangs under
+  MSYS locally; CI on Linux is the real gate.
+- [2026-08-12] Framerate-dependent traffic speed (gameplay fairness + leaderboard integrity bug)
+  — **status: fixed.** In `lib/game-core/src/engine.ts`, vehicle/powerup/obstacle/particle
+  movement advanced by a fixed per-frame amount with NO `dt` scaling, while the player/distance/
+  score already scaled by `dt/16`. Result: at 30fps traffic fell ~half-speed, at 120fps ~2x —
+  breaks fairness across devices and makes scores framerate-dependent. Fixed by adding
+  `frameScale = dt/16` and multiplying all four movement sites by it. Regression test added in
+  `engine.test.ts` (asserts traffic drops the same distance at 16ms vs 33ms steps over 3s);
+  full engine suite 12/12 pass under vitest. Branch `agent/hermes-framerate-independence` (commit
+  `803e294`). Same MSYS `tsc`/`vite`/pnpm hang prevents local build verification; CI is the gate.

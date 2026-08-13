@@ -563,6 +563,14 @@ export class GameEngine {
 
   private update(dt: number) {
     const state = this.state;
+    // Frame normalization factor — the per-frame motion below (traffic,
+    // obstacles, powerups, particles) is expressed in "pixels per 60fps
+    // frame" and must be scaled by this so the same wall-clock duration
+    // moves the world identically at 30fps or 120fps. The player, distance,
+    // and score updates already scale by dt/16; these must too, or the game
+    // plays slower/faster depending on the device's refresh rate (see the
+    // framerate-independence test in engine.test.ts).
+    const frameScale = dt / 16;
 
     // Input vector (keys + joystick)
     let dx = 0;
@@ -728,9 +736,9 @@ export class GameEngine {
         // multiplier) drifts toward the player like highway traffic
         // you're gaining on; a faster one (SPORTS) can pull away instead.
         // Floor keeps it from ever fully stalling on screen.
-        v.y += Math.max(1.2, currentSpeed - v.speed * 0.7);
+        v.y += Math.max(1.2, currentSpeed - v.speed * 0.7) * frameScale;
       } else {
-        v.y += currentSpeed + v.speed * 0.5;
+        v.y += (currentSpeed + v.speed * 0.5) * frameScale;
       }
 
       if (v.y > this.height + 150) {
@@ -793,7 +801,7 @@ export class GameEngine {
     // Update powerups
     for (let i = state.powerups.length - 1; i >= 0; i--) {
       const p = state.powerups[i];
-      p.y += currentSpeed;
+      p.y += currentSpeed * frameScale;
       if (p.y > this.height + 50) { state.powerups.splice(i, 1); continue; }
       if (this.checkCollision(state.player, p)) {
         this.collectPowerUp(p.type);
@@ -804,7 +812,7 @@ export class GameEngine {
     // Update obstacles
     for (let i = state.obstacles.length - 1; i >= 0; i--) {
       const o = state.obstacles[i];
-      o.y += currentSpeed * 0.55;
+      o.y += currentSpeed * 0.55 * frameScale;
       if (o.y > this.height + 80) { state.obstacles.splice(i, 1); continue; }
 
       if (!state.player.isInvulnerable && state.activePowerUp !== 'SHIELD' && this.checkCollision(state.player, o)) {
@@ -823,8 +831,8 @@ export class GameEngine {
     // Update particles
     for (let i = state.particles.length - 1; i >= 0; i--) {
       const p = state.particles[i];
-      p.x += p.vx;
-      p.y += p.vy + currentSpeed * 0.2;
+      p.x += p.vx * frameScale;
+      p.y += (p.vy + currentSpeed * 0.2) * frameScale;
       p.life -= dt;
       if (p.life <= 0) state.particles.splice(i, 1);
     }
@@ -992,7 +1000,9 @@ export class GameEngine {
 
   private handleCrash() {
     if (this.state.player.isInvulnerable) return;
-    if (this.upgrades.armor > 0 && Math.random() < this.upgrades.armor * 0.1) {
+    // Use the seeded rng (not Math.random) so daily-challenge runs stay
+    // deterministic — initDailyRNG() reseeds this for reproducible days.
+    if (this.upgrades.armor > 0 && this.rng() < this.upgrades.armor * 0.1) {
       this.state.player.isInvulnerable = true;
       this.state.player.invulnTimer = 1500;
       this.createParticles(this.state.player.x, this.state.player.y, '#ffaa00', 10);
@@ -1039,12 +1049,13 @@ export class GameEngine {
     for (let i = 0; i < count; i++) {
       this.state.particles.push({
         x, y,
-        vx: (Math.random() - 0.5) * 10,
-        vy: (Math.random() - 0.5) * 10,
-        life: 500 + Math.random() * 500,
+        // Use the seeded rng (not Math.random) for daily-challenge determinism.
+        vx: (this.rng() - 0.5) * 10,
+        vy: (this.rng() - 0.5) * 10,
+        life: 500 + this.rng() * 500,
         maxLife: 1000,
         color,
-        size: 2 + Math.random() * 4,
+        size: 2 + this.rng() * 4,
       });
     }
   }

@@ -195,6 +195,46 @@ describe('GameEngine simulation over time', () => {
   });
 });
 
+// Framerate-independence: the simulation is built around a single `dt` so
+// the same wall-clock duration produces the same world motion regardless of
+// how many frames it was spread across. The player, distance, and score
+// updates are all `dt`-scaled; traffic/obstacle/powerup motion MUST be too,
+// or the game runs slower at 30fps and faster at 120fps — which both breaks
+// fairness between devices and makes leaderboard scores framerate-dependent.
+describe('GameEngine framerate independence', () => {
+  function vehicleDropOver(totalMs: number, dtMs: number): number {
+    const engine = makeEngine();
+    // Advance past the initial spawn delay so at least one vehicle exists.
+    let firstVehicleY: number | null = null;
+    let lastVehicleY = 0;
+    let frames = 0;
+    while (frames * dtMs < totalMs) {
+      step(dtMs);
+      const vehicles = engine.getState().vehicles;
+      if (vehicles.length > 0) {
+        const v = vehicles[0];
+        if (firstVehicleY === null) firstVehicleY = v.y;
+        lastVehicleY = v.y;
+      }
+      frames++;
+    }
+    // Return the on-screen vertical travel of whichever vehicle we tracked.
+    if (firstVehicleY === null) return 0;
+    return lastVehicleY - firstVehicleY;
+  }
+
+  it('advances traffic the same distance regardless of frame rate (small vs large dt)', () => {
+    const smallDt = vehicleDropOver(2000, 16);
+    const largeDt = vehicleDropOver(2000, 33);
+    expect(smallDt).toBeGreaterThan(0);
+    // Same 2 seconds of game time must move traffic the same number of
+    // pixels whether stepped at 60fps or 30fps. Allow a small tolerance for
+    // spawn-timing variance (a vehicle may not have spawned yet at the exact
+    // same offset), but they must be within a few percent.
+    expect(Math.abs(smallDt - largeDt)).toBeLessThan(largeDt * 0.1);
+  });
+});
+
 describe('CAR_STATS', () => {
   // Regression test for "player cars a couple of them are too narrow, so
   // they can basically run forever" (DEATHSLED was 22px, PHANTOM was
