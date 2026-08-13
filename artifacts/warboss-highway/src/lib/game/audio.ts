@@ -8,6 +8,11 @@ let isMuted = Settings.getMuted();
 let musicGain: GainNode | null = null;
 let musicNodes: AudioNode[] = [];
 let musicPlaying = false;
+// Guards the async resume() gap: on an autoplay-blocked context
+// `ac.resume()` resolves later, so we must not let a second `startMusic()`
+// call during that window double-start the graph or report "playing" before
+// a single graph is actually running. See the Qodo review finding on PR #5.
+let musicStarting = false;
 
 const getCtx = (): AudioContext => {
   if (!ctx) ctx = new AudioContext();
@@ -126,55 +131,73 @@ const stopMusic = () => {
   });
   musicNodes = [];
   musicPlaying = false;
+  musicStarting = false;
 };
 
 const startMusic = (type: 'menu' | 'gameplay') => {
-  if (musicPlaying) return;
+  if (musicPlaying || musicStarting) return;
   const ac = getCtx();
-  if (ac.state === 'suspended') ac.resume();
 
-  musicGain = ac.createGain();
-  musicGain.gain.setValueAtTime(0.07, ac.currentTime);
-  musicGain.connect(ac.destination);
+  // Builds the oscillator graph and only then flips the flags — so the
+  // "playing" state is accurate even when the context had to be resumed
+  // asynchronously first (autoplay policy).
+  const begin = () => {
+    musicStarting = false;
+    musicGain = ac.createGain();
+    musicGain.gain.setValueAtTime(0.07, ac.currentTime);
+    musicGain.connect(ac.destination);
 
-  const root = type === 'menu' ? 110 : 82.4;
-  const fifth = root * 1.5;
-  const pad1 = ac.createOscillator();
-  pad1.type = 'sawtooth';
-  pad1.frequency.value = root;
+    const root = type === 'menu' ? 110 : 82.4;
+    const fifth = root * 1.5;
+    const pad1 = ac.createOscillator();
+    pad1.type = 'sawtooth';
+    pad1.frequency.value = root;
 
-  const pad2 = ac.createOscillator();
-  pad2.type = 'square';
-  pad2.frequency.value = fifth;
+    const pad2 = ac.createOscillator();
+    pad2.type = 'square';
+    pad2.frequency.value = fifth;
 
-  // Slow LFO tremolo
-  const lfo = ac.createOscillator();
-  lfo.type = 'sine';
-  lfo.frequency.value = type === 'menu' ? 0.4 : 1.2;
-  const lfoGain = ac.createGain();
-  lfoGain.gain.value = 0.03;
-  lfo.connect(lfoGain);
-  lfoGain.connect(musicGain.gain);
+    // Slow LFO tremolo
+    const lfo = ac.createOscillator();
+    lfo.type = 'sine';
+    lfo.frequency.value = type === 'menu' ? 0.4 : 1.2;
+    const lfoGain = ac.createGain();
+    lfoGain.gain.value = 0.03;
+    lfo.connect(lfoGain);
+    lfoGain.connect(musicGain.gain);
 
-  // Filter for warmth
-  const filter = ac.createBiquadFilter();
-  filter.type = 'lowpass';
-  filter.frequency.value = type === 'menu' ? 600 : 900;
-  filter.Q.value = 1.5;
+    // Filter for warmth
+    const filter = ac.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = type === 'menu' ? 600 : 900;
+    filter.Q.value = 1.5;
 
-  pad1.connect(filter);
-  pad2.connect(filter);
-  filter.connect(musicGain);
+    pad1.connect(filter);
+    pad2.connect(filter);
+    filter.connect(musicGain);
 
-  pad1.start();
-  pad2.start();
-  lfo.start();
+    pad1.start();
+    pad2.start();
+    lfo.start();
 
-  musicNodes = [pad1, pad2, lfo, lfoGain, filter, musicGain];
-  musicPlaying = true;
+    musicNodes = [pad1, pad2, lfo, lfoGain, filter, musicGain];
+    musicPlaying = true;
+  };
+
+  if (ac.state === 'suspended') {
+    // resume() is async; flip the guard now so a second call in the gap is
+    // a no-op, and only build/start the graph once the context is running.
+    musicStarting = true;
+    ac.resume().then(begin).catch(() => { musicStarting = false; });
+  } else {
+    begin();
+  }
 };
 
 // ── Public API (matches old audio.ts signature) ────────────────────────────
+// Note: the AudioContext is created lazily on first use and resumed on a
+// user gesture (autoplay policy); music start is guarded against
+// double-start across the async resume() gap (see `musicStarting`).
 
 export const audioCache: Record<string, unknown> = {}; // kept for compat
 

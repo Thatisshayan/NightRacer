@@ -80,9 +80,15 @@ Rule 12 / Rule 11. This register survives the session. Future agents resume from
   `startMusic()` where `AudioContext.resume()` is fire-and-forget so `musicPlaying` can be
   set true before the context has actually resumed (only matters on rapid
   title/gameplay music switches on an autoplay-blocked context) — resume by re-reading
-  both findings on PR #5's review thread and deciding if they're worth the churn — status:
-  open, deliberately not started.
-- [2026-07-27] `artifacts/warboss-highway` has no test files and no `test` script — the
+  both findings on PR #5's review thread and deciding if they're worth the churn — **status:
+  resolved 2026-08-13.** (1) Added a one-line public-API doc note (autoplay policy +
+  double-start guard) near `playAudio`/`startMusic`. (2) Fixed the race: extracted a
+  `begin()` closure that builds+starts the graph and only then sets `musicPlaying=true`;
+  added a `musicStarting` guard so a second `startMusic()` call during the async
+  `resume()` gap is a no-op (no double-start, no falsely-reported "playing" before the
+  graph runs); `stopMusic()` now also clears `musicStarting`. Runtime behavior still needs
+  a browser to confirm (no Web Audio in this env) — same as the other audio.ts QA items.
+
   `gate` CI check's test step no-ops via `--if-present` — so "CI green" on PR #5 means
   typecheck + build succeeded only, not that gameplay behavior was verified by anything
   automated — resume by adding at least smoke tests around `GameEngine` (spawn/collision/
