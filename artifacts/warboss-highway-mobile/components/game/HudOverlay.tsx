@@ -67,12 +67,14 @@ export function HudOverlay({
   // Amber-at-rest instead of the previous mint green — mint read as a
   // generic fitness-app accent color, tonally off against the rest of the
   // grimdark palette. Escalates through orange to red exactly as before.
-  const speedColor = state.speedMultiplier >= 2.5 ? '#ff3333' : state.speedMultiplier >= 1.8 ? '#ff8800' : '#cc8833';
+  const speedColor = state.rushTimer > 0 ? '#df4bff' : state.speedMultiplier >= 2.5 ? '#df4bff' : state.speedMultiplier >= 1.8 ? '#ffb347' : '#27d9ff';
 
   const showCombo = state.combo > 1;
   const showLevelUp = state.levelUpFlash > 0;
   const showBossWarning = state.bossWarning > 0;
   const showNearMiss = state.combo > 1;
+  const rushReady = state.rushCharge >= 100 && state.rushTimer <= 0;
+  const rushLabel = state.rushTimer > 0 ? 'RUSH ACTIVE' : rushReady ? 'RUSH — TAP' : `RUSH ${Math.floor(state.rushCharge)}%`;
 
   return (
     <View style={styles.root} pointerEvents="box-none">
@@ -111,6 +113,34 @@ export function HudOverlay({
         </View>
         {state.player.oilSlicked && <Text style={styles.oilWarning}>⚠ SLIPPING</Text>}
       </View>
+
+      {/* Earned Rush control. Its wide target keeps the burst usable one-handed
+          on a phone while keyboard users can still use Space on the web build. */}
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Activate Rush when charged"
+        onPress={() => engine.triggerRush()}
+        disabled={!rushReady}
+        style={[
+          styles.rushControl,
+          {
+            borderColor: state.rushTimer > 0 ? '#df4bff' : rushReady ? '#27d9ff' : 'rgba(130,149,170,0.55)',
+            opacity: rushReady || state.rushTimer > 0 ? 1 : 0.68,
+          },
+        ]}
+      >
+        <View
+          style={[
+            styles.rushFill,
+            {
+              width: `${state.rushTimer > 0 ? 100 : state.rushCharge}%`,
+              backgroundColor: state.rushTimer > 0 ? '#df4bff' : '#27d9ff',
+            },
+          ]}
+        />
+        <Text style={styles.rushLabel}>{rushLabel}</Text>
+        <Text style={styles.rushHint}>CLOSE PASSES CHARGE</Text>
+      </Pressable>
 
       {/* Power-up bar (bottom left) */}
       {powerUp && powerUpMeta && (
@@ -201,7 +231,7 @@ export function HudOverlay({
 
 const styles = StyleSheet.create({
   root: { ...StyleSheet.absoluteFillObject, zIndex: 10 },
-  topBar: { position: 'absolute', top: 0, left: 0, right: 0, height: 92, backgroundColor: 'rgba(0,0,0,0.55)' },
+  topBar: { position: 'absolute', top: 0, left: 0, right: 0, height: 92, backgroundColor: 'rgba(5,8,22,0.78)', borderBottomWidth: 1, borderBottomColor: 'rgba(39,217,255,0.28)' },
   pauseButton: { position: 'absolute', left: 8, top: 6, width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
   pauseIcon: { fontSize: 14, color: '#fff' },
   muteButton: { position: 'absolute', right: 8, top: 6, width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
@@ -236,13 +266,13 @@ const styles = StyleSheet.create({
     right: 0,
     top: 40,
     fontSize: 13,
-    color: '#ffee22',
+    color: '#df4bff',
     textAlign: 'center',
     textShadowColor: 'rgba(0,0,0,0.9)',
     textShadowRadius: 0,
     textShadowOffset: { width: 0, height: 1 },
   },
-  dailyBadge: { position: 'absolute', left: 0, right: 0, top: 68, fontSize: 10, color: '#55ffaa', textAlign: 'center' },
+  dailyBadge: { position: 'absolute', left: 0, right: 0, top: 68, fontSize: 10, color: '#27d9ff', textAlign: 'center' },
   lives: { position: 'absolute', right: 15, top: 34, flexDirection: 'row-reverse', gap: 4 },
   // Skulls instead of hearts — a heart icon read as generic mobile-game
   // chrome, out of place against the rest of the grimdark 40k styling
@@ -258,10 +288,25 @@ const styles = StyleSheet.create({
   },
   heartLost: { color: 'rgba(255,255,255,0.15)' },
   oilWarning: { position: 'absolute', right: 12, top: 66, fontSize: 12, color: '#8888ff' },
+  rushControl: {
+    position: 'absolute',
+    left: 138,
+    bottom: 16,
+    width: 144,
+    height: 52,
+    borderWidth: 1,
+    backgroundColor: 'rgba(5,8,22,0.92)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  rushFill: { position: 'absolute', left: 0, top: 0, bottom: 0, opacity: 0.62 },
+  rushLabel: { zIndex: 1, fontSize: 11, fontWeight: 'bold', letterSpacing: 1.6, color: '#d4e6f1' },
+  rushHint: { zIndex: 1, marginTop: 3, fontSize: 8, letterSpacing: 1.4, color: 'rgba(212,230,241,0.75)' },
   powerUpBar: {
     position: 'absolute',
     left: 10,
-    bottom: 16,
+    bottom: 80,
     width: 210,
     height: 48,
     backgroundColor: 'rgba(0,0,0,0.65)',
@@ -292,5 +337,5 @@ const styles = StyleSheet.create({
   bossWarningOverlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', gap: 8 },
   bossWarningText: { fontSize: 28, fontWeight: 'bold', color: '#ff2222' },
   bossWarningSubtext: { fontSize: 16, color: '#ffaaaa' },
-  nearMiss: { position: 'absolute', left: 0, right: 0, bottom: 100, fontWeight: 'bold', color: '#ffff44', textAlign: 'center' },
+  nearMiss: { position: 'absolute', left: 0, right: 0, bottom: 142, fontWeight: 'bold', color: '#df4bff', textAlign: 'center' },
 });

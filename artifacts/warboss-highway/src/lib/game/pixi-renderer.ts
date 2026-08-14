@@ -19,6 +19,15 @@ const LANE_DASH_LEN = 18;
 const LANE_DASH_GAP = 14;
 const LANE_DASH_PERIOD = LANE_DASH_LEN + LANE_DASH_GAP;
 const EXPLOSION_FLASH_MS = 400;
+const NEON = {
+  midnight: 0x050816,
+  roadSheen: 0x294766,
+  cyan: 0x27d9ff,
+  magenta: 0xdf4bff,
+  amber: 0xffb347,
+  trafficRed: 0xff3d67,
+  headlight: 0xeaf7ff,
+};
 // A prior pass addressed "cars look tiny vs. the road" with a render-only
 // VISUAL_SCALE multiplier (visual size inflated past the actual collision
 // hitbox). Superseded (2026-08-03) by properly upsizing CAR_STATS/spawn
@@ -98,7 +107,12 @@ export class PixiRenderer implements GameRenderer {
   private app: Application;
   private textures: SpriteTextures;
   private worldContainer: Container;
+  private backdrop: Graphics;
   private road: TilingSprite;
+  private roadSheen: Graphics;
+  private weatherLayer: Graphics;
+  private feedbackLayer: Graphics;
+  private vehicleLightLayer: Graphics;
   private laneDividers: Graphics;
   private guardrailLeft: TilingSprite;
   private guardrailRight: TilingSprite;
@@ -143,6 +157,12 @@ export class PixiRenderer implements GameRenderer {
     this.worldContainer = new Container();
     this.app.stage.addChild(this.worldContainer);
 
+    // A deliberately dark, cool base makes the road materials and functional
+    // lights feel luminous without relying on a full-screen post-process.
+    this.backdrop = new Graphics();
+    this.backdrop.rect(0, 0, app.screen.width, app.screen.height).fill(NEON.midnight);
+    this.worldContainer.addChild(this.backdrop);
+
     this.road = new TilingSprite({
       texture: textures.roadTile,
       width: app.screen.width,
@@ -167,6 +187,12 @@ export class PixiRenderer implements GameRenderer {
     this.road.filters = [boostFilter(1.55, 0.08)];
     this.worldContainer.addChild(this.road);
 
+    // Animated wet-road sheen and edge-light pools are drawn with one stable
+    // Graphics node. Their geometry is rebuilt in sync(), not allocated as
+    // per-frame scene objects.
+    this.roadSheen = new Graphics();
+    this.worldContainer.addChild(this.roadSheen);
+
     // Lane markings — matches engine.ts's 4-lane math (`this.width / 4`).
     // Lanes 0-1 (oncoming) and 2-3 (same direction) are each dashed
     // internally (ordinary lane splits, matching the mobile Skia
@@ -183,7 +209,7 @@ export class PixiRenderer implements GameRenderer {
         this.laneDividers
           .moveTo(divX, y)
           .lineTo(divX, y + LANE_DASH_LEN)
-          .stroke({ width: 2, color: 0xffffff, alpha: 0.16 });
+          .stroke({ width: 2, color: NEON.cyan, alpha: 0.24 });
       }
     }
     const centerX = laneWidth * 2;
@@ -191,7 +217,7 @@ export class PixiRenderer implements GameRenderer {
       this.laneDividers
         .moveTo(centerX + offset, -LANE_DASH_PERIOD)
         .lineTo(centerX + offset, dashSpan)
-        .stroke({ width: 2.5, color: 0xffcd3c, alpha: 0.55 });
+          .stroke({ width: 2.5, color: NEON.amber, alpha: 0.72 });
     }
     this.worldContainer.addChild(this.laneDividers);
 
@@ -241,6 +267,8 @@ export class PixiRenderer implements GameRenderer {
     this.worldContainer.addChild(this.lampLayer);
 
     this.worldContainer.addChild(this.obstacleLayer);
+    this.vehicleLightLayer = new Graphics();
+    this.worldContainer.addChild(this.vehicleLightLayer);
     this.vehicleLayer.filters = [boostFilter(1.2, 0.12)];
     this.worldContainer.addChild(this.vehicleLayer);
     this.worldContainer.addChild(this.powerupLayer);
@@ -289,6 +317,14 @@ export class PixiRenderer implements GameRenderer {
     }
 
     this.worldContainer.addChild(this.particleLayer);
+
+    // Weather and player-event effects sit above the world but below the HUD.
+    // They use stable graphics instead of a large particle pool, keeping the
+    // visual upgrade inexpensive on browser GPU paths.
+    this.weatherLayer = new Graphics();
+    this.feedbackLayer = new Graphics();
+    this.worldContainer.addChild(this.weatherLayer);
+    this.worldContainer.addChild(this.feedbackLayer);
   }
 
   static async create(container: HTMLElement, width: number, height: number): Promise<PixiRenderer> {
@@ -371,6 +407,9 @@ export class PixiRenderer implements GameRenderer {
       : 1;
     // Bluish cast while slipping on an oil slick.
     this.playerSprite.tint = state.player.oilSlicked ? 0x99aaff : 0xffffff;
+    // A slight bank makes steering feel physical without altering the shared
+    // collision bounds. The Rush pulse adds a small, readable engine lean.
+    this.playerSprite.rotation = state.driveTilt * 0.14 + (state.rushTimer > 0 ? state.driveTilt * 0.035 : 0);
 
     // Exhaust plume trails behind the player (down-screen, since the sprite
     // faces up), intensity/length scaled by the current speed multiplier.
@@ -393,7 +432,7 @@ export class PixiRenderer implements GameRenderer {
     }
 
     if (this.motionBlur) {
-      this.motionBlur.velocity = { x: 0, y: state.speedMultiplier * 4 };
+      this.motionBlur.velocity = { x: 0, y: state.speedMultiplier * (state.rushTimer > 0 ? 6 : 4) };
     }
 
     this.gen++;
@@ -439,6 +478,80 @@ export class PixiRenderer implements GameRenderer {
         s.alpha = Math.max(0, particle.life / particle.maxLife);
       }
     );
+
+    this.drawNeonRainwayLayers(state);
+  }
+
+  // Stable Graphics layers keep the new world treatment inexpensive: their
+  // draw commands update in place, while sprite pools still own entities.
+  private drawNeonRainwayLayers(state: GameState) {
+    const width = this.app.screen.width;
+    const height = this.app.screen.height;
+
+    this.roadSheen.clear();
+    for (let i = 0; i < 7; i++) {
+      const y = ((i * 137 + state.roadOffset * 0.42) % (height + 180)) - 90;
+      const alpha = 0.025 + (i % 3) * 0.012;
+      this.roadSheen.roundRect(30, y, width - 60, 26, 13).fill({ color: NEON.roadSheen, alpha });
+    }
+    // Electric road-edge pulses communicate velocity even with reduced scene
+    // complexity, and never enter the vehicle collision space.
+    const edgeAlpha = 0.16 + Math.min(0.22, state.speedMultiplier * 0.06);
+    for (let i = 0; i < 6; i++) {
+      const y = ((i * 180 + state.roadOffset * 1.25) % (height + 140)) - 70;
+      this.roadSheen.roundRect(12, y, 3, 72, 2).fill({ color: NEON.cyan, alpha: edgeAlpha });
+      this.roadSheen.roundRect(width - 15, y + 42, 3, 72, 2).fill({ color: NEON.cyan, alpha: edgeAlpha * 0.82 });
+    }
+
+    this.vehicleLightLayer.clear();
+    for (const vehicle of state.vehicles) {
+      if (vehicle.type === 'BOSS') continue;
+      const isOncoming = vehicle.direction === 'OPPOSITE';
+      const lightColor = isOncoming ? NEON.headlight : NEON.trafficRed;
+      const lightY = vehicle.y + vehicle.height * 0.34;
+      const spread = Math.max(7, vehicle.width * 0.24);
+      const radius = Math.max(3, vehicle.width * 0.12);
+      this.vehicleLightLayer.circle(vehicle.x - spread, lightY, radius).fill({ color: lightColor, alpha: isOncoming ? 0.55 : 0.5 });
+      this.vehicleLightLayer.circle(vehicle.x + spread, lightY, radius).fill({ color: lightColor, alpha: isOncoming ? 0.55 : 0.5 });
+      if (isOncoming) {
+        this.vehicleLightLayer.roundRect(vehicle.x - vehicle.width * 0.18, lightY + radius, vehicle.width * 0.36, vehicle.height * 0.42, 6)
+          .fill({ color: lightColor, alpha: 0.045 });
+      }
+    }
+
+    this.weatherLayer.clear();
+    // `low` is the default for prefers-reduced-motion. It retains a handful
+    // of directional rain cues while avoiding the dense high-speed streak field.
+    const streakCount = this.quality === 'low' ? 8 : state.rushTimer > 0 ? 34 : 22;
+    for (let i = 0; i < streakCount; i++) {
+      const x = 8 + ((i * 71) % Math.max(1, width - 16));
+      const y = ((i * 113 + state.roadOffset * (1.25 + (i % 4) * 0.13)) % (height + 110)) - 55;
+      const length = 10 + (i % 5) * 5 + state.speedMultiplier * 3;
+      this.weatherLayer.moveTo(x, y).lineTo(x - 2, y + length).stroke({
+        width: i % 3 === 0 ? 1.1 : 0.65,
+        color: 0xb9e9ff,
+        alpha: this.quality === 'low' ? 0.08 : state.rushTimer > 0 ? 0.2 : 0.12,
+      });
+    }
+
+    this.feedbackLayer.clear();
+    const player = state.player;
+    if (state.nearMissPulse > 0) {
+      const progress = state.nearMissPulse / 300;
+      const radius = Math.max(player.width, player.height) * (0.72 + (1 - progress) * 0.7);
+      this.feedbackLayer.circle(player.x, player.y, radius).stroke({ width: 2.5 * progress, color: NEON.magenta, alpha: progress * 0.75 });
+    }
+    if (state.rushTimer > 0) {
+      const pulse = 0.75 + Math.sin(performance.now() / 70) * 0.18;
+      const radius = Math.max(player.width, player.height) * 1.2 * pulse;
+      this.feedbackLayer.circle(player.x, player.y + player.height * 0.24, radius).fill({ color: NEON.cyan, alpha: 0.10 });
+      this.feedbackLayer.circle(player.x, player.y, radius * 0.9).stroke({ width: 2, color: NEON.magenta, alpha: 0.6 });
+      for (let i = -2; i <= 2; i++) {
+        const x = player.x + i * player.width * 0.34;
+        this.feedbackLayer.moveTo(x, player.y + player.height * 0.42).lineTo(x - state.driveTilt * 12, player.y + player.height * (1.2 + Math.abs(i) * 0.14))
+          .stroke({ width: 2.2, color: i % 2 === 0 ? NEON.cyan : NEON.magenta, alpha: 0.55 });
+      }
+    }
   }
 
   destroy() {

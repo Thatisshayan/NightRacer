@@ -41,6 +41,9 @@ export function GameHudOverlay({ engine }: { engine: GameEngine }) {
   const levelUpTextRef = useRef<HTMLDivElement>(null);
   const bossWarningRef = useRef<HTMLDivElement>(null);
   const nearMissRef = useRef<HTMLDivElement>(null);
+  const rushFillRef = useRef<HTMLDivElement>(null);
+  const rushButtonRef = useRef<HTMLButtonElement>(null);
+  const rushLabelRef = useRef<HTMLSpanElement>(null);
 
   useEffect(() => {
     let rafId = 0;
@@ -155,6 +158,23 @@ export function GameHudOverlay({ engine }: { engine: GameEngine }) {
         }
       }
 
+      const rushReady = state.rushCharge >= 100 && state.rushTimer <= 0;
+      if (rushFillRef.current) {
+        rushFillRef.current.style.width = `${state.rushTimer > 0 ? 100 : state.rushCharge}%`;
+        rushFillRef.current.style.background = state.rushTimer > 0
+          ? 'linear-gradient(90deg, #27d9ff, #df4bff)'
+          : 'linear-gradient(90deg, #183148, #27d9ff)';
+      }
+      if (rushButtonRef.current) {
+        rushButtonRef.current.disabled = !rushReady;
+        rushButtonRef.current.style.opacity = rushReady || state.rushTimer > 0 ? '1' : '0.68';
+        rushButtonRef.current.style.borderColor = state.rushTimer > 0 ? '#df4bff' : rushReady ? '#27d9ff' : 'rgba(130,149,170,0.55)';
+        rushButtonRef.current.style.boxShadow = rushReady
+          ? '0 0 18px rgba(39,217,255,0.42)'
+          : state.rushTimer > 0 ? '0 0 18px rgba(223,75,255,0.42)' : 'none';
+      }
+      if (rushLabelRef.current) rushLabelRef.current.textContent = state.rushTimer > 0 ? 'RUSH ACTIVE' : rushReady ? 'RUSH — TAP' : `RUSH ${Math.floor(state.rushCharge)}%`;
+
       rafId = requestAnimationFrame(tick);
     };
 
@@ -189,6 +209,20 @@ export function GameHudOverlay({ engine }: { engine: GameEngine }) {
           {'⚠ SLIPPING'}
         </div>
       </div>
+
+      {/* Earned Rush control. It is deliberately a physical tap target on
+          touch devices and keyboard players can activate it with Space. */}
+      <button
+        ref={rushButtonRef}
+        type="button"
+        onClick={() => engine.triggerRush()}
+        aria-label="Activate Rush when charged"
+        className="pointer-events-auto absolute left-1/2 bottom-[18px] -translate-x-1/2 w-[154px] h-[52px] overflow-hidden border bg-[#050816]/90 text-white transition-[opacity,box-shadow,border-color] duration-150 active:scale-[0.96] motion-reduce:active:scale-100"
+      >
+        <div ref={rushFillRef} className="absolute inset-y-0 left-0 w-0 opacity-70 transition-[width] duration-100" />
+        <span ref={rushLabelRef} className="relative z-10 text-[11px] font-bold tracking-[0.16em]">RUSH 0%</span>
+        <span className="relative z-10 block mt-0.5 text-[8px] tracking-[0.2em] text-[#d4e6f1]/75">CLOSE PASSES CHARGE</span>
+      </button>
 
       {/* Power-up bar (bottom left) */}
       <div ref={powerUpBarRef} className="absolute left-[10px] bottom-[16px] w-[210px] h-[48px] bg-black/65 rounded-sm p-2" style={{ display: 'none' }}>
@@ -235,7 +269,7 @@ export function GameHudOverlay({ engine }: { engine: GameEngine }) {
       </div>
 
       {/* Near-miss combo text */}
-      <div ref={nearMissRef} className="absolute left-1/2 bottom-[100px] -translate-x-1/2 font-bold text-[#ffff44] font-['Russo_One',sans-serif]" style={{ display: 'none', textShadow: '0 0 12px #ff8800' }} />
+      <div ref={nearMissRef} className="absolute left-1/2 bottom-[92px] -translate-x-1/2 font-bold text-[#df4bff] font-['Russo_One',sans-serif]" style={{ display: 'none', textShadow: '0 0 12px #27d9ff' }} />
     </div>
   );
 }

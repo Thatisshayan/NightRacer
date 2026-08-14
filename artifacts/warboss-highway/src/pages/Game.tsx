@@ -383,7 +383,7 @@ export default function Game() {
   };
 
   return (
-    <div className="relative w-full h-[100dvh] bg-black overflow-hidden flex items-center justify-center">
+    <div className="relative w-full h-[100dvh] bg-[#050816] overflow-hidden flex items-center justify-center">
       {/* Landscape warning */}
       {isLandscape && (
         <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/95 text-white text-center p-8">
@@ -397,7 +397,7 @@ export default function Game() {
           instrument-viewport border, matching the grimdark accent used
           elsewhere (HUD skulls, buttons), on top of the pre-existing glow
           shadow. */}
-      <div className="relative w-full max-w-[420px] h-full shadow-2xl shadow-primary/20 border-2 border-primary/55">
+      <div className="relative w-full max-w-[420px] h-full shadow-[0_0_52px_rgba(39,217,255,0.18)] border border-[#27d9ff]/55 bg-[#050816]">
         {/* Game canvas — always mounted (and always visible) so the engine can
             attach, and so the crash frame stays painted underneath the
             game-over overlay as it fades in instead of hard-cutting to black. */}
@@ -450,34 +450,34 @@ export default function Game() {
             initial="hidden"
             animate="visible"
             exit="exit"
-            className="absolute inset-0 flex flex-col items-center justify-between bg-black/80 z-10 py-10 px-5 overflow-y-auto">
-            {/* Skyline parallax backdrop — these two assets shipped in the
-                sprite pack fully rendered but were never referenced by any
-                code (mobile picked them up in a prior pass; this ports the
-                same treatment to web). layer1 is the darker, more-distant
-                ruins silhouette; layer2 (junkyard/fire barrels) sits lower/
-                closer, slightly brighter, for a cheap sense of depth
-                without real parallax scrolling. Pinned bottom, painted
-                before the rest of the title content so it sits behind it
-                in DOM stacking order despite the parent's own bg-black/80. */}
+            className="absolute inset-0 flex flex-col items-center justify-between bg-[#050816]/[0.80] z-10 py-8 px-5 overflow-y-auto">
+            {/* Neon Rainway title field: restrained ambient light, a distant
+                highway beam, and the existing city layers build depth without
+                turning the menu into a non-interactive full-screen poster. */}
+            <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(ellipse_at_50%_105%,rgba(39,217,255,0.25),transparent_43%),radial-gradient(ellipse_at_92%_18%,rgba(223,75,255,0.16),transparent_30%)]" />
+            <div className="absolute left-1/2 bottom-[-18%] h-[72%] w-[52%] -translate-x-1/2 skew-x-[-6deg] border-x border-[#27d9ff]/25 bg-gradient-to-t from-[#11192a]/90 via-[#101a2a]/30 to-transparent pointer-events-none" />
+            {/* Skyline parallax backdrop remains low-contrast scenery, never a competing primary action. */}
             <img
               src={`${import.meta.env.BASE_URL}sprites-premium/skyline_layer1.png`}
               alt=""
-              className="absolute left-0 right-0 bottom-0 w-full h-[220px] object-cover opacity-55 pointer-events-none"
+              className="absolute left-0 right-0 bottom-0 w-full h-[230px] object-cover opacity-38 mix-blend-screen pointer-events-none"
             />
             <img
               src={`${import.meta.env.BASE_URL}sprites-premium/skyline_layer2.png`}
               alt=""
-              className="absolute left-0 right-0 bottom-0 w-full h-[150px] object-cover opacity-80 pointer-events-none"
+              className="absolute left-0 right-0 bottom-0 w-full h-[160px] object-cover opacity-58 pointer-events-none"
             />
-            {/* Logo */}
-            <motion.div variants={titleItemVariants} className="text-center mb-2">
-              <h1 className="text-5xl font-black text-primary drop-shadow-[0_0_10px_rgba(220,38,38,0.8)] tracking-tighter leading-none mb-1">
+            <div className="relative z-10 flex w-full flex-col items-center justify-between">
+            {/* Logo / mission framing */}
+            <motion.div variants={titleItemVariants} className="relative text-center mb-1">
+              <p className="mb-2 text-[9px] font-mono font-bold tracking-[0.34em] text-[#27d9ff]">NEON RAINWAY // SECTOR 09</p>
+              <h1 className="text-5xl font-black text-[#d4e6f1] drop-shadow-[0_0_18px_rgba(39,217,255,0.44)] tracking-tighter leading-none mb-1">
                 WARBOSS
               </h1>
-              <h2 className="text-4xl font-black text-white tracking-widest">HIGHWAY</h2>
-              <p className="text-muted-foreground font-mono text-xs mt-2">
-                WASD / Arrows to drive freely. Dodge oncoming traffic.
+              <h2 className="text-4xl font-black tracking-[0.17em] text-transparent bg-clip-text bg-gradient-to-r from-[#27d9ff] via-[#d4e6f1] to-[#df4bff]">HIGHWAY</h2>
+              <div className="mx-auto mt-3 h-px w-28 bg-gradient-to-r from-transparent via-[#27d9ff] to-transparent" />
+              <p className="text-[#8295aa] font-mono text-[11px] tracking-wide mt-3">
+                SURVIVE THE STORM. CHARGE RUSH THROUGH CLOSE PASSES.
               </p>
             </motion.div>
 
@@ -515,7 +515,7 @@ export default function Game() {
                 {(() => {
                   const stats = CAR_STATS[selectedCar];
                   return (
-                    <div className="flex-1 flex flex-col items-center p-3 border-2 border-primary bg-primary/10 shadow-[0_0_18px_rgba(220,38,38,0.35)]">
+                    <div className="flex-1 flex flex-col items-center p-3 border border-[#27d9ff]/70 bg-[#0d1828]/75 shadow-[0_0_22px_rgba(39,217,255,0.18)]">
                       <CarPreview carType={selectedCar} selected={true} />
                       <span className="font-black text-sm tracking-widest mt-2 text-center leading-tight text-white">
                         {stats.label}
@@ -556,7 +556,7 @@ export default function Game() {
                   >
                     <span
                       className={`block w-2 h-2 transition-all ${
-                        selectedCar === car ? 'bg-primary scale-125' : 'bg-muted-foreground/40 hover:bg-muted-foreground/70'
+                        selectedCar === car ? 'bg-[#27d9ff] scale-125 shadow-[0_0_8px_rgba(39,217,255,0.9)]' : 'bg-[#8295aa]/45 hover:bg-[#d4e6f1]/75'
                       }`}
                     />
                   </button>
@@ -576,14 +576,14 @@ export default function Game() {
               <button
                 onClick={() => setIsDailyChallenge((v) => !v)}
                 className={`relative w-12 h-6 rounded-none border-2 transition-all active:scale-[0.94] motion-reduce:active:scale-100 ${
-                  isDailyChallenge ? 'border-green-500 bg-green-900/40' : 'border-border bg-card/30'
+                  isDailyChallenge ? 'border-[#27d9ff] bg-[#27d9ff]/15' : 'border-[#8295aa]/45 bg-[#0d1828]/60'
                 }`}
               >
                 <span className={`absolute top-0.5 w-4 h-4 bg-white transition-all ${isDailyChallenge ? 'left-6' : 'left-0.5'}`} />
               </button>
               <span className="font-mono text-xs text-muted-foreground">
                 {isDailyChallenge ? (
-                  <span className="text-green-400 font-bold">◆ DAILY CHALLENGE</span>
+                  <span className="text-[#27d9ff] font-bold">◆ DAILY CHALLENGE</span>
                 ) : (
                   'DAILY CHALLENGE'
                 )}
@@ -591,9 +591,9 @@ export default function Game() {
             </motion.div>
 
             {isDailyChallenge && (
-              <motion.div variants={titleItemVariants} className="w-full border border-green-500/40 bg-green-900/20 p-3 text-center">
-                <p className="text-green-400 font-black text-xs tracking-widest mb-1">{dailyModifier.name}</p>
-                <p className="text-green-200/80 text-[10px] font-mono leading-tight">{dailyModifier.description}</p>
+              <motion.div variants={titleItemVariants} className="w-full border border-[#27d9ff]/40 bg-[#0d1828]/75 p-3 text-center">
+                <p className="text-[#27d9ff] font-black text-xs tracking-widest mb-1">{dailyModifier.name}</p>
+                <p className="text-[#d4e6f1]/75 text-[10px] font-mono leading-tight">{dailyModifier.description}</p>
               </motion.div>
             )}
 
@@ -658,7 +658,7 @@ export default function Game() {
             <Button
               asChild
               size="lg"
-              className="w-full h-16 text-2xl font-black tracking-widest rounded-none border-2 border-primary bg-primary hover:bg-transparent hover:text-primary transition-all uppercase mt-2"
+              className="w-full h-16 text-2xl font-black tracking-[0.14em] rounded-none border border-[#27d9ff] bg-[#27d9ff] text-[#050816] hover:bg-transparent hover:text-[#27d9ff] transition-all uppercase mt-2 shadow-[0_0_24px_rgba(39,217,255,0.25)]"
             >
               {/* framer-motion owns this element's `transform` (the y-offset
                   stagger-in variant), so press feedback uses whileTap instead
@@ -674,6 +674,7 @@ export default function Game() {
                 START ENGINE
               </motion.button>
             </Button>
+            </div>
           </motion.div>
         )}
 
@@ -743,7 +744,7 @@ export default function Game() {
               <div className="w-full max-w-xs space-y-3">
                 <Button
                   onClick={togglePause}
-                  className="w-full h-14 text-lg font-black tracking-widest bg-primary hover:bg-primary/80 text-primary-foreground rounded-none border-2 border-primary"
+                  className="w-full h-14 text-lg font-black tracking-widest bg-[#27d9ff] hover:bg-[#27d9ff]/80 text-[#050816] rounded-none border border-[#27d9ff]"
                 >
                   <Play className="w-5 h-5 mr-2" /> RESUME
                 </Button>
@@ -791,12 +792,12 @@ export default function Game() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
               transition={{ duration: prefersReducedMotion ? 0 : 0.25, ease: ENTER_EASE }}
-              className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-black/92 p-6"
+              className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-[#050816]/95 p-6"
             >
               <div className="w-full max-w-sm space-y-5">
                 <div className="text-center">
-                  <h2 className="text-3xl font-black text-primary tracking-tighter mb-1">WARBOSS ACADEMY</h2>
-                  <p className="text-muted-foreground font-mono text-xs">BASIC SURVIVAL TRAINING</p>
+                  <h2 className="text-3xl font-black text-[#27d9ff] tracking-tighter mb-1">NIGHT DRIVE BRIEF</h2>
+                  <p className="text-[#8295aa] font-mono text-xs">SURVIVAL TRAINING // SECTOR 09</p>
                 </div>
                 <div className="space-y-4">
                   <div className="flex items-start gap-3 border border-border p-3 bg-card/50">
@@ -823,7 +824,7 @@ export default function Game() {
                 </div>
                 <Button
                   onClick={() => { setShowTutorial(false); Settings.setTutorialSeen(true); }}
-                  className="w-full h-14 text-lg font-black tracking-widest bg-primary hover:bg-primary/80 text-primary-foreground rounded-none border-2 border-primary"
+                  className="w-full h-14 text-lg font-black tracking-widest bg-[#27d9ff] hover:bg-[#27d9ff]/80 text-[#050816] rounded-none border border-[#27d9ff]"
                 >
                   GOT IT
                 </Button>
