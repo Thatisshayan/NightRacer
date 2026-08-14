@@ -267,9 +267,11 @@ export default function Game() {
 
   // Show tutorial on first title visit
   useEffect(() => {
-    if (screen === 'title' && !Settings.getTutorialSeen()) {
-      setShowTutorial(true);
-    }
+    if (screen !== 'title' || Settings.getTutorialSeen()) return;
+    // Let the title screen render and settle first — opening the modal on the
+    // same frame hides the game's identity behind a wall of instructions.
+    const timer = window.setTimeout(() => setShowTutorial(true), 1100);
+    return () => window.clearTimeout(timer);
   }, [screen]);
 
   const togglePause = useCallback(() => {

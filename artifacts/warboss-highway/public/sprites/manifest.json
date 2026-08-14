@@ -1,0 +1,210 @@
+{
+  "generatedFrom": "public/sprites-premium",
+  "sprites": {
+    "asphalt_tile.png": {
+      "width": 512,
+      "height": 512,
+      "bytes": 503217
+    },
+    "boss.png": {
+      "width": 512,
+      "height": 512,
+      "bytes": 328507
+    },
+    "boxtruck_v1.png": {
+      "width": 256,
+      "height": 382,
+      "bytes": 135230
+    },
+    "boxtruck_v2.png": {
+      "width": 256,
+      "height": 382,
+      "bytes": 147525
+    },
+    "boxtruck_v3.png": {
+      "width": 256,
+      "height": 382,
+      "bytes": 133642
+    },
+    "bus_v1.png": {
+      "width": 256,
+      "height": 382,
+      "bytes": 116483
+    },
+    "bus_v2.png": {
+      "width": 256,
+      "height": 382,
+      "bytes": 138118
+    },
+    "bus_v3.png": {
+      "width": 256,
+      "height": 382,
+      "bytes": 128254
+    },
+    "cop_v1.png": {
+      "width": 256,
+      "height": 382,
+      "bytes": 143933
+    },
+    "cop_v2.png": {
+      "width": 256,
+      "height": 382,
+      "bytes": 144594
+    },
+    "cop_v3.png": {
+      "width": 256,
+      "height": 382,
+      "bytes": 144444
+    },
+    "deathsled.png": {
+      "width": 256,
+      "height": 382,
+      "bytes": 138893
+    },
+    "debris.png": {
+      "width": 256,
+      "height": 256,
+      "bytes": 73298
+    },
+    "explosion.png": {
+      "width": 256,
+      "height": 256,
+      "bytes": 81610
+    },
+    "extra_life.png": {
+      "width": 256,
+      "height": 256,
+      "bytes": 145930
+    },
+    "guardrail_segment.png": {
+      "width": 256,
+      "height": 382,
+      "bytes": 64272
+    },
+    "lamp_post.png": {
+      "width": 256,
+      "height": 382,
+      "bytes": 73878
+    },
+    "oil_slick.png": {
+      "width": 256,
+      "height": 256,
+      "bytes": 132268
+    },
+    "phantom.png": {
+      "width": 256,
+      "height": 382,
+      "bytes": 153787
+    },
+    "pickup_v1.png": {
+      "width": 256,
+      "height": 382,
+      "bytes": 140144
+    },
+    "pickup_v2.png": {
+      "width": 256,
+      "height": 382,
+      "bytes": 141343
+    },
+    "pickup_v3.png": {
+      "width": 256,
+      "height": 382,
+      "bytes": 142676
+    },
+    "rattletrap.png": {
+      "width": 256,
+      "height": 382,
+      "bytes": 160983
+    },
+    "score_blast.png": {
+      "width": 256,
+      "height": 256,
+      "bytes": 65851
+    },
+    "scrapqueen.png": {
+      "width": 256,
+      "height": 382,
+      "bytes": 147489
+    },
+    "sedan_v1.png": {
+      "width": 256,
+      "height": 382,
+      "bytes": 133064
+    },
+    "sedan_v2.png": {
+      "width": 256,
+      "height": 382,
+      "bytes": 116816
+    },
+    "sedan_v3.png": {
+      "width": 256,
+      "height": 382,
+      "bytes": 123366
+    },
+    "shield.png": {
+      "width": 256,
+      "height": 256,
+      "bytes": 173452
+    },
+    "skyline_layer1.png": {
+      "width": 1600,
+      "height": 678,
+      "bytes": 916127
+    },
+    "skyline_layer2.png": {
+      "width": 1600,
+      "height": 678,
+      "bytes": 340771
+    },
+    "slowmo.png": {
+      "width": 256,
+      "height": 256,
+      "bytes": 174061
+    },
+    "smoke.png": {
+      "width": 192,
+      "height": 192,
+      "bytes": 45911
+    },
+    "spark.png": {
+      "width": 128,
+      "height": 128,
+      "bytes": 27406
+    },
+    "sports_v1.png": {
+      "width": 256,
+      "height": 382,
+      "bytes": 151644
+    },
+    "sports_v2.png": {
+      "width": 256,
+      "height": 382,
+      "bytes": 133085
+    },
+    "sports_v3.png": {
+      "width": 256,
+      "height": 382,
+      "bytes": 132074
+    },
+    "tank_v1.png": {
+      "width": 256,
+      "height": 382,
+      "bytes": 148601
+    },
+    "tank_v2.png": {
+      "width": 256,
+      "height": 382,
+      "bytes": 154185
+    },
+    "tank_v3.png": {
+      "width": 256,
+      "height": 382,
+      "bytes": 172013
+    },
+    "war_runner.png": {
+      "width": 256,
+      "height": 382,
+      "bytes": 136545
+    }
+  }
+}
