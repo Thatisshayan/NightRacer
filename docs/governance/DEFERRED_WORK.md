@@ -249,3 +249,17 @@ Rule 12 / Rule 11. This register survives the session. Future agents resume from
   These are engine + camera changes and are intentionally scoped to a separate PR so this one
   stays reviewable.
 
+- [2026-08-14] Native Skia renderer is still orthographic — **status: deferred.** The pseudo-3D
+  ground-plane camera (`artifacts/warboss-highway/src/lib/game/perspective.ts`) is implemented in
+  the web Pixi renderer only. The traffic-rhythm and relative-motion work lives in
+  `lib/game-core`, so the mobile build already gets authored patterns and receding same-direction
+  traffic — but it still draws them top-down, so it does not get the approach/looming cue. Porting
+  needs the equivalent projection in `GameCanvas.tsx`'s Skia draw path and is scoped to its own PR.
+- [2026-08-14] Dark-bodied vehicle art reads low-contrast against the road — **status: deferred,
+  needs an art decision.** Measured on an in-play capture: a light/silver car reads clearly against
+  the projected road, but the rust and olive vehicle sprites are dark enough that body fill alone
+  gives very little separation. Mitigated in the renderer with a soft elliptical silhouette halo,
+  a contact shadow, and direction lamps, which is what actually makes them visible. A real fix is
+  a lighting/value pass on those source sprites rather than more renderer compensation. Note: an
+  earlier attempt used a rounded-rect halo, which read as a card behind each car — the exact
+  "everything is in a box" look the pass exists to remove. Keep silhouette aids soft-edged.

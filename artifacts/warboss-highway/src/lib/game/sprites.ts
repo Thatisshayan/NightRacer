@@ -19,6 +19,12 @@ export interface SpriteTextures {
   debris: Texture;
   guardrail: Texture;
   lampPost: Texture;
+  // Parallax city backdrop above the horizon. Shipped with the pack but
+  // previously only used as DOM <img> decoration on the menu — the gameplay
+  // renderer had no sky band to put them in until the pseudo-3D camera added
+  // one. layer1 is the distant/faint band, layer2 the nearer/brighter one.
+  skylineFar: Texture;
+  skylineNear: Texture;
   powerups: Record<PowerUpType, Texture>;
   // Hand-drawn particle art — spark.png (crash/armor-save burst particles,
   // white/neutral so it tints per-use), smoke.png (exhaust plume), and
@@ -101,6 +107,8 @@ export async function loadSpriteTextures(
     assetUrl(base, 'debris.png'),
     assetUrl(base, 'guardrail_segment.png'),
     assetUrl(base, 'lamp_post.png'),
+    assetUrl(base, 'skyline_layer1.png'),
+    assetUrl(base, 'skyline_layer2.png'),
     assetUrl(base, 'spark.png'),
     assetUrl(base, 'smoke.png'),
     assetUrl(base, 'explosion.png'),
@@ -176,6 +184,8 @@ export async function loadSpriteTextures(
     debris: get('debris.png'),
     guardrail: get('guardrail_segment.png'),
     lampPost: get('lamp_post.png'),
+    skylineFar: get('skyline_layer1.png'),
+    skylineNear: get('skyline_layer2.png'),
     spark: get('spark.png'),
     smoke: get('smoke.png'),
     explosion: get('explosion.png'),
@@ -260,9 +270,21 @@ export function generatePlaceholderTextures(renderer: Renderer): SpriteTextures 
   const softGlow = renderer.generateTexture(glowG);
   glowG.destroy();
 
+  // Flat silhouette band so the pseudo-3D sky layer still has something to
+  // parallax against when the real pack is unavailable.
+  const skylineG = new Graphics();
+  for (let i = 0; i < 16; i++) {
+    const h = 18 + ((i * 37) % 46);
+    skylineG.rect(i * 20, 80 - h, 16, h).fill(0x11192a);
+  }
+  const skyline = renderer.generateTexture(skylineG);
+  skylineG.destroy();
+
   return {
     playerCars,
     roadTile,
+    skylineFar: skyline,
+    skylineNear: skyline,
     enemyVehicles,
     bossVehicle: enemySolid,
     oilSlick,
