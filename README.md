@@ -3,14 +3,12 @@
 > ⚠️ Naming note: this repo folder is `NightRacer`, but the product is **Warboss Highway**.
 > Keep both names mapped in docs and issues.
 
-A mobile-first, browser-based **top-down endless car-dodge game** with a grim-dark Warhammer
-40k / GTA-2 pixel aesthetic. Steer a battle-scarred vehicle through relentless oncoming
-traffic, collect four power-ups, hear AI-generated music + SFX, and compete on a global
-high-score leaderboard backed by a persistent full-stack backend.
+A mobile-first **top-down endless arcade racer** with a neon-noir **Rainway** visual identity. Steer through oncoming traffic, collect four power-ups, charge a deterministic Rush burst through close passes, and compete on a global high-score leaderboard backed by a persistent full-stack backend. The web app uses Pixi.js; the native iOS/Android app uses React Native Skia; both consume the same simulation.
 
 ## Stack
 - **Monorepo**: pnpm workspaces, Node.js 24, TypeScript 5.9
-- **Frontend**: React + Vite (TypeScript), HTML5 Canvas game engine, Wouter routing, Tailwind v4
+- **Frontend**: React + Vite (TypeScript), Pixi.js scene renderer, Wouter routing, Tailwind v4
+- **Native app**: Expo + React Native + React Native Skia, sharing `lib/game-core` with the web renderer
 - **State/Data**: TanStack React Query + Orval-generated hooks
 - **Backend**: Express 5 (Node.js)
 - **DB**: PostgreSQL + Drizzle ORM
@@ -53,6 +51,8 @@ platform to `supportedArchitectures` and add a matching CI smoke job first.
 ## Design and repository governance
 - [`docs/NEON_RAINWAY_DESIGN.md`](docs/NEON_RAINWAY_DESIGN.md) — the current visual-system, Rush-mechanic, performance, and cross-platform implementation guide.
 - [`ASSETS.md`](ASSETS.md) — functional palette, visual target, and asset usage rules for the Neon Rainway overhaul.
+- [`WARBOSS_HIGHWAY_HANDOFF.md`](WARBOSS_HIGHWAY_HANDOFF.md) — cross-platform architecture, local-operation workflow, release limitations, and key-file map.
+- [`audits/2026-08-14_Manus_NeonArcadeBaseline_Audit.md`](audits/2026-08-14_Manus_NeonArcadeBaseline_Audit.md) — baseline, visual QA captures, and verification evidence.
 - This repo is governed by `REPO_RULES.md` (branch-only, main protected, no secret commits) and `REPO_DIRECTIVE.md` (goal layer). CI gate: `bash scripts/verify.sh`. Never push to `main`; open a PR from a feature/agent branch and require Shayan approval.
 
 ## Gotchas

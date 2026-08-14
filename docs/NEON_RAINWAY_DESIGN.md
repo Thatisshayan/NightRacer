@@ -40,3 +40,17 @@ The upgrade retains existing reduced-motion handling for screen shake and does n
 ## Verification responsibilities
 
 The final release check must run the full repository verification path and visually inspect a normal-speed, high-speed, near-miss/Rush, pause, game-over, and portrait title state. The baseline audit and captures are in [`audits/2026-08-14_Manus_NeonArcadeBaseline_Audit.md`](../audits/2026-08-14_Manus_NeonArcadeBaseline_Audit.md).
+
+## Quality-gate maintenance
+
+The final review branch keeps the high-frequency render path explicit while separating its responsibilities into small helpers. The web HUD frame loop delegates to focused state-to-DOM synchronizers; the Pixi renderer delegates world transform, crash flash, road scroll, player effects, entity pools, and individual Neon Rainway draw layers. This preserves the existing low-allocation behavior while making each visual concern independently reviewable.
+
+The repository verification script uses explicit `if` statements for build and test outcomes. This avoids shell `A && B || C` control flow, which static analysis correctly flags as error-prone when a successful first command can still lead to an unintended fallback. The root release build continues to typecheck the native app while omitting its deployment-domain-bound static Expo export from environment-independent CI builds.
+
+| Verification surface | Final evidence |
+| --- | --- |
+| Shared simulation | `pnpm --filter @workspace/game-core run test` passes 18 tests. |
+| Cross-platform typing | `pnpm run typecheck` covers web, native, API, libraries, and scripts. |
+| Release gate | `bash scripts/verify.sh` passes secret scan, documentation freshness, build, tests, deployment dry-run policy, and directive lint. |
+| External analysis | Codacy ShellCheck finding repaired; CodeFactor refactor re-evaluation is tracked in PR #19. |
+| Visual QA | Portrait captures validate the Canvas fallback; real-WebGL and physical-device review remains the intentional final release check. |
