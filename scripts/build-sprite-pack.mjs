@@ -13,7 +13,7 @@
  * perspective camera to scale near-camera sprites up), which both removes the
  * aliasing and cuts the shipped payload by ~98%.
  *
- * Source of truth stays untouched at public/sprites-premium/. Output is written
+ * Source of truth stays untouched at assets-src/sprites-premium/ (outside public/, not shipped). Output is written
  * to public/sprites/ and is what the game loads at runtime.
  *
  * Usage: node scripts/build-sprite-pack.mjs [--check]
@@ -26,7 +26,7 @@ import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const SRC = path.join(ROOT, 'artifacts/warboss-highway/public/sprites-premium');
+const SRC = path.join(ROOT, 'artifacts/warboss-highway/assets-src/sprites-premium');
 const OUT = path.join(ROOT, 'artifacts/warboss-highway/public/sprites');
 
 /**
@@ -103,7 +103,7 @@ async function main() {
 
   await writeFile(
     path.join(OUT, 'manifest.json'),
-    `${JSON.stringify({ generatedFrom: 'public/sprites-premium', sprites: manifest }, null, 2)}\n`
+    `${JSON.stringify({ generatedFrom: 'assets-src/sprites-premium', sprites: manifest }, null, 2)}\n`
   );
 
   const mb = (b) => (b / 1024 / 1024).toFixed(1);

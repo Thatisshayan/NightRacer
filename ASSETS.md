@@ -35,7 +35,7 @@ The existing `sprites-premium` set will remain the baseline content library. The
 
 ### Runtime sprite pack (added 2026-08-14)
 
-`public/sprites-premium/` holds the **authoring masters** (vehicles at 1373x2048, boss at
+`artifacts/warboss-highway/assets-src/sprites-premium/` holds the **authoring masters** (vehicles at 1373x2048, boss at
 2048x2048; 125.7 MB across 41 PNGs). The game renders vehicles at 48-80 px wide, so shipping
 the masters meant a ~1:26 minification with no mipmaps: soft, aliased, low-contrast sprites and
 a huge first-load payload. That is why the high-quality art "did not look like anything" in play.
@@ -49,9 +49,10 @@ a huge first-load payload. That is why the high-quality art "did not look like a
 - Textures enable `autoGenerateMipmaps` + linear filtering after load.
 - Regenerate after changing any master: `node scripts/build-sprite-pack.mjs`
 - `SPRITE_PACK_VERSION` must be bumped when the pack output changes (cache-busting).
-- The masters stay in `public/` for now, so they are still deployed. Moving them out of the
-  served directory is the remaining payload win and is recorded in
-  `docs/governance/DEFERRED_WORK.md` (needs Shayan's approval per REPO_RULES R14).
+- The masters live **outside** the Vite public dir at `artifacts/warboss-highway/assets-src/sprites-premium/`
+  (moved 2026-08-14 with Shayan's explicit R14 approval), so they are retained in-repo but no longer
+  deployed. Nothing at runtime may reference `sprites-premium/`; the menu skyline images were
+  repointed to `/sprites/` in the same pass.
 
 ### Measured readability (2026-08-14, 420x800 viewport, in-play capture)
 

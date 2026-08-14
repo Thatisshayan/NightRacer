@@ -229,8 +229,11 @@ Rule 12 / Rule 11. This register survives the session. Future agents resume from
   `engine.test.ts` (asserts traffic drops the same distance at 16ms vs 33ms steps over 3s);
   full engine suite 12/12 pass under vitest. Branch `agent/hermes-framerate-independence` (commit
   `803e294`). Same MSYS `tsc`/`vite`/pnpm hang prevents local build verification; CI is the gate.
-- [2026-08-14] Move sprite authoring masters out of the served directory — **status: deferred,
-  needs Shayan's explicit approval (REPO_RULES R14 — no file deletion/removal without it).**
+- [2026-08-14] Move sprite authoring masters out of the served directory — **status: RESOLVED
+  2026-08-14. Shayan approved in #nightracer; masters moved via `git mv` to
+  `artifacts/warboss-highway/assets-src/sprites-premium/` (no deletion), `scripts/build-sprite-pack.mjs`
+  SRC repointed, and the menu skyline `<img>` tags in `src/pages/Game.tsx` switched from
+  `sprites-premium/` to `sprites/`. Original entry below for context.**
   `artifacts/warboss-highway/public/sprites-premium/` is 125.7 MB of 1373x2048 / 2048x2048 PNGs
   that are no longer loaded at runtime (the game now loads the 6.5 MB pack from `public/sprites/`,
   built by `scripts/build-sprite-pack.mjs`). They still ship with every deploy because they sit
