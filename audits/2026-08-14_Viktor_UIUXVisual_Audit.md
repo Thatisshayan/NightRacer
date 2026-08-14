@@ -93,11 +93,15 @@ if (v.direction === 'SAME')  v.y += Math.max(1.2, currentSpeed - v.speed * 0.7) 
 else                          v.y += (currentSpeed + v.speed * 0.5) * frameScale;
 ```
 
-Every vehicle therefore travels down the screen; only the *rate* differs. Combined with sprites that carry no headlight/taillight cue and no direction-specific colour, the player has no way to tell an oncoming car from one being overtaken — exactly the confusion you described. `ASSETS.md`'s "traffic direction" acceptance check currently fails.
+Every vehicle therefore travels down the screen; only the *rate* differs.
+
+**Correction (2026-08-14, after re-reading `pixi-renderer.ts`):** an earlier draft of this section claimed there was *no* direction cue rendered at all. That was wrong, and I'm flagging it rather than quietly editing it out. The renderer already had both `sprite.rotation = vehicle.direction === 'OPPOSITE' ? Math.PI : 0` and a `drawVehicleLights()` pass using `NEON.headlight` for oncoming and `NEON.trafficRed` for same-direction traffic. The real defect is **legibility, not absence**: the lamps were ~5 px radius at alpha 0.5 and the headlight beam at alpha 0.045, drawn on a `#080808` playfield with mean luminance 0.008 — present in code, invisible in play.
+
+The finding that **all traffic moves down-screen** stands as measured, and `ASSETS.md`'s "traffic direction" acceptance check still fails on the motion clause.
 
 **Recommendation, in order of effort:**
-1. Direction lighting on the sprite layer: warm white headlight cone facing the player for `OPPOSITE`, red taillight pair facing away for `SAME`. Cheap Pixi `Graphics` primitives, no new art.
-2. Rotate `OPPOSITE` sprites 180°, so the silhouette itself reads as facing you (non-colour cue, satisfies the accessibility clause).
+1. Strengthen the existing direction lighting rather than adding it: larger lamp radii, real headlight cones for `OPPOSITE`, a red taillight bar plus wash for `SAME`, and a lift of the playfield base so any of it is visible.
+2. Keep the 180° `OPPOSITE` sprite rotation as the non-colour cue (accessibility clause) — it exists, it just has nothing to read against.
 3. Differentiate relative velocity more aggressively — same-direction traffic should sometimes genuinely pull away, so overtaking reads as overtaking.
 4. Telegraph: spawn a faint approach glow / light bloom ~300 ms before a fast vehicle enters the frame.
 
