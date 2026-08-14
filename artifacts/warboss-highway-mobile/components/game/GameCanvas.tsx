@@ -359,6 +359,7 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
   // depends on the road tile image loading), and scroll it via a
   // SharedValue-driven transform instead of rebuilding it every tick.
   const roadTiles = useMemo(() => (images.roadTile ? buildRoadGrid(images.roadTile) : null), [images.roadTile]);
+  const neonRain = useMemo(() => buildNeonRain(), []);
   // Roadside guardrails — this asset (and lamp_post.png) sat in the sprite
   // pack fully rendered but completely unused: the road is full-bleed
   // (buildRoadGrid tiles edge-to-edge across GAME_WIDTH), so there was no
@@ -379,6 +380,10 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
   const lampPosts = useMemo(() => (images.lampPost ? buildLampPosts(images.lampPost) : null), [images.lampPost]);
   const roadTransform = useSharedValue<{ translateY: number }[]>([{ translateY: 0 }]);
   const lampTransform = useSharedValue<{ translateY: number }[]>([{ translateY: 0 }]);
+  // One static rain geometry group is translated through SharedValues; weather
+  // density increases for Rush without reconstructing the Skia scene graph.
+  const rainTransform = useSharedValue<{ translateY: number }[]>([{ translateY: 0 }]);
+  const rainOpacity = useSharedValue(0.16);
   const groupTransform = useSharedValue<({ scale: number } | { translateX: number } | { translateY: number })[]>([
     { scale },
     { translateX: 0 },
@@ -397,6 +402,8 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
   const playerW = useSharedValue(0);
   const playerH = useSharedValue(0);
   const playerOpacity = useSharedValue(1);
+  const playerTransform = useSharedValue<{ rotate: number }[]>(IDENTITY_TRANSFORM);
+  const playerOrigin = useSharedValue({ x: GAME_WIDTH / 2, y: GAME_HEIGHT * 0.75 });
   // Center point (not the image's top-left x/y) — needed separately for
   // the shield ring, which pivots on the player's center like the web
   // renderer's equivalent draw call.
@@ -406,6 +413,11 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
   const underglowCy = useSharedValue(GAME_HEIGHT * 0.75);
   const underglowR = useSharedValue(0);
   const underglowCenter = useSharedValue({ x: GAME_WIDTH / 2, y: GAME_HEIGHT * 0.75 });
+  const rushCx = useSharedValue(GAME_WIDTH / 2);
+  const rushCy = useSharedValue(GAME_HEIGHT * 0.75);
+  const rushR = useSharedValue(0);
+  const rushOpacity = useSharedValue(0);
+  const rushCenter = useSharedValue({ x: GAME_WIDTH / 2, y: GAME_HEIGHT * 0.75 });
   const oilCx = useSharedValue(0);
   const oilCy = useSharedValue(0);
   const oilR = useSharedValue(0);
@@ -496,6 +508,8 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
         groupTransform.value = [{ scale }, { translateX: shakeX }, { translateY: shakeY - cameraY }];
         roadTransform.value = [{ translateY: state.roadOffset % ROAD_TILE_SIZE }];
         lampTransform.value = [{ translateY: state.roadOffset % LAMP_PERIOD }];
+        rainTransform.value = [{ translateY: state.roadOffset % 180 }];
+        rainOpacity.value = state.rushTimer > 0 ? 0.28 : 0.16;
 
         vehiclePool.sync(state.vehicles, (handle, v) => {
           const img = vehicleImage(images, v.type, v.variant);
@@ -548,6 +562,13 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
         playerOpacity.value = flickerVisible ? invulnAlpha : 0;
         playerCenterX.value = state.player.x;
         playerCenterY.value = state.player.y;
+        playerOrigin.value = { x: state.player.x, y: state.player.y };
+        playerTransform.value = state.driveTilt === 0 ? IDENTITY_TRANSFORM : [{ rotate: state.driveTilt * 0.14 }];
+        rushCx.value = state.player.x;
+        rushCy.value = state.player.y + state.player.height * 0.24;
+        rushCenter.value = { x: state.player.x, y: state.player.y + state.player.height * 0.24 };
+        rushR.value = Math.max(state.player.width, state.player.height) * (0.95 + (state.rushPulse / 420) * 0.4);
+        rushOpacity.value = state.rushTimer > 0 ? 0.78 : 0;
 
         const playerImage = images.playerCars[state.selectedCar];
         if (playerImgRef.current !== playerImage) {
@@ -705,6 +726,9 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
               {lampPosts}
             </Group>
           )}
+          <Group transform={rainTransform} opacity={rainOpacity}>
+            {neonRain}
+          </Group>
 
           {obstaclePool.handles.map((ref, i) => (
             <SpriteSlot key={`obstacle-${i}`} ref={ref as React.RefObject<SpriteSlotHandle>} fit="fill" />
@@ -761,6 +785,17 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
             <RadialGradient c={underglowCenter} r={underglowR} colors={[carColor, 'rgba(0,0,0,0)']} />
           </Circle>
 
+          {/* Rush uses a cyan/magenta ring rather than a generic speed blur,
+              preserving the special moment while staying legible at high speed. */}
+          <Group opacity={rushOpacity}>
+            <Circle cx={rushCx} cy={rushCy} r={rushR} color="#27d9ff" opacity={0.16}>
+              <RadialGradient c={rushCenter} r={rushR} colors={["rgba(39,217,255,0.5)", "rgba(0,0,0,0)"]} />
+            </Circle>
+            <Circle cx={rushCx} cy={rushCy} r={rushR} color="#df4bff" style="stroke" strokeWidth={2} opacity={0.75}>
+              <BlurMask blur={3} style="normal" respectCTM />
+            </Circle>
+          </Group>
+
           {/* Crash flash — see the explosionCx/Cy/Size/Opacity declaration
               comment above for the screenShake-rising-edge trigger. */}
           {images.explosion && (
@@ -787,7 +822,7 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
                 </Group>
               )}
 
-              <Image image={playerImg} x={playerX} y={playerY} width={playerW} height={playerH} fit="fill" />
+              <Image image={playerImg} x={playerX} y={playerY} width={playerW} height={playerH} fit="fill" transform={playerTransform} origin={playerOrigin} />
             </Group>
           )}
 
@@ -800,6 +835,29 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
       </Canvas>
     </GestureDetector>
   );
+}
+
+// Static rain streak geometry. Only its parent transform and opacity change
+// through SharedValues, so weather stays outside React's frame loop.
+function buildNeonRain() {
+  const streaks: React.ReactNode[] = [];
+  for (let i = 0; i < 28; i++) {
+    const x = 10 + ((i * 73) % (GAME_WIDTH - 20));
+    const y = -150 + ((i * 109) % (GAME_HEIGHT + 180));
+    const length = 12 + (i % 5) * 6;
+    streaks.push(
+      <Line
+        key={`neon-rain-${i}`}
+        p1={{ x, y }}
+        p2={{ x: x - 2, y: y + length }}
+        color={i % 4 === 0 ? 'rgba(185,233,255,0.85)' : 'rgba(105,185,225,0.62)'}
+        style="stroke"
+        strokeWidth={i % 3 === 0 ? 1.1 : 0.65}
+        strokeCap="round"
+      />
+    );
+  }
+  return <>{streaks}</>;
 }
 
 // Simple full-tile repeat — the source image is pre-cropped by
@@ -848,11 +906,11 @@ function buildRoadGrid(roadTile: NonNullable<ReturnType<typeof useSpriteImages>[
   const gridHeight = rows * ROAD_TILE_SIZE;
   for (const divX of [laneWidth, laneWidth * 3]) {
     tiles.push(
-      <Line
-        key={`lane-divider-${divX}`}
-        p1={{ x: divX, y: yStart }}
-        p2={{ x: divX, y: yStart + gridHeight }}
-        color="rgba(255,255,255,0.16)"
+          <Line
+            key={`lane-divider-${divX}`}
+            p1={{ x: divX, y: yStart }}
+            p2={{ x: divX, y: yStart + gridHeight }}
+            color="rgba(39,217,255,0.24)"
         style="stroke"
         strokeWidth={2}
       >
@@ -867,7 +925,7 @@ function buildRoadGrid(roadTile: NonNullable<ReturnType<typeof useSpriteImages>[
         key={`center-divide-${offset}`}
         p1={{ x: centerX + offset, y: yStart }}
         p2={{ x: centerX + offset, y: yStart + gridHeight }}
-        color="rgba(255,205,60,0.55)"
+        color="rgba(255,179,71,0.72)"
         style="stroke"
         strokeWidth={2.5}
       />

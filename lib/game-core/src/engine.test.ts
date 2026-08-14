@@ -34,8 +34,12 @@ function step(dtMs: number) {
   cb(currentTime);
 }
 
-function makeEngine(onGameOver: (state: GameState) => void = () => {}, selectedCar?: CarType) {
-  const engine = new GameEngine({ width: 420, height: 800 }, onGameOver, { selectedCar });
+function makeEngine(
+  onGameOver: (state: GameState) => void = () => {},
+  selectedCar?: CarType,
+  random?: () => number
+) {
+  const engine = new GameEngine({ width: 420, height: 800 }, onGameOver, { selectedCar, random });
   engine.start();
   return engine;
 }
@@ -203,7 +207,11 @@ describe('GameEngine simulation over time', () => {
 // fairness between devices and makes leaderboard scores framerate-dependent.
 describe('GameEngine framerate independence', () => {
   function vehicleDropOver(totalMs: number, dtMs: number): number {
-    const engine = makeEngine();
+    // A fixed random source makes the same traffic object spawn at the same
+    // simulation instant for both dt variants. The old test selected a
+    // different random vehicle at each frame rate, which measured spawn
+    // turnover rather than frame-normalized movement.
+    const engine = makeEngine(() => {}, undefined, () => 0.5);
     // Advance past the initial spawn delay so at least one vehicle exists.
     let firstVehicleY: number | null = null;
     let lastVehicleY = 0;

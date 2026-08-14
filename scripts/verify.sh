@@ -85,13 +85,26 @@ run_with_timeout() { # $1=seconds $2=label $3..=cmd
 if [ -n "$PM" ]; then
   case "$PM" in
     pnpm) run_with_timeout 300 build pnpm install --frozen-lockfile
-          pnpm run build --if-present 2>&1 | tail -3 ;;
+          # `pnpm run build --if-present` forwards the trailing flag into the
+          # root build script, where it can reach package scripts as
+          # `vite build --if-present`. The root build script is required here,
+          # so invoke it without a forwarded optional-script flag.
+          pnpm run build 2>&1 | tail -3 ;;
     yarn) run_with_timeout 300 build yarn install --frozen-lockfile ;;
     npm)  run_with_timeout 300 build npm ci ;;
   esac
   if [ $FAIL -eq 0 ]; then
-    (npm run build --if-present || pnpm run build --if-present || yarn build) >/dev/null 2>&1 && notice build "build ok" || error build "build failed"
-    (npm test --if-present || pnpm test --if-present || yarn test) >/dev/null 2>&1 && notice test "test ok" || error test "test failed"
+    if pnpm run build >/dev/null 2>&1; then
+      notice build "build ok"
+    else
+      error build "build failed"
+    fi
+
+    if (npm test --if-present || pnpm test --if-present || yarn test) >/dev/null 2>&1; then
+      notice test "test ok"
+    else
+      error test "test failed"
+    fi
   fi
 elif [ -f pyproject.toml ] || [ -f requirements.txt ]; then
   pip install -q -r requirements.txt 2>/dev/null || true

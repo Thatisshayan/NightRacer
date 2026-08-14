@@ -3,14 +3,12 @@
 > ⚠️ Naming note: this repo folder is `NightRacer`, but the product is **Warboss Highway**.
 > Keep both names mapped in docs and issues.
 
-A mobile-first, browser-based **top-down endless car-dodge game** with a grim-dark Warhammer
-40k / GTA-2 pixel aesthetic. Steer a battle-scarred vehicle through relentless oncoming
-traffic, collect four power-ups, hear AI-generated music + SFX, and compete on a global
-high-score leaderboard backed by a persistent full-stack backend.
+A mobile-first **top-down endless arcade racer** with a neon-noir **Rainway** visual identity. Steer through oncoming traffic, collect four power-ups, charge a deterministic Rush burst through close passes, and compete on a global high-score leaderboard backed by a persistent full-stack backend. The web app uses Pixi.js; the native iOS/Android app uses React Native Skia; both consume the same simulation.
 
 ## Stack
 - **Monorepo**: pnpm workspaces, Node.js 24, TypeScript 5.9
-- **Frontend**: React + Vite (TypeScript), HTML5 Canvas game engine, Wouter routing, Tailwind v4
+- **Frontend**: React + Vite (TypeScript), Pixi.js scene renderer, Wouter routing, Tailwind v4
+- **Native app**: Expo + React Native + React Native Skia, sharing `lib/game-core` with the web renderer
 - **State/Data**: TanStack React Query + Orval-generated hooks
 - **Backend**: Express 5 (Node.js)
 - **DB**: PostgreSQL + Drizzle ORM
@@ -34,7 +32,7 @@ platform to `supportedArchitectures` and add a matching CI smoke job first.
 - `pnpm --filter @workspace/api-server run dev` — API server (port 5000)
 - `PORT=5173 BASE_PATH=/ pnpm --filter @workspace/warboss-highway run dev` — game frontend
 - `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
+- `pnpm run build` — repository release build: typechecks every package and builds all environment-independent packages. The native Expo static-export command is intentionally excluded because it requires a deployment-domain environment variable; native correctness remains covered by its typecheck and dedicated iOS build workflow.
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks + Zod schemas from OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - Required env: `DATABASE_URL` (Neon Postgres connection string). Copy `.env.example` to `.env` and fill it in.
@@ -50,10 +48,12 @@ platform to `supportedArchitectures` and add a matching CI smoke job first.
 - `lib/api-zod/` — generated Zod validation schemas (**do not hand-edit**)
 - `lib/db/src/schema/scores.ts` — Drizzle schema for the `scores` table
 
-## Repository governance
-This repo is governed by `REPO_RULES.md` (branch-only, main protected, no secret commits)
-and `REPO_DIRECTIVE.md` (goal layer). CI gate: `bash scripts/verify.sh`. Never push to `main`;
-open a PR from a feature/agent branch and require Shayan approval.
+## Design and repository governance
+- [`docs/NEON_RAINWAY_DESIGN.md`](docs/NEON_RAINWAY_DESIGN.md) — the current visual-system, Rush-mechanic, performance, and cross-platform implementation guide.
+- [`ASSETS.md`](ASSETS.md) — functional palette, visual target, and asset usage rules for the Neon Rainway overhaul.
+- [`WARBOSS_HIGHWAY_HANDOFF.md`](WARBOSS_HIGHWAY_HANDOFF.md) — cross-platform architecture, local-operation workflow, release limitations, and key-file map.
+- [`audits/2026-08-14_Manus_NeonArcadeBaseline_Audit.md`](audits/2026-08-14_Manus_NeonArcadeBaseline_Audit.md) — baseline, visual QA captures, and verification evidence.
+- This repo is governed by `REPO_RULES.md` (branch-only, main protected, no secret commits) and `REPO_DIRECTIVE.md` (goal layer). CI gate: `bash scripts/verify.sh`. Never push to `main`; open a PR from a feature/agent branch and require Shayan approval.
 
 ## Gotchas
 - Do NOT disable pnpm `minimumReleaseAge` (supply-chain guard in `pnpm-workspace.yaml`).

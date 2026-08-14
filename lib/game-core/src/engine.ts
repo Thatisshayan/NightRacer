@@ -118,6 +118,9 @@ export interface Player extends GameObject {
   invulnTimer: number;
   oilSlicked: boolean;
   oilTimer: number;
+  // Lateral velocity is simulation state rather than a renderer-only value,
+  // so every platform gets the same responsive but non-binary steering feel.
+  vx: number;
 }
 
 export interface Vehicle extends GameObject {
@@ -176,6 +179,13 @@ export interface GameState {
   screenShake: number;
   roadOffset: number;
   baseSpeed: number;
+  // Presentation-facing drive state. Renderers read these values but never
+  // author their own handling or boost rules, preserving web/native parity.
+  driveTilt: number;
+  rushCharge: number;
+  rushTimer: number;
+  rushPulse: number;
+  nearMissPulse: number;
   lanes: number[];
   // Combo / near-miss
   combo: number;
@@ -281,6 +291,9 @@ export class GameEngine {
   // (web: window.matchMedia; native: AccessibilityInfo) instead of read
   // directly, since neither API exists universally.
   private reducedMotion: boolean;
+  // Set by a keyboard press or a platform HUD control, then consumed inside
+  // update() so a Rush starts on a deterministic simulation frame.
+  private rushRequested = false;
 
   // dims are logical simulation pixels (not a canvas/element) — each
   // platform adapter maps its own rendering surface onto this space (see
@@ -301,6 +314,9 @@ export class GameEngine {
       audio?: AudioAdapter;
       haptics?: (pattern: number | number[]) => void;
       reducedMotion?: boolean;
+      // Test/support hook: a caller may provide a deterministic source for
+      // ordinary runs. Daily runs keep their date-seeded generator instead.
+      random?: () => number;
     }
   ) {
     this.width = dims.width;
@@ -315,6 +331,7 @@ export class GameEngine {
     this.audio = options?.audio ?? NOOP_AUDIO;
     this.haptics = options?.haptics;
     this.reducedMotion = options?.reducedMotion ?? false;
+    this.rng = options?.random ?? Math.random;
 
     if (this.isDailyChallenge) {
       this.initDailyRNG();
@@ -331,6 +348,7 @@ export class GameEngine {
         invulnTimer: 0,
         oilSlicked: false,
         oilTimer: 0,
+        vx: 0,
       },
       vehicles: [],
       powerups: [],
@@ -346,6 +364,11 @@ export class GameEngine {
       screenShake: 0,
       roadOffset: 0,
       baseSpeed: 5,
+      driveTilt: 0,
+      rushCharge: 0,
+      rushTimer: 0,
+      rushPulse: 0,
+      nearMissPulse: 0,
       lanes: [],
       combo: 0,
       comboTimer: 0,
@@ -416,6 +439,7 @@ export class GameEngine {
   // values (e.g. 'ArrowLeft', 'KeyA').
   public handleKeyDown(code: string) {
     this.keys.add(code);
+    if (code === 'Space') this.rushRequested = true;
   }
 
   public handleKeyUp(code: string) {
@@ -452,6 +476,9 @@ export class GameEngine {
     if (this.isDragging && !this.state.player.oilSlicked) {
       this.state.player.x = x - this.touchOffset.x;
       this.state.player.y = y - this.touchOffset.y;
+      // Direct touch drag remains instant and accessible; clearing carry-over
+      // velocity prevents a keyboard/joystick steering drift after a touch grab.
+      this.state.player.vx = 0;
       this.clampPlayerPosition();
     }
   }
@@ -514,6 +541,22 @@ export class GameEngine {
   // returned object.
   public getState(): Readonly<GameState> {
     return this.state;
+  }
+
+  // Rush is an earned burst, not a purchasable advantage. A host can expose
+  // this through any suitable input surface (Space on keyboard, a touch HUD
+  // control on mobile) while the shared simulation owns eligibility and timing.
+  public triggerRush(): boolean {
+    const state = this.state;
+    if (state.isGameOver || state.rushTimer > 0 || state.rushCharge < 100) return false;
+    state.rushCharge = 0;
+    state.rushTimer = 2400;
+    state.rushPulse = 420;
+    this.audio.play('powerup');
+    this.haptics?.(25);
+    this.createParticles(state.player.x, state.player.y + state.player.height * 0.35, '#27d9ff', 14);
+    this.createParticles(state.player.x, state.player.y + state.player.height * 0.35, '#df4bff', 8);
+    return true;
   }
 
   // Swaps the active renderer (see `GameRenderer` above). Passing null
@@ -592,10 +635,16 @@ export class GameEngine {
       }
     }
 
+    // A requested Rush is consumed on the simulation frame, avoiding a
+    // renderer- or platform-specific timing advantage.
+    if (this.rushRequested) {
+      this.triggerRush();
+      this.rushRequested = false;
+    }
+
     // Speed
     const newLevel = this.getSpeedLevel(state.distance);
     const speedMult = this.getSpeedMultiplier(state.distance);
-    state.speedMultiplier = speedMult;
 
     if (newLevel > state.lastSpeedLevel) {
       state.lastSpeedLevel = newLevel;
@@ -607,6 +656,8 @@ export class GameEngine {
     const carMod = CAR_STATS[this.selectedCar].speedMod * (1 + this.upgrades.speed * 0.03);
     let currentSpeed = state.baseSpeed * speedMult * carMod * this.dailyModifier.speedMult;
     if (state.activePowerUp === 'SLOWMO') currentSpeed *= 0.4;
+    if (state.rushTimer > 0) currentSpeed *= 1.24;
+    state.speedMultiplier = speedMult * (state.rushTimer > 0 ? 1.24 : 1);
 
     // Forward / back speed feel (up = faster, down = slower)
     if (!state.player.oilSlicked) {
@@ -624,27 +675,30 @@ export class GameEngine {
     // Road scroll
     state.roadOffset = (state.roadOffset + currentSpeed * 1.5) % 80;
 
-    // Player movement
+    // Player movement. Lateral steering now has a small, deterministic
+    // velocity curve: responsive enough for a dodge game, but with visible
+    // weight and recovery instead of the previous binary positional slide.
     if (!state.player.oilSlicked) {
       const len = Math.sqrt(dx * dx + dy * dy);
+      const handling = 1 + this.upgrades.handling * 0.08;
+      const targetVx = len > 0 ? (dx / len) * 5.1 * handling : 0;
+      const steeringResponse = Math.min(1, 0.38 * frameScale);
+      state.player.vx += (targetVx - state.player.vx) * steeringResponse;
+      if (Math.abs(targetVx) < 0.01) state.player.vx *= Math.pow(0.72, frameScale);
+      state.player.x += state.player.vx * frameScale;
       if (len > 0) {
-        // Base speed tuned so diagonal doesn't outrun horizontal/vertical.
-        // Was 0.42 (≈25px/sec at 60fps) since this was first written —
-        // crossing a single lane took several seconds, an order of
-        // magnitude slower than drag/touch input (which sets player.x
-        // directly, effectively instant), so keyboard/joystick players
-        // could never out-steer approaching traffic. A first pass raised
-        // this to 5.5, which real playtesting called too twitchy; settled
-        // here at a pace that crosses one of the (now-narrower, 105px)
-        // lanes in a bit over half a second.
-        const moveSpeed = 3.2 * (1 + this.upgrades.handling * 0.08) * (dt / 16);
-        state.player.x += (dx / len) * moveSpeed;
-        state.player.y += (dy / len) * moveSpeed;
+        const verticalSpeed = 3.2 * handling * frameScale;
+        state.player.y += (dy / len) * verticalSpeed;
       }
+      state.driveTilt = Math.max(-1, Math.min(1, state.player.vx / (5.1 * handling)));
       this.clampPlayerPosition();
     } else {
-      // Slight drift when oiled
-      state.player.x += Math.sin(state.distance * 0.08) * 2;
+      // Slight drift when oiled, with a matching visual bank that signals the
+      // loss of control without relying on color alone.
+      const slip = Math.sin(state.distance * 0.08) * 2;
+      state.player.x += slip;
+      state.player.vx = slip;
+      state.driveTilt = Math.max(-1, Math.min(1, slip / 2));
       this.clampPlayerPosition();
     }
 
@@ -668,6 +722,9 @@ export class GameEngine {
       state.player.oilSlicked = state.player.oilTimer > 0;
     }
     if (state.screenShake > 0) state.screenShake = Math.max(0, state.screenShake - dt);
+    if (state.rushTimer > 0) state.rushTimer = Math.max(0, state.rushTimer - dt);
+    if (state.rushPulse > 0) state.rushPulse = Math.max(0, state.rushPulse - dt);
+    if (state.nearMissPulse > 0) state.nearMissPulse = Math.max(0, state.nearMissPulse - dt);
     if (state.levelUpFlash > 0) state.levelUpFlash -= dt;
     if (state.scorePop > 0) state.scorePop = Math.max(0, state.scorePop - dt);
     if (state.comboPop > 0) state.comboPop = Math.max(0, state.comboPop - dt);
@@ -766,6 +823,10 @@ export class GameEngine {
         if (xDist > minSafe && xDist < maxNearMiss) {
           state.combo++;
           state.comboPop = POP_DURATION_MS;
+          state.nearMissPulse = 300;
+          const wasBelowRush = state.rushCharge < 100;
+          state.rushCharge = Math.min(100, state.rushCharge + 25);
+          if (wasBelowRush && state.rushCharge === 100) this.audio.play('powerup');
           if (state.combo > state.maxCombo) state.maxCombo = state.combo;
           state.comboTimer = COMBO_DECAY_MS;
           if (state.combo >= 10) this.grantAchievement('combo_king');
@@ -1013,6 +1074,8 @@ export class GameEngine {
     this.state.screenShake = this.reducedMotion ? 0 : 300;
     this.state.combo = 0;
     this.state.comboTimer = 0;
+    this.state.rushTimer = 0;
+    this.state.rushPulse = 0;
     this.state.wasHit = true;
     this.createParticles(this.state.player.x, this.state.player.y, '#ff3300', 20);
     this.haptics?.([100, 50, 100]);

@@ -1,15 +1,10 @@
 # Warboss Highway — Project Handoff Document
 
-> Rewritten 2026-08-01. The previous version of this doc described the pre-refactor,
-> web-only architecture (engine living under `artifacts/warboss-highway/src/lib/game/`,
-> no mobile app, Replit-managed run/deploy). All of that changed in the "native mobile
-> rebuild" PR (#11, merged 2026-07-28). This version reflects current `main`.
+> Updated 2026-08-14 for the Neon Rainway overhaul (PR #19). This handoff now reflects the shared simulation, Pixi/Skia renderer parity work, Rush mechanic, reproducible verification path, and the residual hardware-validation limitation. Consult [`docs/NEON_RAINWAY_DESIGN.md`](docs/NEON_RAINWAY_DESIGN.md) for the full visual-system contract.
 
 ## What Is This?
 
-**Warboss Highway** is a top-down endless car-dodge game with a grim-dark Warhammer 40k /
-GTA-2 pixel aesthetic. Steer a battle-scarred vehicle through oncoming traffic, collect
-power-ups, survive boss encounters, and compete on a global high-score leaderboard.
+**Warboss Highway** is a portrait-first, top-down endless arcade racer with a **neon-noir Rainway** visual language. Steer through oncoming traffic, collect power-ups, earn Rush through close passes, survive boss encounters, and compete on a global high-score leaderboard.
 
 It now ships on **two platforms from one shared simulation**:
 - A **web app** (`artifacts/warboss-highway`) — React + Vite + Pixi.js, playable in a browser.
@@ -20,11 +15,7 @@ Both consume the same platform-agnostic game simulation from `lib/game-core` —
 source of truth for spawning, collisions, scoring, and power-up logic, not two parallel
 implementations.
 
-**Current state (as of 2026-08-01): the mobile app was rated 0.25/10 on a real device.** It
-loads and plays, but is not good yet. See "Known Issues" below before doing anything else
-with it — a specific, diagnosed perf bug (forced full-React-reconciliation every frame) is
-the leading suspect, and most of the polish/QA items were never verified on real hardware
-before merge.
+**Current state (as of 2026-08-14): the Neon Rainway overhaul is implemented and verified locally on both platform typecheck paths.** The production visual target, palette, shared Rush state, web Pixi treatment, native Skia parity layers, and touch/keyboard HUD controls are documented in `ASSETS.md` and `docs/NEON_RAINWAY_DESIGN.md`. The remaining release responsibility is a real-WebGL desktop and physical-device visual pass before merge.
 
 ---
 
@@ -120,7 +111,8 @@ Key types (`engine.ts`):
 - `CarType`: `RATTLETRAP | WAR_RUNNER | DEATHSLED | SCRAPQUEEN | PHANTOM` — player-selectable cars, each with its own `CAR_STATS` (size/speed/color).
 - `VehicleType`: `SEDAN | PICKUP | COP | BOXTRUCK | BUS | SPORTS | TANK | BOSS` — oncoming traffic, `TANK` is rare/high-hitbox, `BOSS` spawns every `BOSS_INTERVAL_MS` (60s).
 - `PowerUpType`: `SHIELD | SLOWMO | SCORE_BLAST | EXTRA_LIFE`, durations centralized in `POWERUP_DURATION_MS`.
-- `achievements.ts` / `daily.ts`: unlockable achievements and a 7-day rotating daily-modifier cycle — both covered by vitest tests, unlike the rest of the game.
+- **Rush**: near misses add 25% `rushCharge`; a full charge activates a deterministic 2.4-second speed burst through Space (web) or the touch HUD (web/native). `player.vx`, `driveTilt`, `nearMissPulse`, and `rushTimer` are shared render-visible state, not platform-specific effects.
+- `achievements.ts` / `daily.ts`: unlockable achievements and a 7-day rotating daily-modifier cycle. The shared package has 18 Vitest checks covering engine, achievements, and daily modifiers.
 
 Run the shared package's tests: `pnpm --filter @workspace/game-core run test`.
 
@@ -175,6 +167,9 @@ pnpm exec expo start
 # Full-repo typecheck
 pnpm run typecheck
 
+# Reproducible release build — includes typechecks across all packages and builds environment-independent workspaces. The native Expo static-export requires deployment-domain variables and remains a dedicated deployment command; native typecheck and iOS CI still run.
+pnpm run build
+
 # Shared engine tests
 pnpm --filter @workspace/game-core run test
 ```
@@ -223,14 +218,8 @@ the bare `/` in `BASE_PATH=/`). See `README.md` for the full gotcha list.
      when a change doesn't seem to be taking effect. Don't trust "I edited the file and
      reloaded" as proof the running app has the new code — confirm via the bundler log line
      itself (module count) or a visible pixel-level difference.
-- **Real-device playtesting rated the app 0.25/10** (2026-08-01), before the fixes above. Not
-  re-rated numerically yet, but a full on-device playthrough post-fix (2026-08-02, Android
-  emulator) showed correct rendering and no crashes across every screen — the diagnosed root
-  cause of the bad feel is fixed and confirmed working, not just theorized. A follow-up visual
-  pass (road/vehicle contrast, lane dividers — see git log) is in progress; several more visual
-  issues (lives icon, speed dial widget, tab bar styling, canvas framing, HUD text depth,
-  garage card icons) are identified and queued, not yet fixed, per an explicit "make this
-  visually top-notch" scope from the project owner.
+- **Neon Rainway visual pass is implemented in PR #19.** The web Pixi renderer now has wet-road sheen, weather, road-edge energy cues, direction-specific traffic lights, player bank, near-miss feedback, and Rush effects. The native Skia renderer mirrors the player bank, road language, rain, Rush ring, and touch Rush HUD. The title/HUD redesign, generated visual target, and before/after captures are in `ASSETS.md`, `docs/NEON_RAINWAY_DESIGN.md`, and `audits/2026-08-14_Manus_NeonArcadeBaseline_Audit.md`.
+- **Residual visual validation:** the isolated QA browser has no hardware WebGL context, so it exercised Pixi’s Canvas fallback and skipped GPU-only filters. Local tests, typechecks, builds, the repository verification gate, Vercel preview, and the iOS workflow are the current evidence; a real-WebGL desktop and physical-device pass should precede release approval.
 - See `docs/governance/DEFERRED_WORK.md` for the full list of implemented-but-unverified
   items on both platforms (audio pause/resume correctness, road texture tiling, title-scroll
   speed, OKLCH color conversion, unused legacy audio assets still tracked in git, etc).
@@ -263,4 +252,6 @@ the bare `/` in `BASE_PATH=/`). See `README.md` for the full gotcha list.
 | API routes (scores) | `artifacts/api-server/src/routes/scores.ts` |
 | Database schema | `lib/db/src/schema/scores.ts` |
 | OpenAPI spec | `lib/api-spec/openapi.yaml` |
+| Neon Rainway visual/interaction contract | `docs/NEON_RAINWAY_DESIGN.md`, `ASSETS.md` |
+| Verification and before/after evidence | `audits/2026-08-14_Manus_NeonArcadeBaseline_Audit.md` |
 | Deferred/unverified work log | `docs/governance/DEFERRED_WORK.md` |
