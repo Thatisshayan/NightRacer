@@ -342,215 +342,169 @@ export class PixiRenderer implements GameRenderer {
   }
 
   sync(state: GameState, cameraY: number, screenShake: number) {
+    this.syncWorldTransform(cameraY, screenShake);
+    this.syncCrashFlash(state, screenShake);
+    this.syncRoadScroll(state);
+    this.syncPlayerEffects(state);
+    this.syncEntityPools(state);
+    this.drawNeonRainwayLayers(state);
+  }
+
+  private syncWorldTransform(cameraY: number, screenShake: number) {
     const shakeAmp = screenShake > 0 ? (screenShake / 300) * 9 : 0;
     this.worldContainer.x = shakeAmp > 0 ? (Math.random() - 0.5) * shakeAmp : 0;
     this.worldContainer.y = (shakeAmp > 0 ? (Math.random() - 0.5) * shakeAmp : 0) - cameraY;
+  }
 
-    // Crash flash — a rising edge in screenShake (handleCrash() sets it to
-    // 300 in engine.ts) is the only "a real crash just happened" signal
-    // exposed to the renderer without a dedicated GameState field; the
-    // armor-save near-miss path creates particles but never sets
-    // screenShake, so this correctly skips that case.
-    if (screenShake > this.prevScreenShake) {
-      this.explosionUntil = performance.now() + EXPLOSION_FLASH_MS;
-    }
+  private syncCrashFlash(state: GameState, screenShake: number) {
+    if (screenShake > this.prevScreenShake) this.explosionUntil = performance.now() + EXPLOSION_FLASH_MS;
     this.prevScreenShake = screenShake;
-    const explosionRemaining = this.explosionUntil - performance.now();
-    if (explosionRemaining > 0) {
-      const t = 1 - explosionRemaining / EXPLOSION_FLASH_MS;
-      this.explosionSprite.visible = true;
-      this.explosionSprite.x = state.player.x;
-      this.explosionSprite.y = state.player.y;
-      const scale = 0.7 + t * 0.9;
-      this.explosionSprite.width = state.player.width * 1.8 * scale;
-      this.explosionSprite.height = state.player.height * 1.8 * scale;
-      this.explosionSprite.alpha = 1 - t;
-    } else {
-      this.explosionSprite.visible = false;
-    }
+    const remaining = this.explosionUntil - performance.now();
+    this.explosionSprite.visible = remaining > 0;
+    if (remaining <= 0) return;
+    const progress = 1 - remaining / EXPLOSION_FLASH_MS;
+    const scale = 0.7 + progress * 0.9;
+    this.explosionSprite.x = state.player.x;
+    this.explosionSprite.y = state.player.y;
+    this.explosionSprite.width = state.player.width * 1.8 * scale;
+    this.explosionSprite.height = state.player.height * 1.8 * scale;
+    this.explosionSprite.alpha = 1 - progress;
+  }
 
+  private syncRoadScroll(state: GameState) {
     this.road.tilePosition.y = -state.roadOffset;
-    // Dashes repeat every LANE_DASH_PERIOD and are uniform/indistinguishable
-    // from one another, so — like the road tiles — wrapping at that small
-    // period reads as true continuous scroll (CodeRabbit catch: this was
-    // previously never scrolled at all, invisible only because a static
-    // continuous line looks identical to a moving one; dashes don't have
-    // that luxury).
     this.laneDividers.y = -(state.roadOffset % LANE_DASH_PERIOD);
     this.guardrailLeft.tilePosition.y = -state.roadOffset;
     this.guardrailRight.tilePosition.y = -state.roadOffset;
-    // Road/guardrail tiles are uniform and repeat every 80px, so wrapping
-    // their transform at that small period is indistinguishable from true
-    // infinite scroll. Lamp posts are sparse, identical-looking objects
-    // with visible gaps between them — wrapping at 80px would just make
-    // each post jitter within a small band instead of travelling down the
-    // screen, so this uses its own dedicated LAMP_PERIOD instead (see the
-    // LAMP_PERIOD constant comment).
     this.lampLayer.y = -(state.roadOffset % LAMP_PERIOD);
+  }
 
+  private syncPlayerEffects(state: GameState) {
     if (this.currentCarType !== state.selectedCar) {
       this.playerSprite.texture = this.textures.playerCars[state.selectedCar];
       this.currentCarType = state.selectedCar;
     }
-    this.playerSprite.x = state.player.x;
-    this.playerSprite.y = state.player.y;
-    // Unlike vehicles/obstacles/powerups (sized every frame via syncPool),
-    // the player sprite's width/height were never assigned at all — a
-    // Sprite with no explicit size renders at its texture's native pixel
-    // size. Harmless with small placeholder art, but the real sprite pack
-    // ships at ~1373x2048px, so the player car rendered at ~full texture
-    // resolution and filled/overflowed the entire canvas.
-    this.playerSprite.width = state.player.width;
-    this.playerSprite.height = state.player.height;
-    this.playerSprite.alpha = state.player.isInvulnerable
-      ? (Math.floor(performance.now() / 100) % 2 === 0 ? 0.4 : 1)
-      : 1;
-    // Bluish cast while slipping on an oil slick.
-    this.playerSprite.tint = state.player.oilSlicked ? 0x99aaff : 0xffffff;
-    // A slight bank makes steering feel physical without altering the shared
-    // collision bounds. The Rush pulse adds a small, readable engine lean.
+    const player = state.player;
+    this.playerSprite.x = player.x;
+    this.playerSprite.y = player.y;
+    this.playerSprite.width = player.width;
+    this.playerSprite.height = player.height;
+    this.playerSprite.alpha = player.isInvulnerable ? (Math.floor(performance.now() / 100) % 2 === 0 ? 0.4 : 1) : 1;
+    this.playerSprite.tint = player.oilSlicked ? 0x99aaff : 0xffffff;
     this.playerSprite.rotation = state.driveTilt * 0.14 + (state.rushTimer > 0 ? state.driveTilt * 0.035 : 0);
-
-    // Exhaust plume trails behind the player (down-screen, since the sprite
-    // faces up), intensity/length scaled by the current speed multiplier.
     this.exhaustSprite.visible = true;
-    this.exhaustSprite.x = state.player.x;
-    this.exhaustSprite.y = state.player.y + state.player.height / 2 + 4;
-    this.exhaustSprite.width = state.player.width * 0.5;
+    this.exhaustSprite.x = player.x;
+    this.exhaustSprite.y = player.y + player.height / 2 + 4;
+    this.exhaustSprite.width = player.width * 0.5;
     this.exhaustSprite.height = 14 + state.speedMultiplier * 10;
     this.exhaustSprite.alpha = 0.35 + Math.min(0.4, state.speedMultiplier * 0.15);
-
-    const shieldActive = state.activePowerUp === 'SHIELD' && state.powerUpTimer > 0;
-    this.shieldRing.visible = shieldActive;
-    if (shieldActive) {
-      this.shieldRing.x = state.player.x;
-      this.shieldRing.y = state.player.y;
-      const pulse = 1 + Math.sin(performance.now() / 150) * 0.06;
-      const radius = Math.max(state.player.width, state.player.height) * 0.75 * pulse;
-      this.shieldRing.clear();
-      this.shieldRing.circle(0, 0, radius).stroke({ width: 3, color: 0x00ffff, alpha: 0.9 });
-    }
-
-    if (this.motionBlur) {
-      this.motionBlur.velocity = { x: 0, y: state.speedMultiplier * (state.rushTimer > 0 ? 6 : 4) };
-    }
-
-    this.gen++;
-
-    syncPool(
-      this.vehiclePool, state.vehicles, this.gen, this.vehicleLayer,
-      (v) => { const s = new Sprite(vehicleTexture(this.textures, v)); s.anchor.set(0.5); return s; },
-      (v, s) => {
-        s.width = v.width;
-        s.height = v.height;
-        s.x = v.x;
-        s.y = v.y;
-        // Oncoming traffic (lanes 0-1) faces the player, same-direction
-        // traffic (lanes 2-3) faces away — matches the player's own
-        // orientation, like real two-way traffic. See Vehicle.direction.
-        s.rotation = v.direction === 'OPPOSITE' ? Math.PI : 0;
-      }
-    );
-
-    syncPool(
-      this.obstaclePool, state.obstacles, this.gen, this.obstacleLayer,
-      (o) => { const s = new Sprite(o.type === 'OIL_SLICK' ? this.textures.oilSlick : this.textures.debris); s.anchor.set(0.5); return s; },
-      (o, s) => { s.x = o.x; s.y = o.y; s.width = o.width; s.height = o.height; }
-    );
-
-    syncPool(
-      this.powerupPool, state.powerups, this.gen, this.powerupLayer,
-      (p) => { const s = new Sprite(this.textures.powerups[p.type]); s.anchor.set(0.5); return s; },
-      (p, s) => { s.x = p.x; s.y = p.y; s.width = p.width; s.height = p.height; }
-    );
-
-    // 'low' quality caps the visible particle count instead of rendering
-    // every burst — see settings.ts's graphicsQuality doc comment.
-    const particles = this.quality === 'low' ? state.particles.slice(0, 20) : state.particles;
-    syncPool(
-      this.particlePool, particles, this.gen, this.particleLayer,
-      () => { const s = new Sprite(this.textures.spark); s.anchor.set(0.5); s.blendMode = 'add'; return s; },
-      (particle, s) => {
-        s.tint = particle.color;
-        s.x = particle.x;
-        s.y = particle.y;
-        s.width = s.height = particle.size;
-        s.alpha = Math.max(0, particle.life / particle.maxLife);
-      }
-    );
-
-    this.drawNeonRainwayLayers(state);
+    this.syncShield(state);
+    if (this.motionBlur) this.motionBlur.velocity = { x: 0, y: state.speedMultiplier * (state.rushTimer > 0 ? 6 : 4) };
   }
 
-  // Stable Graphics layers keep the new world treatment inexpensive: their
-  // draw commands update in place, while sprite pools still own entities.
+  private syncShield(state: GameState) {
+    const active = state.activePowerUp === 'SHIELD' && state.powerUpTimer > 0;
+    this.shieldRing.visible = active;
+    if (!active) return;
+    const player = state.player;
+    const radius = Math.max(player.width, player.height) * 0.75 * (1 + Math.sin(performance.now() / 150) * 0.06);
+    this.shieldRing.x = player.x;
+    this.shieldRing.y = player.y;
+    this.shieldRing.clear();
+    this.shieldRing.circle(0, 0, radius).stroke({ width: 3, color: 0x00ffff, alpha: 0.9 });
+  }
+
+  private syncEntityPools(state: GameState) {
+    this.gen++;
+    syncPool(this.vehiclePool, state.vehicles, this.gen, this.vehicleLayer,
+      (vehicle) => { const sprite = new Sprite(vehicleTexture(this.textures, vehicle)); sprite.anchor.set(0.5); return sprite; },
+      (vehicle, sprite) => { sprite.width = vehicle.width; sprite.height = vehicle.height; sprite.x = vehicle.x; sprite.y = vehicle.y; sprite.rotation = vehicle.direction === 'OPPOSITE' ? Math.PI : 0; });
+    syncPool(this.obstaclePool, state.obstacles, this.gen, this.obstacleLayer,
+      (obstacle) => { const sprite = new Sprite(obstacle.type === 'OIL_SLICK' ? this.textures.oilSlick : this.textures.debris); sprite.anchor.set(0.5); return sprite; },
+      (obstacle, sprite) => { sprite.x = obstacle.x; sprite.y = obstacle.y; sprite.width = obstacle.width; sprite.height = obstacle.height; });
+    syncPool(this.powerupPool, state.powerups, this.gen, this.powerupLayer,
+      (powerup) => { const sprite = new Sprite(this.textures.powerups[powerup.type]); sprite.anchor.set(0.5); return sprite; },
+      (powerup, sprite) => { sprite.x = powerup.x; sprite.y = powerup.y; sprite.width = powerup.width; sprite.height = powerup.height; });
+    const particles = this.quality === 'low' ? state.particles.slice(0, 20) : state.particles;
+    syncPool(this.particlePool, particles, this.gen, this.particleLayer,
+      () => { const sprite = new Sprite(this.textures.spark); sprite.anchor.set(0.5); sprite.blendMode = 'add'; return sprite; },
+      (particle, sprite) => { sprite.tint = particle.color; sprite.x = particle.x; sprite.y = particle.y; sprite.width = sprite.height = particle.size; sprite.alpha = Math.max(0, particle.life / particle.maxLife); });
+  }
+
+  // Stable Graphics layers keep the new world treatment inexpensive: their draw commands update in place.
   private drawNeonRainwayLayers(state: GameState) {
+    this.drawRoadSheen(state);
+    this.drawVehicleLights(state);
+    this.drawWeather(state);
+    this.drawFeedback(state);
+  }
+
+  private drawRoadSheen(state: GameState) {
     const width = this.app.screen.width;
     const height = this.app.screen.height;
-
     this.roadSheen.clear();
     for (let i = 0; i < 7; i++) {
       const y = ((i * 137 + state.roadOffset * 0.42) % (height + 180)) - 90;
-      const alpha = 0.025 + (i % 3) * 0.012;
-      this.roadSheen.roundRect(30, y, width - 60, 26, 13).fill({ color: NEON.roadSheen, alpha });
+      this.roadSheen.roundRect(30, y, width - 60, 26, 13).fill({ color: NEON.roadSheen, alpha: 0.025 + (i % 3) * 0.012 });
     }
-    // Electric road-edge pulses communicate velocity even with reduced scene
-    // complexity, and never enter the vehicle collision space.
     const edgeAlpha = 0.16 + Math.min(0.22, state.speedMultiplier * 0.06);
     for (let i = 0; i < 6; i++) {
       const y = ((i * 180 + state.roadOffset * 1.25) % (height + 140)) - 70;
       this.roadSheen.roundRect(12, y, 3, 72, 2).fill({ color: NEON.cyan, alpha: edgeAlpha });
       this.roadSheen.roundRect(width - 15, y + 42, 3, 72, 2).fill({ color: NEON.cyan, alpha: edgeAlpha * 0.82 });
     }
+  }
 
+  private drawVehicleLights(state: GameState) {
     this.vehicleLightLayer.clear();
     for (const vehicle of state.vehicles) {
       if (vehicle.type === 'BOSS') continue;
-      const isOncoming = vehicle.direction === 'OPPOSITE';
-      const lightColor = isOncoming ? NEON.headlight : NEON.trafficRed;
-      const lightY = vehicle.y + vehicle.height * 0.34;
+      const oncoming = vehicle.direction === 'OPPOSITE';
+      const color = oncoming ? NEON.headlight : NEON.trafficRed;
+      const y = vehicle.y + vehicle.height * 0.34;
       const spread = Math.max(7, vehicle.width * 0.24);
       const radius = Math.max(3, vehicle.width * 0.12);
-      this.vehicleLightLayer.circle(vehicle.x - spread, lightY, radius).fill({ color: lightColor, alpha: isOncoming ? 0.55 : 0.5 });
-      this.vehicleLightLayer.circle(vehicle.x + spread, lightY, radius).fill({ color: lightColor, alpha: isOncoming ? 0.55 : 0.5 });
-      if (isOncoming) {
-        this.vehicleLightLayer.roundRect(vehicle.x - vehicle.width * 0.18, lightY + radius, vehicle.width * 0.36, vehicle.height * 0.42, 6)
-          .fill({ color: lightColor, alpha: 0.045 });
-      }
+      this.vehicleLightLayer.circle(vehicle.x - spread, y, radius).fill({ color, alpha: oncoming ? 0.55 : 0.5 });
+      this.vehicleLightLayer.circle(vehicle.x + spread, y, radius).fill({ color, alpha: oncoming ? 0.55 : 0.5 });
+      if (oncoming) this.vehicleLightLayer.roundRect(vehicle.x - vehicle.width * 0.18, y + radius, vehicle.width * 0.36, vehicle.height * 0.42, 6).fill({ color, alpha: 0.045 });
     }
+  }
 
+  private drawWeather(state: GameState) {
+    const width = this.app.screen.width;
+    const height = this.app.screen.height;
+    const count = this.quality === 'low' ? 8 : state.rushTimer > 0 ? 34 : 22;
+    const alpha = this.quality === 'low' ? 0.08 : state.rushTimer > 0 ? 0.2 : 0.12;
     this.weatherLayer.clear();
-    // `low` is the default for prefers-reduced-motion. It retains a handful
-    // of directional rain cues while avoiding the dense high-speed streak field.
-    const streakCount = this.quality === 'low' ? 8 : state.rushTimer > 0 ? 34 : 22;
-    for (let i = 0; i < streakCount; i++) {
+    for (let i = 0; i < count; i++) {
       const x = 8 + ((i * 71) % Math.max(1, width - 16));
       const y = ((i * 113 + state.roadOffset * (1.25 + (i % 4) * 0.13)) % (height + 110)) - 55;
-      const length = 10 + (i % 5) * 5 + state.speedMultiplier * 3;
-      this.weatherLayer.moveTo(x, y).lineTo(x - 2, y + length).stroke({
-        width: i % 3 === 0 ? 1.1 : 0.65,
-        color: 0xb9e9ff,
-        alpha: this.quality === 'low' ? 0.08 : state.rushTimer > 0 ? 0.2 : 0.12,
-      });
+      this.weatherLayer.moveTo(x, y).lineTo(x - 2, y + 10 + (i % 5) * 5 + state.speedMultiplier * 3).stroke({ width: i % 3 === 0 ? 1.1 : 0.65, color: 0xb9e9ff, alpha });
     }
+  }
 
-    this.feedbackLayer.clear();
+  private drawFeedback(state: GameState) {
     const player = state.player;
-    if (state.nearMissPulse > 0) {
-      const progress = state.nearMissPulse / 300;
-      const radius = Math.max(player.width, player.height) * (0.72 + (1 - progress) * 0.7);
-      this.feedbackLayer.circle(player.x, player.y, radius).stroke({ width: 2.5 * progress, color: NEON.magenta, alpha: progress * 0.75 });
-    }
-    if (state.rushTimer > 0) {
-      const pulse = 0.75 + Math.sin(performance.now() / 70) * 0.18;
-      const radius = Math.max(player.width, player.height) * 1.2 * pulse;
-      this.feedbackLayer.circle(player.x, player.y + player.height * 0.24, radius).fill({ color: NEON.cyan, alpha: 0.10 });
-      this.feedbackLayer.circle(player.x, player.y, radius * 0.9).stroke({ width: 2, color: NEON.magenta, alpha: 0.6 });
-      for (let i = -2; i <= 2; i++) {
-        const x = player.x + i * player.width * 0.34;
-        this.feedbackLayer.moveTo(x, player.y + player.height * 0.42).lineTo(x - state.driveTilt * 12, player.y + player.height * (1.2 + Math.abs(i) * 0.14))
-          .stroke({ width: 2.2, color: i % 2 === 0 ? NEON.cyan : NEON.magenta, alpha: 0.55 });
-      }
+    this.feedbackLayer.clear();
+    this.drawNearMissFeedback(state, player);
+    this.drawRushFeedback(state, player);
+  }
+
+  private drawNearMissFeedback(state: GameState, player: GameState['player']) {
+    if (state.nearMissPulse <= 0) return;
+    const progress = state.nearMissPulse / 300;
+    const radius = Math.max(player.width, player.height) * (0.72 + (1 - progress) * 0.7);
+    this.feedbackLayer.circle(player.x, player.y, radius).stroke({ width: 2.5 * progress, color: NEON.magenta, alpha: progress * 0.75 });
+  }
+
+  private drawRushFeedback(state: GameState, player: GameState['player']) {
+    if (state.rushTimer <= 0) return;
+    const radius = Math.max(player.width, player.height) * 1.2 * (0.75 + Math.sin(performance.now() / 70) * 0.18);
+    this.feedbackLayer.circle(player.x, player.y + player.height * 0.24, radius).fill({ color: NEON.cyan, alpha: 0.10 });
+    this.feedbackLayer.circle(player.x, player.y, radius * 0.9).stroke({ width: 2, color: NEON.magenta, alpha: 0.6 });
+    for (let i = -2; i <= 2; i++) {
+      const x = player.x + i * player.width * 0.34;
+      this.feedbackLayer.moveTo(x, player.y + player.height * 0.42).lineTo(x - state.driveTilt * 12, player.y + player.height * (1.2 + Math.abs(i) * 0.14)).stroke({ width: 2.2, color: i % 2 === 0 ? NEON.cyan : NEON.magenta, alpha: 0.55 });
     }
   }
 

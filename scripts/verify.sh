@@ -94,8 +94,17 @@ if [ -n "$PM" ]; then
     npm)  run_with_timeout 300 build npm ci ;;
   esac
   if [ $FAIL -eq 0 ]; then
-    (pnpm run build) >/dev/null 2>&1 && notice build "build ok" || error build "build failed"
-    (npm test --if-present || pnpm test --if-present || yarn test) >/dev/null 2>&1 && notice test "test ok" || error test "test failed"
+    if pnpm run build >/dev/null 2>&1; then
+      notice build "build ok"
+    else
+      error build "build failed"
+    fi
+
+    if (npm test --if-present || pnpm test --if-present || yarn test) >/dev/null 2>&1; then
+      notice test "test ok"
+    else
+      error test "test failed"
+    fi
   fi
 elif [ -f pyproject.toml ] || [ -f requirements.txt ]; then
   pip install -q -r requirements.txt 2>/dev/null || true
