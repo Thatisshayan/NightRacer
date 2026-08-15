@@ -383,9 +383,6 @@ export class PixiRenderer implements GameRenderer {
     const sBottom = proj.scaleAt(H);
     const hwTop = (W / 2) * sHorizon;
     const hwBottom = (W / 2) * sBottom;
-    // Shoulder width shrinks with depth like everything else.
-    const shoulderTop = SHOULDER_WIDTH * sHorizon;
-    const shoulderBottom = SHOULDER_WIDTH * sBottom;
 
     // Ground beyond the shoulders: dark scrubland so the road reads as a
     // ribbon through somewhere, not as the entire world.
@@ -398,6 +395,20 @@ export class PixiRenderer implements GameRenderer {
       cx + hwBottom, H,
       cx - hwBottom, H,
     ]).fill({ color: NEON.roadSurface });
+
+    this.drawRoadShadingAndMarkings(state, hwTop, hwBottom);
+    this.drawShoulders(sHorizon, sBottom, hwTop, hwBottom);
+    this.drawHorizonHaze();
+
+    this.drawLamps(state);
+    this.syncSkyline(state);
+  }
+
+  // Depth shading, transverse seams, and lane markings on the road surface.
+  private drawRoadShadingAndMarkings(state: GameState, hwTop: number, hwBottom: number) {
+    const proj = this.projection;
+    const { width: W, height: H, horizonY, centerX: cx } = proj;
+    const g = this.roadLayer;
 
     // Depth shading: the surface darkens and desaturates toward the vanishing
     // point, which is most of what sells distance on a flat-coloured road.
@@ -456,9 +467,18 @@ export class PixiRenderer implements GameRenderer {
       g.moveTo(a.x, a.y).lineTo(b.x, b.y)
         .stroke({ width: Math.max(0.8, 2.6 * b.scale), color: NEON.amber, alpha: 0.72 });
     }
+  }
 
-    // Shoulders + guardrails as converging bands, with a neon edge light so
-    // the road boundary stays readable at the horizon.
+  // Shoulders + guardrails as converging bands, with a neon edge light so
+  // the road boundary stays readable at the horizon.
+  private drawShoulders(sHorizon: number, sBottom: number, hwTop: number, hwBottom: number) {
+    const proj = this.projection;
+    const { horizonY, height: H, centerX: cx } = proj;
+    const g = this.roadLayer;
+    // Shoulder width shrinks with depth like everything else.
+    const shoulderTop = SHOULDER_WIDTH * sHorizon;
+    const shoulderBottom = SHOULDER_WIDTH * sBottom;
+
     for (const side of [-1, 1]) {
       const inTop = cx + side * hwTop;
       const inBot = cx + side * hwBottom;
@@ -471,17 +491,19 @@ export class PixiRenderer implements GameRenderer {
       g.moveTo(outTop, horizonY).lineTo(outBot, H)
         .stroke({ width: Math.max(0.6, 1.6 * sBottom), color: NEON.magenta, alpha: 0.22 });
     }
+  }
 
-    // Horizon haze — hides the hard trapezoid apex and reads as distance fog.
+  // Horizon haze — hides the hard trapezoid apex and reads as distance fog.
+  private drawHorizonHaze() {
+    const proj = this.projection;
+    const { width: W, horizonY } = proj;
+    const g = this.roadLayer;
     const hazeBands = 10;
     for (let i = 0; i < hazeBands; i++) {
       const f = i / hazeBands;
       g.rect(0, horizonY + f * HORIZON_HAZE_PX, W, HORIZON_HAZE_PX / hazeBands + 1)
         .fill({ color: NEON.roadSheen, alpha: 0.2 * (1 - f) * (1 - f) });
     }
-
-    this.drawLamps(state);
-    this.syncSkyline(state);
   }
 
   // Street lamps, depth-placed. Each post also throws a light pool onto the
