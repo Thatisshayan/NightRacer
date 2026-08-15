@@ -44,6 +44,16 @@ function makeEngine(
   return engine;
 }
 
+function mulberry32(seed: number): () => number {
+  let s = seed | 0;
+  return () => {
+    s = (s + 0x6d2b79f5) | 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 describe('GameEngine construction', () => {
   it('lays out 4 lane centers evenly across the play-field width', () => {
     const engine = makeEngine();
@@ -279,7 +289,7 @@ describe('traffic rhythm', () => {
   });
 
   it('produces traffic that moves up-screen as well as down — relative motion, not a conveyor belt', () => {
-    const engine = makeEngine();
+    const engine = makeEngine(undefined, undefined, mulberry32(42));
     const previous = new Map<object, number>();
     let recededFrames = 0;
 
@@ -299,7 +309,7 @@ describe('traffic rhythm', () => {
   });
 
   it('spawns traffic in both directions', () => {
-    const engine = makeEngine();
+    const engine = makeEngine(undefined, undefined, mulberry32(42));
     const seen = new Set<string>();
     for (let i = 0; i < 4000; i++) {
       step(16);

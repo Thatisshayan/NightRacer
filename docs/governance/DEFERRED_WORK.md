@@ -240,7 +240,10 @@ Rule 12 / Rule 11. This register survives the session. Future agents resume from
   under `public/`. Proposed fix: move them to `artifacts/warboss-highway/assets-src/sprites-premium/`
   (outside the Vite public dir) and point `scripts/build-sprite-pack.mjs` at the new path — no
   deletion, masters retained in-repo. Blocked pending approval.
-- [2026-08-14] Gameplay/rhythm items not addressed in the readability pass — **status: deferred.**
+- [2026-08-14] Gameplay/rhythm items not addressed in the readability pass — **status: RESOLVED
+  2026-08-15. All rhythm items (authored traffic patterns, pseudo-3D camera, skyline parallax,
+  relative-motion traffic) landed in PR #22. The native Skia camera remains open as tracked
+  by the adjacent entry below.**
   All traffic still moves down-screen regardless of the `direction` field set in
   `lib/game-core/src/engine.ts` (~L982), so "oncoming" is a lighting cue only, not a motion cue;
   the renderer is orthographic with no horizon/vanishing point, so there is no 3D/low-camera
