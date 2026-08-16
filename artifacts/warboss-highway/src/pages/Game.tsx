@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { GameEngine, GameState, CarType, CAR_STATS } from '@/lib/game/engine';
+import { type GameState, type CarType, CAR_STATS, getDailyModifier } from '@workspace/game-core';
+import { WebGameEngine } from '@/lib/game/web-engine';
 import { GameOverOverlay } from '@/components/game-over-overlay';
+import { GameHudOverlay } from '@/components/game-hud-overlay';
 import { playAudio, stopAudio, toggleMute, getMuted, pauseAudio, resumeAudio } from '@/lib/game/audio';
 import { Settings } from '@/lib/game/settings';
 import { Volume2, VolumeX, Pause, Play, RotateCcw, Home, Settings2, Gamepad2, HelpCircle, X, Wrench, ArrowUp, Shield, Gauge } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { getDailyModifier } from '@/lib/game/daily';
 
 // Enter/move curve from the ui-animation skill's easing defaults.
 const ENTER_EASE = [0.22, 1, 0.36, 1] as const;
@@ -98,9 +99,19 @@ function CarPreview({ carType, selected }: { carType: CarType; selected: boolean
 // ── Main Page ──────────────────────────────────────────────────────────────────
 type Screen = 'title' | 'playing' | 'gameover';
 
+// Pixi.js (WebGL) is the default renderer now that the sprite pack (Phase E
+// of the "Warboss Highway Pixi rewrite" plan) is wired in — see
+// sprites.ts/pixi-renderer.ts. `?renderer=canvas2d` opts back into the
+// procedural Canvas 2D path for QA/debug comparison or as a manual escape
+// hatch if Pixi fails to init on a given device.
+const usePixiRenderer =
+  typeof window === 'undefined' ||
+  new URLSearchParams(window.location.search).get('renderer') !== 'canvas2d';
+
 export default function Game() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const engineRef = useRef<GameEngine | null>(null);
+  const pixiHostRef = useRef<HTMLDivElement>(null);
+  const engineRef = useRef<WebGameEngine | null>(null);
 
   const [screen, setScreen] = useState<Screen>('title');
   const [gameOverState, setGameOverState] = useState<GameState | null>(null);
@@ -118,6 +129,16 @@ export default function Game() {
   const [personalBest, setPersonalBest] = useState(0);
   const [newRecord, setNewRecord] = useState(false);
   const [isLandscape, setIsLandscape] = useState(false);
+  // True once the Pixi renderer has actually attached. Until then, the
+  // Canvas 2D fallback (WebGameEngine.renderFallback → draw()) is what's
+  // driving the frame — its own older, procedural road/guardrail/lamp-post
+  // rendering, visibly different from the sprite-pack-driven Pixi look.
+  // Pixi loads async (dynamic import + sprite pack fetch, see startGame()
+  // below), so without this a real user saw that older rendering flash
+  // for real time before Pixi swapped in. Covered instead of just letting
+  // it show, rather than changing what renderFallback() draws (it's still
+  // the real fallback if Pixi genuinely fails to load).
+  const [pixiReady, setPixiReady] = useState(false);
   const prefersReducedMotion = useReducedMotion();
 
   // Landscape detection
@@ -223,8 +244,12 @@ export default function Game() {
   }, [screen, selectedCar, prefersReducedMotion]);
 
   // Cleanup on unmount
+  const unmountedRef = useRef(false);
   useEffect(() => {
-    return () => { engineRef.current?.cleanup(); };
+    return () => {
+      unmountedRef.current = true;
+      engineRef.current?.cleanup();
+    };
   }, []);
 
   // Pause/resume keyboard shortcut
@@ -242,9 +267,11 @@ export default function Game() {
 
   // Show tutorial on first title visit
   useEffect(() => {
-    if (screen === 'title' && !Settings.getTutorialSeen()) {
-      setShowTutorial(true);
-    }
+    if (screen !== 'title' || Settings.getTutorialSeen()) return;
+    // Let the title screen render and settle first — opening the modal on the
+    // same frame hides the game's identity behind a wall of instructions.
+    const timer = window.setTimeout(() => setShowTutorial(true), 1100);
+    return () => window.clearTimeout(timer);
   }, [screen]);
 
   const togglePause = useCallback(() => {
@@ -278,8 +305,9 @@ export default function Game() {
     setGameOverState(null);
     setNewRecord(false);
     setScreen('playing');
+    setPixiReady(!usePixiRenderer);
 
-    engineRef.current = new GameEngine(
+    engineRef.current = new WebGameEngine(
       canvasRef.current,
       (state) => {
         const isNew = updatePB(selectedCar, state.score);
@@ -307,6 +335,25 @@ export default function Game() {
       }
     );
     engineRef.current.start();
+
+    if (usePixiRenderer && pixiHostRef.current) {
+      const engine = engineRef.current;
+      const host = pixiHostRef.current;
+      host.innerHTML = '';
+      import('@/lib/game/pixi-renderer').then(({ PixiRenderer }) =>
+        PixiRenderer.create(host, 420, 800)
+      ).then((renderer) => {
+        // Bail if the engine was torn down (restart) or the component
+        // unmounted while the Pixi bundle/app was still loading — otherwise
+        // this would attach to (or leak) a renderer nothing owns anymore.
+        if (unmountedRef.current || engineRef.current !== engine) { renderer.destroy(); return; }
+        engine.attachRenderer(renderer);
+        setPixiReady(true);
+      }).catch((err) => {
+        console.error('[pixi-debug] failed to attach Pixi renderer', err);
+        setPixiReady(true); // uncover the Canvas 2D fallback — it's genuinely the active renderer now
+      });
+    }
   }, [isDailyChallenge, selectedCar, joystickEnabled]);
 
   const handleToggleMute = () => setIsMuted(toggleMute());
@@ -338,7 +385,7 @@ export default function Game() {
   };
 
   return (
-    <div className="relative w-full h-[100dvh] bg-black overflow-hidden flex items-center justify-center">
+    <div className="relative w-full h-[100dvh] bg-[#050816] overflow-hidden flex items-center justify-center">
       {/* Landscape warning */}
       {isLandscape && (
         <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/95 text-white text-center p-8">
@@ -348,7 +395,11 @@ export default function Game() {
         </div>
       )}
 
-      <div className="relative w-full max-w-[420px] h-full shadow-2xl shadow-primary/20">
+      {/* Border ported from the mobile app's gameFrame style — a thin red
+          instrument-viewport border, matching the grimdark accent used
+          elsewhere (HUD skulls, buttons), on top of the pre-existing glow
+          shadow. */}
+      <div className="relative w-full max-w-[420px] h-full shadow-[0_0_52px_rgba(39,217,255,0.18)] border border-[#27d9ff]/55 bg-[#050816]">
         {/* Game canvas — always mounted (and always visible) so the engine can
             attach, and so the crash frame stays painted underneath the
             game-over overlay as it fades in instead of hard-cutting to black. */}
@@ -359,6 +410,39 @@ export default function Game() {
           className="block w-full h-full object-cover touch-none"
         />
 
+        {/* Pixi (WebGL) renderer host — default renderer, opt out with
+            ?renderer=canvas2d. Sits over the Canvas 2D element and
+            is pointer-events-none so input still reaches the canvas, which
+            owns all touch/keyboard listeners regardless of active renderer.
+            Stays visible through 'gameover' too (not just 'playing') since
+            attachRenderer() clears the Canvas 2D surface underneath and the
+            engine stops calling draw() — hiding this on death would expose a
+            blank layer instead of the frozen crash frame the game-over
+            overlay is meant to fade in over. */}
+        {usePixiRenderer && (
+          <div
+            ref={pixiHostRef}
+            className="absolute inset-0 pointer-events-none"
+            style={{ display: screen !== 'title' ? 'block' : 'none' }}
+          />
+        )}
+
+        {/* Loading cover — masks the Canvas 2D fallback's older,
+            procedural road/guardrail/lamp-post rendering while Pixi's
+            bundle + sprite pack are still loading. See pixiReady's doc
+            comment. */}
+        {usePixiRenderer && screen === 'playing' && !pixiReady && (
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-black">
+            <div className="text-xs font-mono text-muted-foreground tracking-widest uppercase">Loading…</div>
+          </div>
+        )}
+
+        {/* HUD — DOM overlay, independent of which renderer (Canvas 2D or
+            Pixi) is drawing the game world underneath it. */}
+        {screen === 'playing' && engineRef.current && (
+          <GameHudOverlay engine={engineRef.current} />
+        )}
+
         {/* Title / car-select screen */}
         <AnimatePresence>
         {screen === 'title' && (
@@ -368,15 +452,34 @@ export default function Game() {
             initial="hidden"
             animate="visible"
             exit="exit"
-            className="absolute inset-0 flex flex-col items-center justify-between bg-black/95 z-10 py-10 px-5 overflow-y-auto">
-            {/* Logo */}
-            <motion.div variants={titleItemVariants} className="text-center mb-2">
-              <h1 className="text-5xl font-black text-primary drop-shadow-[0_0_10px_rgba(220,38,38,0.8)] tracking-tighter leading-none mb-1">
+            className="absolute inset-0 flex flex-col items-center justify-between bg-[#050816]/[0.80] z-10 py-8 px-5 overflow-y-auto">
+            {/* Neon Rainway title field: restrained ambient light, a distant
+                highway beam, and the existing city layers build depth without
+                turning the menu into a non-interactive full-screen poster. */}
+            <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(ellipse_at_50%_105%,rgba(39,217,255,0.25),transparent_43%),radial-gradient(ellipse_at_92%_18%,rgba(223,75,255,0.16),transparent_30%)]" />
+            <div className="absolute left-1/2 bottom-[-18%] h-[72%] w-[52%] -translate-x-1/2 skew-x-[-6deg] border-x border-[#27d9ff]/25 bg-gradient-to-t from-[#11192a]/90 via-[#101a2a]/30 to-transparent pointer-events-none" />
+            {/* Skyline parallax backdrop remains low-contrast scenery, never a competing primary action. */}
+            <img
+              src={`${import.meta.env.BASE_URL}sprites/skyline_layer1.png`}
+              alt=""
+              className="absolute left-0 right-0 bottom-0 w-full h-[230px] object-cover opacity-38 mix-blend-screen pointer-events-none"
+            />
+            <img
+              src={`${import.meta.env.BASE_URL}sprites/skyline_layer2.png`}
+              alt=""
+              className="absolute left-0 right-0 bottom-0 w-full h-[160px] object-cover opacity-58 pointer-events-none"
+            />
+            <div className="relative z-10 flex w-full flex-col items-center justify-between">
+            {/* Logo / mission framing */}
+            <motion.div variants={titleItemVariants} className="relative text-center mb-1">
+              <p className="mb-2 text-[9px] font-mono font-bold tracking-[0.34em] text-[#27d9ff]">NEON RAINWAY // SECTOR 09</p>
+              <h1 className="text-5xl font-black text-[#d4e6f1] drop-shadow-[0_0_18px_rgba(39,217,255,0.44)] tracking-tighter leading-none mb-1">
                 WARBOSS
               </h1>
-              <h2 className="text-4xl font-black text-white tracking-widest">HIGHWAY</h2>
-              <p className="text-muted-foreground font-mono text-xs mt-2">
-                WASD / Arrows to drive freely. Dodge oncoming traffic.
+              <h2 className="text-4xl font-black tracking-[0.17em] text-transparent bg-clip-text bg-gradient-to-r from-[#27d9ff] via-[#d4e6f1] to-[#df4bff]">HIGHWAY</h2>
+              <div className="mx-auto mt-3 h-px w-28 bg-gradient-to-r from-transparent via-[#27d9ff] to-transparent" />
+              <p className="text-[#8295aa] font-mono text-[11px] tracking-wide mt-3">
+                SURVIVE THE STORM. CHARGE RUSH THROUGH CLOSE PASSES.
               </p>
             </motion.div>
 
@@ -414,7 +517,7 @@ export default function Game() {
                 {(() => {
                   const stats = CAR_STATS[selectedCar];
                   return (
-                    <div className="flex-1 flex flex-col items-center p-3 border-2 border-primary bg-primary/10 shadow-[0_0_18px_rgba(220,38,38,0.35)]">
+                    <div className="flex-1 flex flex-col items-center p-3 border border-[#27d9ff]/70 bg-[#0d1828]/75 shadow-[0_0_22px_rgba(39,217,255,0.18)]">
                       <CarPreview carType={selectedCar} selected={true} />
                       <span className="font-black text-sm tracking-widest mt-2 text-center leading-tight text-white">
                         {stats.label}
@@ -455,7 +558,7 @@ export default function Game() {
                   >
                     <span
                       className={`block w-2 h-2 transition-all ${
-                        selectedCar === car ? 'bg-primary scale-125' : 'bg-muted-foreground/40 hover:bg-muted-foreground/70'
+                        selectedCar === car ? 'bg-[#27d9ff] scale-125 shadow-[0_0_8px_rgba(39,217,255,0.9)]' : 'bg-[#8295aa]/45 hover:bg-[#d4e6f1]/75'
                       }`}
                     />
                   </button>
@@ -475,14 +578,14 @@ export default function Game() {
               <button
                 onClick={() => setIsDailyChallenge((v) => !v)}
                 className={`relative w-12 h-6 rounded-none border-2 transition-all active:scale-[0.94] motion-reduce:active:scale-100 ${
-                  isDailyChallenge ? 'border-green-500 bg-green-900/40' : 'border-border bg-card/30'
+                  isDailyChallenge ? 'border-[#27d9ff] bg-[#27d9ff]/15' : 'border-[#8295aa]/45 bg-[#0d1828]/60'
                 }`}
               >
                 <span className={`absolute top-0.5 w-4 h-4 bg-white transition-all ${isDailyChallenge ? 'left-6' : 'left-0.5'}`} />
               </button>
               <span className="font-mono text-xs text-muted-foreground">
                 {isDailyChallenge ? (
-                  <span className="text-green-400 font-bold">◆ DAILY CHALLENGE</span>
+                  <span className="text-[#27d9ff] font-bold">◆ DAILY CHALLENGE</span>
                 ) : (
                   'DAILY CHALLENGE'
                 )}
@@ -490,9 +593,9 @@ export default function Game() {
             </motion.div>
 
             {isDailyChallenge && (
-              <motion.div variants={titleItemVariants} className="w-full border border-green-500/40 bg-green-900/20 p-3 text-center">
-                <p className="text-green-400 font-black text-xs tracking-widest mb-1">{dailyModifier.name}</p>
-                <p className="text-green-200/80 text-[10px] font-mono leading-tight">{dailyModifier.description}</p>
+              <motion.div variants={titleItemVariants} className="w-full border border-[#27d9ff]/40 bg-[#0d1828]/75 p-3 text-center">
+                <p className="text-[#27d9ff] font-black text-xs tracking-widest mb-1">{dailyModifier.name}</p>
+                <p className="text-[#d4e6f1]/75 text-[10px] font-mono leading-tight">{dailyModifier.description}</p>
               </motion.div>
             )}
 
@@ -557,7 +660,7 @@ export default function Game() {
             <Button
               asChild
               size="lg"
-              className="w-full h-16 text-2xl font-black tracking-widest rounded-none border-2 border-primary bg-primary hover:bg-transparent hover:text-primary transition-all uppercase mt-2"
+              className="w-full h-16 text-2xl font-black tracking-[0.14em] rounded-none border border-[#27d9ff] bg-[#27d9ff] text-[#050816] hover:bg-transparent hover:text-[#27d9ff] transition-all uppercase mt-2 shadow-[0_0_24px_rgba(39,217,255,0.25)]"
             >
               {/* framer-motion owns this element's `transform` (the y-offset
                   stagger-in variant), so press feedback uses whileTap instead
@@ -573,6 +676,7 @@ export default function Game() {
                 START ENGINE
               </motion.button>
             </Button>
+            </div>
           </motion.div>
         )}
 
@@ -642,7 +746,7 @@ export default function Game() {
               <div className="w-full max-w-xs space-y-3">
                 <Button
                   onClick={togglePause}
-                  className="w-full h-14 text-lg font-black tracking-widest bg-primary hover:bg-primary/80 text-primary-foreground rounded-none border-2 border-primary"
+                  className="w-full h-14 text-lg font-black tracking-widest bg-[#27d9ff] hover:bg-[#27d9ff]/80 text-[#050816] rounded-none border border-[#27d9ff]"
                 >
                   <Play className="w-5 h-5 mr-2" /> RESUME
                 </Button>
@@ -690,12 +794,12 @@ export default function Game() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
               transition={{ duration: prefersReducedMotion ? 0 : 0.25, ease: ENTER_EASE }}
-              className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-black/92 p-6"
+              className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-[#050816]/95 p-6"
             >
               <div className="w-full max-w-sm space-y-5">
                 <div className="text-center">
-                  <h2 className="text-3xl font-black text-primary tracking-tighter mb-1">WARBOSS ACADEMY</h2>
-                  <p className="text-muted-foreground font-mono text-xs">BASIC SURVIVAL TRAINING</p>
+                  <h2 className="text-3xl font-black text-[#27d9ff] tracking-tighter mb-1">NIGHT DRIVE BRIEF</h2>
+                  <p className="text-[#8295aa] font-mono text-xs">SURVIVAL TRAINING // SECTOR 09</p>
                 </div>
                 <div className="space-y-4">
                   <div className="flex items-start gap-3 border border-border p-3 bg-card/50">
@@ -722,7 +826,7 @@ export default function Game() {
                 </div>
                 <Button
                   onClick={() => { setShowTutorial(false); Settings.setTutorialSeen(true); }}
-                  className="w-full h-14 text-lg font-black tracking-widest bg-primary hover:bg-primary/80 text-primary-foreground rounded-none border-2 border-primary"
+                  className="w-full h-14 text-lg font-black tracking-widest bg-[#27d9ff] hover:bg-[#27d9ff]/80 text-[#050816] rounded-none border border-[#27d9ff]"
                 >
                   GOT IT
                 </Button>

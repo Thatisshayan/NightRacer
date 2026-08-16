@@ -1,0 +1,235 @@
+name: ios-build
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'artifacts/warboss-highway-mobile/**'
+      - 'lib/api-client-react/**'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - '.github/workflows/ios-build.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'artifacts/warboss-highway-mobile/**'
+      - 'lib/api-client-react/**'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - '.github/workflows/ios-build.yml'
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    name: build (expo prebuild + xcodebuild, no EAS)
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: artifacts/warboss-highway-mobile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select newest available Xcode
+        # macos-15's default Xcode (16.4) only ships the iOS 18.5 SDK, but
+        # App Store Connect now requires apps built with the iOS 26 SDK
+        # (Xcode 26+) for upload - confirmed by a real failed upload attempt,
+        # not assumed. GitHub's macOS runners preinstall multiple Xcode
+        # versions under /Applications; select the newest instead of
+        # hardcoding a version that will go stale. Runs at the repo root
+        # (not the job's default mobile-package working-directory) since
+        # it doesn't touch any project files.
+        working-directory: .
+        run: |
+          set -euo pipefail
+          echo "--- available Xcode installs ---"
+          ls -d /Applications/Xcode*.app
+          NEWEST="$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+          echo "Selecting: $NEWEST"
+          sudo xcode-select -s "$NEWEST/Contents/Developer"
+          xcodebuild -version
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies (workspace root)
+        working-directory: .
+        run: pnpm install --frozen-lockfile
+
+      - name: Prebuild native iOS project
+        # --no-install: pnpm already installed workspace deps above; expo's own
+        # installer doesn't know about pnpm workspaces.
+        run: npx expo prebuild --platform ios --non-interactive --no-install
+
+      - name: Import signing certificate + provisioning profile
+        env:
+          IOS_DIST_CERT_P12_BASE64: ${{ secrets.IOS_DIST_CERT_P12_BASE64 }}
+          IOS_DIST_CERT_P12_PASSWORD: ${{ secrets.IOS_DIST_CERT_P12_PASSWORD }}
+          IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 24)"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Apple's intermediate CA certs — without these in the keychain, the
+          # distribution cert's chain can't be validated even though it
+          # imports fine, and xcodebuild silently can't resolve ANY valid
+          # export method (reports the enum of acceptable values as empty).
+          for cert_url in \
+            "https://www.apple.com/appleca/AppleIncRootCertificate.cer" \
+            "https://www.apple.com/certificateauthority/AppleRootCA-G2.cer" \
+            "https://www.apple.com/certificateauthority/AppleRootCA-G3.cer" \
+            "https://www.apple.com/certificateauthority/AppleWWDRCAG2.cer" \
+            "https://www.apple.com/certificateauthority/AppleWWDRCAG3.cer" \
+            "https://www.apple.com/certificateauthority/AppleWWDRCAG4.cer" \
+            "https://www.apple.com/certificateauthority/AppleWWDRCAG5.cer" \
+            "https://www.apple.com/certificateauthority/AppleWWDRCAG6.cer" \
+            ; do
+            cert_file="$RUNNER_TEMP/$(basename "$cert_url")"
+            if curl -fsSL "$cert_url" -o "$cert_file"; then
+              security import "$cert_file" -k "$KEYCHAIN_PATH" -T /usr/bin/codesign -T /usr/bin/security || true
+            else
+              echo "::warning::could not fetch $cert_url (may have moved) - continuing"
+            fi
+          done
+
+          echo "$IOS_DIST_CERT_P12_BASE64" | base64 --decode -o "$RUNNER_TEMP/dist_cert.p12"
+          security import "$RUNNER_TEMP/dist_cert.p12" -k "$KEYCHAIN_PATH" -P "$IOS_DIST_CERT_P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | sed 's/"//g')
+
+          PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$PROFILE_DIR"
+          echo "$IOS_PROVISIONING_PROFILE_BASE64" | base64 --decode -o "$PROFILE_DIR/warboss-highway.mobileprovision"
+
+          echo "--- identities available for codesigning ---"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+          echo "--- provisioning profile contents ---"
+          security cms -D -i "$PROFILE_DIR/warboss-highway.mobileprovision"
+
+      - name: Install CocoaPods dependencies
+        # expo prebuild generates the .xcodeproj + Podfile but not the
+        # .xcworkspace - that only exists once CocoaPods links the pods in.
+        working-directory: artifacts/warboss-highway-mobile/ios
+        run: pod install --repo-update
+
+      - name: Discover workspace + scheme
+        # Don't hardcode the name expo prebuild gives the Xcode project —
+        # it's derived from app.json's `name`, sanitization rules aren't
+        # worth tracking by hand. Discover it for real instead.
+        id: xc
+        run: |
+          set -euo pipefail
+          WORKSPACE_PATH="$(find ios -maxdepth 1 -name '*.xcworkspace' | head -1)"
+          if [ -z "$WORKSPACE_PATH" ]; then
+            echo "::error::No .xcworkspace found under ios/ after expo prebuild"
+            ls -la ios
+            exit 1
+          fi
+          # Expo/CocoaPods workspaces list a scheme per pod library
+          # (e.g. "EXConstants") alongside the actual app scheme - picking
+          # the first non-Tests one is wrong, it grabs a static library with
+          # zero valid export methods. The app scheme's name matches the
+          # .xcodeproj basename Expo generated (same as $WORKSPACE_PATH's
+          # basename), so match on that specifically instead of guessing.
+          PROJECT_NAME="$(basename "$WORKSPACE_PATH" .xcworkspace)"
+          SCHEME_JSON="$(xcodebuild -list -workspace "$WORKSPACE_PATH" -json)"
+          echo "--- all schemes in workspace ---"
+          echo "$SCHEME_JSON" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{console.log(JSON.parse(d).workspace.schemes);})"
+          SCHEME="$(echo "$SCHEME_JSON" \
+            | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d);const want='$PROJECT_NAME';const s=j.workspace.schemes.includes(want)?want:j.workspace.schemes.find(s=>!s.includes('Tests'));console.log(s);})")"
+          echo "workspace=$WORKSPACE_PATH" >> "$GITHUB_OUTPUT"
+          echo "scheme=$SCHEME" >> "$GITHUB_OUTPUT"
+          echo "Discovered workspace=$WORKSPACE_PATH scheme=$SCHEME (project name matched: $PROJECT_NAME)"
+
+      - name: Archive (xcodebuild, no EAS/Fastlane)
+        env:
+          DISCOVERED_WORKSPACE: ${{ steps.xc.outputs.workspace }}
+          DISCOVERED_SCHEME: ${{ steps.xc.outputs.scheme }}
+        run: |
+          set -euo pipefail
+          xcodebuild -workspace "$DISCOVERED_WORKSPACE" \
+            -scheme "$DISCOVERED_SCHEME" \
+            -configuration Release \
+            -archivePath "$RUNNER_TEMP/WarbossHighway.xcarchive" \
+            -destination 'generic/platform=iOS' \
+            -allowProvisioningUpdates \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="iPhone Distribution" \
+            PROVISIONING_PROFILE_SPECIFIER="Warboss Highway App Store" \
+            DEVELOPMENT_TEAM=9Y6GYPM3K5 \
+            archive
+
+          echo "--- archive Info.plist (signing metadata) ---"
+          /usr/libexec/PlistBuddy -c "Print" "$RUNNER_TEMP/WarbossHighway.xcarchive/Info.plist" || true
+          echo "--- entitlements actually applied to the built app ---"
+          APP_PATH="$(find "$RUNNER_TEMP/WarbossHighway.xcarchive/Products/Applications" -maxdepth 1 -name '*.app' | head -1)"
+          codesign -d --entitlements :- "$APP_PATH" || true
+
+      - name: Export IPA
+        run: |
+          set -euo pipefail
+          PLIST_PATH="$RUNNER_TEMP/exportOptions.plist"
+          /usr/libexec/PlistBuddy -c "Add :method string app-store-connect" "$PLIST_PATH"
+          /usr/libexec/PlistBuddy -c "Add :signingStyle string manual" "$PLIST_PATH"
+          /usr/libexec/PlistBuddy -c "Add :teamID string 9Y6GYPM3K5" "$PLIST_PATH"
+          /usr/libexec/PlistBuddy -c "Add :provisioningProfiles dict" "$PLIST_PATH"
+          /usr/libexec/PlistBuddy -c "Add :provisioningProfiles:com.warbosshighway.app string 'Warboss Highway App Store'" "$PLIST_PATH"
+          cat "$PLIST_PATH"
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/WarbossHighway.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/exportOptions.plist" \
+            -exportPath "$RUNNER_TEMP/export"
+
+      - name: Upload IPA as a build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WarbossHighway-ipa
+          path: ${{ runner.temp }}/export/*.ipa
+          retention-days: 14
+
+      # Only ship to TestFlight from main - PRs just prove the archive/export
+      # succeeds, so every PR doesn't spam a new TestFlight build. Re-exports
+      # with destination=upload rather than reusing altool (legacy, being
+      # phased out) - xcodebuild handles the upload itself when given the API
+      # key directly, no separate key-file-lookup path convention to get wrong.
+      - name: Export + upload to TestFlight
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY_P8: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}
+        run: |
+          set -euo pipefail
+          KEY_PATH="$RUNNER_TEMP/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8"
+          (umask 077 && echo "$APP_STORE_CONNECT_API_KEY_P8" > "$KEY_PATH")
+
+          UPLOAD_PLIST_PATH="$RUNNER_TEMP/exportOptionsUpload.plist"
+          /usr/libexec/PlistBuddy -c "Add :method string app-store-connect" "$UPLOAD_PLIST_PATH"
+          /usr/libexec/PlistBuddy -c "Add :signingStyle string manual" "$UPLOAD_PLIST_PATH"
+          /usr/libexec/PlistBuddy -c "Add :teamID string 9Y6GYPM3K5" "$UPLOAD_PLIST_PATH"
+          /usr/libexec/PlistBuddy -c "Add :provisioningProfiles dict" "$UPLOAD_PLIST_PATH"
+          /usr/libexec/PlistBuddy -c "Add :provisioningProfiles:com.warbosshighway.app string 'Warboss Highway App Store'" "$UPLOAD_PLIST_PATH"
+          /usr/libexec/PlistBuddy -c "Add :destination string upload" "$UPLOAD_PLIST_PATH"
+          cat "$UPLOAD_PLIST_PATH"
+
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/WarbossHighway.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/exportOptionsUpload.plist" \
+            -exportPath "$RUNNER_TEMP/export-upload" \
+            -authenticationKeyPath "$KEY_PATH" \
+            -authenticationKeyID "$APP_STORE_CONNECT_KEY_ID" \
+            -authenticationKeyIssuerID "$APP_STORE_CONNECT_ISSUER_ID"
