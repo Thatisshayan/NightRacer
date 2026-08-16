@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { GameEngine, CAR_STATS, type GameState, type CarType } from './engine';
+import { GameEngine, CAR_STATS, TRAFFIC_PATTERNS, type GameState, type CarType } from './engine';
 
 // game-core has zero DOM dependency by design (see engine.ts's header
 // comment and global.d.ts) — these tests run in a plain Node environment,
@@ -34,8 +34,12 @@ function step(dtMs: number) {
   cb(currentTime);
 }
 
-function makeEngine(onGameOver: (state: GameState) => void = () => {}, selectedCar?: CarType) {
-  const engine = new GameEngine({ width: 420, height: 800 }, onGameOver, { selectedCar });
+function makeEngine(
+  onGameOver: (state: GameState) => void = () => {},
+  selectedCar?: CarType,
+  random?: () => number
+) {
+  const engine = new GameEngine({ width: 420, height: 800 }, onGameOver, { selectedCar, random });
   engine.start();
   return engine;
 }
@@ -195,6 +199,50 @@ describe('GameEngine simulation over time', () => {
   });
 });
 
+// Framerate-independence: the simulation is built around a single `dt` so
+// the same wall-clock duration produces the same world motion regardless of
+// how many frames it was spread across. The player, distance, and score
+// updates are all `dt`-scaled; traffic/obstacle/powerup motion MUST be too,
+// or the game runs slower at 30fps and faster at 120fps — which both breaks
+// fairness between devices and makes leaderboard scores framerate-dependent.
+describe('GameEngine framerate independence', () => {
+  function vehicleDropOver(totalMs: number, dtMs: number): number {
+    // A fixed random source makes the same traffic object spawn at the same
+    // simulation instant for both dt variants. The old test selected a
+    // different random vehicle at each frame rate, which measured spawn
+    // turnover rather than frame-normalized movement.
+    const engine = makeEngine(() => {}, undefined, () => 0.5);
+    // Advance past the initial spawn delay so at least one vehicle exists.
+    let firstVehicleY: number | null = null;
+    let lastVehicleY = 0;
+    let frames = 0;
+    while (frames * dtMs < totalMs) {
+      step(dtMs);
+      const vehicles = engine.getState().vehicles;
+      if (vehicles.length > 0) {
+        const v = vehicles[0];
+        if (firstVehicleY === null) firstVehicleY = v.y;
+        lastVehicleY = v.y;
+      }
+      frames++;
+    }
+    // Return the on-screen vertical travel of whichever vehicle we tracked.
+    if (firstVehicleY === null) return 0;
+    return lastVehicleY - firstVehicleY;
+  }
+
+  it('advances traffic the same distance regardless of frame rate (small vs large dt)', () => {
+    const smallDt = vehicleDropOver(2000, 16);
+    const largeDt = vehicleDropOver(2000, 33);
+    expect(smallDt).toBeGreaterThan(0);
+    // Same 2 seconds of game time must move traffic the same number of
+    // pixels whether stepped at 60fps or 30fps. Allow a small tolerance for
+    // spawn-timing variance (a vehicle may not have spawned yet at the exact
+    // same offset), but they must be within a few percent.
+    expect(Math.abs(smallDt - largeDt)).toBeLessThan(largeDt * 0.1);
+  });
+});
+
 describe('CAR_STATS', () => {
   // Regression test for "player cars a couple of them are too narrow, so
   // they can basically run forever" (DEATHSLED was 22px, PHANTOM was
@@ -203,5 +251,61 @@ describe('CAR_STATS', () => {
     for (const stats of Object.values(CAR_STATS)) {
       expect(stats.width).toBeGreaterThanOrEqual(24);
     }
+  });
+});
+
+// --- Traffic rhythm ------------------------------------------------------
+// Regression tests for "the enemy cars don't have rhythm, you don't know if
+// they're coming to you or you to them, and they're all in a box".
+describe('traffic rhythm', () => {
+  it('never emits a beat that occupies all four lanes — every pattern is threadable', () => {
+    for (const pattern of TRAFFIC_PATTERNS) {
+      for (const beat of pattern.beats) {
+        const lanes = new Set(beat);
+        expect(lanes.size).toBeLessThan(4);
+        for (const lane of beat) {
+          expect(lane).toBeGreaterThanOrEqual(0);
+          expect(lane).toBeLessThanOrEqual(3);
+        }
+      }
+    }
+  });
+
+  it('exposes a difficulty ladder — later patterns are gated behind distance, not just a faster spawn timer', () => {
+    const tiers = TRAFFIC_PATTERNS.map((p) => p.tier);
+    expect(Math.min(...tiers)).toBe(0);
+    // More than one tier, otherwise the "ramp by pattern tier" claim is empty.
+    expect(new Set(tiers).size).toBeGreaterThan(2);
+  });
+
+  it('produces traffic that moves up-screen as well as down — relative motion, not a conveyor belt', () => {
+    const engine = makeEngine();
+    const previous = new Map<object, number>();
+    let recededFrames = 0;
+
+    for (let i = 0; i < 6000; i++) {
+      step(16);
+      for (const v of engine.getState().vehicles) {
+        const before = previous.get(v);
+        // A negative delta means the vehicle is pulling away from the player
+        // up-screen. Before the pattern/motion rework a 1.2px/frame floor made
+        // this impossible for every vehicle in the game.
+        if (before !== undefined && v.y < before - 0.001) recededFrames++;
+        previous.set(v, v.y);
+      }
+    }
+
+    expect(recededFrames).toBeGreaterThan(0);
+  });
+
+  it('spawns traffic in both directions', () => {
+    const engine = makeEngine();
+    const seen = new Set<string>();
+    for (let i = 0; i < 4000; i++) {
+      step(16);
+      for (const v of engine.getState().vehicles) seen.add(v.direction);
+    }
+    expect(seen.has('OPPOSITE')).toBe(true);
+    expect(seen.has('SAME')).toBe(true);
   });
 });

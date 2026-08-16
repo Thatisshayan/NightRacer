@@ -6,6 +6,22 @@ Rule 12 / Rule 11. This register survives the session. Future agents resume from
 - `[DATE] <scope>: <what> — <why deferred> — <resume hint> — <status>`
 
 ## Items
+- [2026-08-13] **Governance gate (PR #16) was red for a non-code reason** — `scripts/verify.sh`'s
+  `deploy-dry` block ran `vercel build --dry-run` *unconditionally* whenever `vercel.json` exists,
+  but `VERCEL_TOKEN` is not set in CI (confirmed: the workflow's own `Vercel deploy-dry check`
+  step reported `skipped` because its `[ -n "$VERCEL_TOKEN" ]` guard failed). So the dry-run
+  failed on missing auth alone — never a real build error — and `VERIFY FAILED` made the whole
+  `gate` red even though the app build+test passed (windows-smoke green; verify.sh reported
+  "build ok"/"test ok" before the deploy-dry step). Fixed: `verify.sh` now mirrors the workflow —
+  skips the vercel dry-run with a `::notice` when `VERCEL_TOKEN` is unset, runs it (and treats
+  failure as an error) only when the token is present. This unblocks the gate without masking a
+  real deploy/build failure. **status: fixed** — `scripts/verify.sh` patched; branch
+  `agent/hermes-gate-verify-sh-vercel-guard` (PR pending). Note: `mockup-sandbox` (`artifacts/`)
+  `vite build` errors under the recursive `pnpm run build --if-present` on linux CI, but that
+  error is *non-fatal* to the gate (verify.sh line-93 `||`-chain absorbs it and still reports
+  "build ok"); it is a separate latent bug, not what broke the gate. Recommended separate pass:
+  investigate the mockup-sandbox linux vite build error (case-sensitive import or missing asset)
+  on its own branch.
 - [2026-07-25] api-server local dev: no local Postgres/Docker available in this
   environment to satisfy `DATABASE_URL` (required, throws in `lib/db/src/index.ts`) —
   deferred because provisioning a DB is an infra/credentials decision, not a code fix —
@@ -80,9 +96,15 @@ Rule 12 / Rule 11. This register survives the session. Future agents resume from
   `startMusic()` where `AudioContext.resume()` is fire-and-forget so `musicPlaying` can be
   set true before the context has actually resumed (only matters on rapid
   title/gameplay music switches on an autoplay-blocked context) — resume by re-reading
-  both findings on PR #5's review thread and deciding if they're worth the churn — status:
-  open, deliberately not started.
-- [2026-07-27] `artifacts/warboss-highway` has no test files and no `test` script — the
+  both findings on PR #5's review thread and deciding if they're worth the churn — **status:
+  resolved 2026-08-13.** (1) Added a one-line public-API doc note (autoplay policy +
+  double-start guard) near `playAudio`/`startMusic`. (2) Fixed the race: extracted a
+  `begin()` closure that builds+starts the graph and only then sets `musicPlaying=true`;
+  added a `musicStarting` guard so a second `startMusic()` call during the async
+  `resume()` gap is a no-op (no double-start, no falsely-reported "playing" before the
+  graph runs); `stopMusic()` now also clears `musicStarting`. Runtime behavior still needs
+  a browser to confirm (no Web Audio in this env) — same as the other audio.ts QA items.
+
   `gate` CI check's test step no-ops via `--if-present` — so "CI green" on PR #5 means
   typecheck + build succeeded only, not that gameplay behavior was verified by anything
   automated — resume by adding at least smoke tests around `GameEngine` (spawn/collision/
@@ -198,3 +220,46 @@ Rule 12 / Rule 11. This register survives the session. Future agents resume from
   Expo app on a device/simulator and confirming: streaks read as speed not clutter at MAX SPEED,
   and the shield bloom looks right (not overblown). Mobile `tsc` typecheck still hangs under
   MSYS locally; CI on Linux is the real gate.
+- [2026-08-12] Framerate-dependent traffic speed (gameplay fairness + leaderboard integrity bug)
+  — **status: fixed.** In `lib/game-core/src/engine.ts`, vehicle/powerup/obstacle/particle
+  movement advanced by a fixed per-frame amount with NO `dt` scaling, while the player/distance/
+  score already scaled by `dt/16`. Result: at 30fps traffic fell ~half-speed, at 120fps ~2x —
+  breaks fairness across devices and makes scores framerate-dependent. Fixed by adding
+  `frameScale = dt/16` and multiplying all four movement sites by it. Regression test added in
+  `engine.test.ts` (asserts traffic drops the same distance at 16ms vs 33ms steps over 3s);
+  full engine suite 12/12 pass under vitest. Branch `agent/hermes-framerate-independence` (commit
+  `803e294`). Same MSYS `tsc`/`vite`/pnpm hang prevents local build verification; CI is the gate.
+- [2026-08-14] Move sprite authoring masters out of the served directory — **status: RESOLVED
+  2026-08-14. Shayan approved in #nightracer; masters moved via `git mv` to
+  `artifacts/warboss-highway/assets-src/sprites-premium/` (no deletion), `scripts/build-sprite-pack.mjs`
+  SRC repointed, and the menu skyline `<img>` tags in `src/pages/Game.tsx` switched from
+  `sprites-premium/` to `sprites/`. Original entry below for context.**
+  `artifacts/warboss-highway/public/sprites-premium/` is 125.7 MB of 1373x2048 / 2048x2048 PNGs
+  that are no longer loaded at runtime (the game now loads the 6.5 MB pack from `public/sprites/`,
+  built by `scripts/build-sprite-pack.mjs`). They still ship with every deploy because they sit
+  under `public/`. Proposed fix: move them to `artifacts/warboss-highway/assets-src/sprites-premium/`
+  (outside the Vite public dir) and point `scripts/build-sprite-pack.mjs` at the new path — no
+  deletion, masters retained in-repo. Blocked pending approval.
+- [2026-08-14] Gameplay/rhythm items not addressed in the readability pass — **status: deferred.**
+  All traffic still moves down-screen regardless of the `direction` field set in
+  `lib/game-core/src/engine.ts` (~L982), so "oncoming" is a lighting cue only, not a motion cue;
+  the renderer is orthographic with no horizon/vanishing point, so there is no 3D/low-camera
+  depth; spawn timing is uniform-random (`VEHICLE_SPAWN_MIN_MS`/`MAX_MS`) with no wave/rest
+  rhythm; `skyline_layer1/2.png` are still menu-only DOM images rather than parallax layers.
+  These are engine + camera changes and are intentionally scoped to a separate PR so this one
+  stays reviewable.
+
+- [2026-08-14] Native Skia renderer is still orthographic — **status: deferred.** The pseudo-3D
+  ground-plane camera (`artifacts/warboss-highway/src/lib/game/perspective.ts`) is implemented in
+  the web Pixi renderer only. The traffic-rhythm and relative-motion work lives in
+  `lib/game-core`, so the mobile build already gets authored patterns and receding same-direction
+  traffic — but it still draws them top-down, so it does not get the approach/looming cue. Porting
+  needs the equivalent projection in `GameCanvas.tsx`'s Skia draw path and is scoped to its own PR.
+- [2026-08-14] Dark-bodied vehicle art reads low-contrast against the road — **status: deferred,
+  needs an art decision.** Measured on an in-play capture: a light/silver car reads clearly against
+  the projected road, but the rust and olive vehicle sprites are dark enough that body fill alone
+  gives very little separation. Mitigated in the renderer with a soft elliptical silhouette halo,
+  a contact shadow, and direction lamps, which is what actually makes them visible. A real fix is
+  a lighting/value pass on those source sprites rather than more renderer compensation. Note: an
+  earlier attempt used a rounded-rect halo, which read as a card behind each car — the exact
+  "everything is in a box" look the pass exists to remove. Keep silhouette aids soft-edged.

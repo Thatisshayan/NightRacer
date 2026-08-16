@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { GameEngine, POP_DURATION_MS, POWERUP_DURATION_MS, type PowerUpType } from '@workspace/game-core';
+import { GameEngine, POP_DURATION_MS, POWERUP_DURATION_MS, type GameState, type PowerUpType } from '@workspace/game-core';
 
 // Ease-out pop scale — mirrors the old Canvas 2D renderer.ts helper of the
 // same name, now driving a CSS transform instead of a ctx.scale().
@@ -17,6 +17,126 @@ const POWERUP_META: Record<keyof typeof POWERUP_DURATION_MS, { color: string; la
   SLOWMO: { color: '#ffff00', label: '⏱ SLOW-MO' },
   SCORE_BLAST: { color: '#ffaa00', label: '★ SCORE BLAST' },
 };
+
+type HudNodes = {
+  score: { current: HTMLDivElement | null };
+  distance: { current: HTMLDivElement | null };
+  combo: { current: HTMLDivElement | null };
+  dailyBadge: { current: HTMLDivElement | null };
+  lives: { current: HTMLDivElement | null };
+  oilWarning: { current: HTMLDivElement | null };
+  powerUpBar: { current: HTMLDivElement | null };
+  powerUpLabel: { current: HTMLDivElement | null };
+  powerUpFill: { current: HTMLDivElement | null };
+  powerUpTimer: { current: HTMLDivElement | null };
+  speedArc: { current: SVGCircleElement | null };
+  speedText: { current: HTMLDivElement | null };
+  levelUp: { current: HTMLDivElement | null };
+  levelUpText: { current: HTMLDivElement | null };
+  bossWarning: { current: HTMLDivElement | null };
+  nearMiss: { current: HTMLDivElement | null };
+  rushFill: { current: HTMLDivElement | null };
+  rushButton: { current: HTMLButtonElement | null };
+  rushLabel: { current: HTMLSpanElement | null };
+};
+
+function syncCoreHud(state: GameState, nodes: HudNodes) {
+  if (nodes.score.current) {
+    nodes.score.current.textContent = `SCORE: ${Math.floor(state.score)}`;
+    nodes.score.current.style.color = state.activePowerUp === 'SCORE_BLAST' ? '#ffaa00' : '#ffffff';
+    nodes.score.current.style.transform = `scale(${popScale(state.scorePop, 1.3)})`;
+  }
+  if (nodes.distance.current) nodes.distance.current.textContent = `DIST: ${Math.floor(state.distance)}m  SPD: ${state.speedMultiplier.toFixed(1)}×`;
+  if (nodes.combo.current) {
+    const show = state.combo > 1;
+    nodes.combo.current.style.display = show ? 'block' : 'none';
+    if (show) {
+      nodes.combo.current.textContent = `COMBO ×${state.combo}`;
+      nodes.combo.current.style.transform = `scale(${popScale(state.comboPop, 1.5)})`;
+    }
+  }
+  if (nodes.dailyBadge.current) nodes.dailyBadge.current.style.display = state.isDailyChallenge ? 'block' : 'none';
+  if (nodes.lives.current) {
+    for (let i = 0; i < nodes.lives.current.children.length; i++) {
+      const life = nodes.lives.current.children[i] as HTMLElement;
+      const alive = i < state.lives;
+      life.style.color = alive ? '#e8ded0' : 'rgba(255,255,255,0.15)';
+      life.style.textShadow = alive ? '0 0 4px rgba(255,40,20,0.85)' : 'none';
+    }
+  }
+  if (nodes.oilWarning.current) nodes.oilWarning.current.style.display = state.player.oilSlicked ? 'block' : 'none';
+}
+
+function syncPowerUpHud(state: GameState, nodes: HudNodes) {
+  const powerUp: Exclude<PowerUpType, 'EXTRA_LIFE'> | null =
+    state.activePowerUp && state.activePowerUp !== 'EXTRA_LIFE' && state.powerUpTimer > 0 ? state.activePowerUp : null;
+  if (!nodes.powerUpBar.current) return;
+  nodes.powerUpBar.current.style.display = powerUp ? 'block' : 'none';
+  if (!powerUp) return;
+  const meta = POWERUP_META[powerUp];
+  const barFill = Math.max(0, (state.powerUpTimer / POWERUP_DURATION_MS[powerUp]) * 100);
+  if (nodes.powerUpLabel.current) {
+    nodes.powerUpLabel.current.textContent = meta.label;
+    nodes.powerUpLabel.current.style.color = meta.color;
+  }
+  if (nodes.powerUpFill.current) {
+    nodes.powerUpFill.current.style.width = `${barFill}%`;
+    nodes.powerUpFill.current.style.backgroundColor = meta.color;
+  }
+  if (nodes.powerUpTimer.current) nodes.powerUpTimer.current.textContent = `${Math.max(0, Math.ceil(state.powerUpTimer / 1000))}s`;
+}
+
+function syncSpeedHud(state: GameState, nodes: HudNodes, arcCircumference: number) {
+  if (nodes.speedArc.current) {
+    nodes.speedArc.current.style.strokeDashoffset = String(arcCircumference * (1 - Math.min(1, state.speedMultiplier / 3)));
+    nodes.speedArc.current.style.stroke = state.speedMultiplier >= 2.5 ? '#ff3333' : state.speedMultiplier >= 1.8 ? '#ff8800' : '#cc8833';
+  }
+  if (nodes.speedText.current) nodes.speedText.current.textContent = `${state.speedMultiplier.toFixed(1)}×`;
+}
+
+function syncLevelUpHud(state: GameState, nodes: HudNodes) {
+  if (nodes.levelUp.current) {
+    const show = state.levelUpFlash > 0;
+    nodes.levelUp.current.style.display = show ? 'block' : 'none';
+    if (show) nodes.levelUp.current.style.backgroundColor = `rgba(255, 130, 0, ${Math.sin((state.levelUpFlash / 1800) * Math.PI) * 0.35})`;
+  }
+  if (nodes.levelUpText.current) {
+    nodes.levelUpText.current.style.display = state.levelUpFlash > 1200 ? 'block' : 'none';
+    nodes.levelUpText.current.textContent = state.levelUpText;
+  }
+}
+
+function syncWarningsHud(state: GameState, nodes: HudNodes, now: number) {
+  if (nodes.bossWarning.current) {
+    const show = state.bossWarning > 0;
+    nodes.bossWarning.current.style.display = show ? 'block' : 'none';
+    if (show) nodes.bossWarning.current.style.backgroundColor = Math.floor(now / 180) % 2 === 0 ? 'rgba(180, 0, 0, 0.28)' : 'transparent';
+  }
+  if (nodes.nearMiss.current) {
+    const show = state.combo > 1;
+    nodes.nearMiss.current.style.display = show ? 'block' : 'none';
+    if (show) {
+      nodes.nearMiss.current.style.opacity = String(Math.min(1, state.comboTimer / 800));
+      nodes.nearMiss.current.style.fontSize = `${Math.min(24, 14 + state.combo)}px`;
+      nodes.nearMiss.current.textContent = `NEAR MISS ×${state.combo}!`;
+    }
+  }
+}
+
+function syncRushHud(state: GameState, nodes: HudNodes) {
+  const rushReady = state.rushCharge >= 100 && state.rushTimer <= 0;
+  if (nodes.rushFill.current) {
+    nodes.rushFill.current.style.width = `${state.rushTimer > 0 ? 100 : state.rushCharge}%`;
+    nodes.rushFill.current.style.background = state.rushTimer > 0 ? 'linear-gradient(90deg, #27d9ff, #df4bff)' : 'linear-gradient(90deg, #183148, #27d9ff)';
+  }
+  if (nodes.rushButton.current) {
+    nodes.rushButton.current.disabled = !rushReady;
+    nodes.rushButton.current.style.opacity = rushReady || state.rushTimer > 0 ? '1' : '0.68';
+    nodes.rushButton.current.style.borderColor = state.rushTimer > 0 ? '#df4bff' : rushReady ? '#27d9ff' : 'rgba(130,149,170,0.55)';
+    nodes.rushButton.current.style.boxShadow = rushReady ? '0 0 18px rgba(39,217,255,0.42)' : state.rushTimer > 0 ? '0 0 18px rgba(223,75,255,0.42)' : 'none';
+  }
+  if (nodes.rushLabel.current) nodes.rushLabel.current.textContent = state.rushTimer > 0 ? 'RUSH ACTIVE' : rushReady ? 'RUSH — TAP' : `RUSH ${Math.floor(state.rushCharge)}%`;
+}
 
 // Renders the score/combo/lives/power-up bar/speedometer HUD, plus the
 // level-up flash, boss-warning, and near-miss overlays that used to live in
@@ -41,120 +161,30 @@ export function GameHudOverlay({ engine }: { engine: GameEngine }) {
   const levelUpTextRef = useRef<HTMLDivElement>(null);
   const bossWarningRef = useRef<HTMLDivElement>(null);
   const nearMissRef = useRef<HTMLDivElement>(null);
+  const rushFillRef = useRef<HTMLDivElement>(null);
+  const rushButtonRef = useRef<HTMLButtonElement>(null);
+  const rushLabelRef = useRef<HTMLSpanElement>(null);
 
   useEffect(() => {
     let rafId = 0;
     const ARC_CIRCUMFERENCE = 2 * Math.PI * 32.5 * 0.75; // 270° of a r=32.5 circle — must match the JSX circle radius below
 
+    const nodes: HudNodes = {
+      score: scoreRef, distance: distRef, combo: comboRef, dailyBadge: dailyBadgeRef,
+      lives: livesRef, oilWarning: oilWarningRef, powerUpBar: powerUpBarRef,
+      powerUpLabel: powerUpLabelRef, powerUpFill: powerUpFillRef, powerUpTimer: powerUpTimerRef,
+      speedArc: speedArcRef, speedText: speedTextRef, levelUp: levelUpRef, levelUpText: levelUpTextRef,
+      bossWarning: bossWarningRef, nearMiss: nearMissRef, rushFill: rushFillRef,
+      rushButton: rushButtonRef, rushLabel: rushLabelRef,
+    };
     const tick = () => {
       const state = engine.getState();
-
-      if (scoreRef.current) {
-        scoreRef.current.textContent = `SCORE: ${Math.floor(state.score)}`;
-        scoreRef.current.style.color = state.activePowerUp === 'SCORE_BLAST' ? '#ffaa00' : '#ffffff';
-        const s = popScale(state.scorePop, 1.3);
-        scoreRef.current.style.transform = `scale(${s})`;
-      }
-      if (distRef.current) {
-        distRef.current.textContent = `DIST: ${Math.floor(state.distance)}m  SPD: ${state.speedMultiplier.toFixed(1)}×`;
-      }
-      if (comboRef.current) {
-        const show = state.combo > 1;
-        comboRef.current.style.display = show ? 'block' : 'none';
-        if (show) {
-          comboRef.current.textContent = `COMBO ×${state.combo}`;
-          comboRef.current.style.transform = `scale(${popScale(state.comboPop, 1.5)})`;
-        }
-      }
-      if (dailyBadgeRef.current) {
-        dailyBadgeRef.current.style.display = state.isDailyChallenge ? 'block' : 'none';
-      }
-      if (livesRef.current) {
-        for (let i = 0; i < livesRef.current.children.length; i++) {
-          const el = livesRef.current.children[i] as HTMLElement;
-          const alive = i < state.lives;
-          // Skulls ported from the mobile HUD pass — a heart icon read as
-          // generic mobile-game chrome against the grimdark 40k styling.
-          // Remaining lives get a bone-white skull with a faint red glow;
-          // lost lives fade to a dim outline instead of disappearing, so
-          // the pip stays visible (mirrors HudOverlay.tsx's heartAlive/
-          // heartLost split).
-          el.style.color = alive ? '#e8ded0' : 'rgba(255,255,255,0.15)';
-          el.style.textShadow = alive ? '0 0 4px rgba(255,40,20,0.85)' : 'none';
-        }
-      }
-      if (oilWarningRef.current) {
-        oilWarningRef.current.style.display = state.player.oilSlicked ? 'block' : 'none';
-      }
-
-      // EXTRA_LIFE is applied instantly in collectPowerUp() and never sets
-      // activePowerUp, but the type is still PowerUpType | null here — guard
-      // it explicitly rather than relying on that invariant staying true.
-      const powerUp: Exclude<PowerUpType, 'EXTRA_LIFE'> | null =
-        state.activePowerUp && state.activePowerUp !== 'EXTRA_LIFE' && state.powerUpTimer > 0
-          ? state.activePowerUp
-          : null;
-      if (powerUpBarRef.current) {
-        powerUpBarRef.current.style.display = powerUp ? 'block' : 'none';
-        if (powerUp) {
-          const meta = POWERUP_META[powerUp];
-          const barFill = Math.max(0, (state.powerUpTimer / POWERUP_DURATION_MS[powerUp]) * 100);
-          const seconds = Math.max(0, Math.ceil(state.powerUpTimer / 1000));
-          if (powerUpLabelRef.current) {
-            powerUpLabelRef.current.textContent = meta.label;
-            powerUpLabelRef.current.style.color = meta.color;
-          }
-          if (powerUpFillRef.current) {
-            powerUpFillRef.current.style.width = `${barFill}%`;
-            powerUpFillRef.current.style.backgroundColor = meta.color;
-          }
-          if (powerUpTimerRef.current) powerUpTimerRef.current.textContent = `${seconds}s`;
-        }
-      }
-
-      const speedRatio = Math.min(1, state.speedMultiplier / 3);
-      if (speedArcRef.current) {
-        speedArcRef.current.style.strokeDashoffset = String(ARC_CIRCUMFERENCE * (1 - speedRatio));
-        // Amber-at-rest instead of mint green — ported from the mobile HUD
-        // pass (HudOverlay.tsx): mint read as a generic fitness-app accent,
-        // tonally off against the grimdark palette everywhere else.
-        speedArcRef.current.style.stroke =
-          state.speedMultiplier >= 2.5 ? '#ff3333' : state.speedMultiplier >= 1.8 ? '#ff8800' : '#cc8833';
-      }
-      if (speedTextRef.current) speedTextRef.current.textContent = `${state.speedMultiplier.toFixed(1)}×`;
-
-      if (levelUpRef.current) {
-        const show = state.levelUpFlash > 0;
-        levelUpRef.current.style.display = show ? 'block' : 'none';
-        if (show) {
-          const t = state.levelUpFlash / 1800;
-          levelUpRef.current.style.backgroundColor = `rgba(255, 130, 0, ${Math.sin(t * Math.PI) * 0.35})`;
-        }
-        if (levelUpTextRef.current) {
-          levelUpTextRef.current.style.display = state.levelUpFlash > 1200 ? 'block' : 'none';
-          levelUpTextRef.current.textContent = state.levelUpText;
-        }
-      }
-
-      if (bossWarningRef.current) {
-        const show = state.bossWarning > 0;
-        bossWarningRef.current.style.display = show ? 'block' : 'none';
-        if (show) {
-          const blink = Math.floor(performance.now() / 180) % 2 === 0;
-          bossWarningRef.current.style.backgroundColor = blink ? 'rgba(180, 0, 0, 0.28)' : 'transparent';
-        }
-      }
-
-      if (nearMissRef.current) {
-        const show = state.combo > 1;
-        nearMissRef.current.style.display = show ? 'block' : 'none';
-        if (show) {
-          nearMissRef.current.style.opacity = String(Math.min(1, state.comboTimer / 800));
-          nearMissRef.current.style.fontSize = `${Math.min(24, 14 + state.combo)}px`;
-          nearMissRef.current.textContent = `NEAR MISS ×${state.combo}!`;
-        }
-      }
-
+      syncCoreHud(state, nodes);
+      syncPowerUpHud(state, nodes);
+      syncSpeedHud(state, nodes, ARC_CIRCUMFERENCE);
+      syncLevelUpHud(state, nodes);
+      syncWarningsHud(state, nodes, performance.now());
+      syncRushHud(state, nodes);
       rafId = requestAnimationFrame(tick);
     };
 
@@ -165,30 +195,44 @@ export function GameHudOverlay({ engine }: { engine: GameEngine }) {
   return (
     <div className="absolute inset-0 pointer-events-none select-none font-mono text-white z-10">
       {/* Top HUD bar */}
-      <div className="absolute top-0 left-0 right-0 h-[72px] bg-black/55">
+      <div className="absolute top-0 left-0 right-0 h-[86px] bg-black/60">
         <div
           ref={scoreRef}
-          className="absolute left-[15px] top-[14px] origin-left text-2xl font-['Russo_One',sans-serif]"
+          className="absolute left-[62px] top-[12px] origin-left text-2xl font-['Russo_One',sans-serif]"
           style={{ textShadow: '0 2px 0 rgba(0,0,0,0.9)' }}
         />
-        <div ref={distRef} className="absolute left-[15px] top-[44px] text-[13px] text-[#888]" style={{ textShadow: '0 1px 0 rgba(0,0,0,0.9)' }} />
+        <div ref={distRef} className="absolute left-[62px] top-[48px] text-[14px] font-semibold tracking-wide text-[#d4e6f1]" style={{ textShadow: '0 1px 0 rgba(0,0,0,0.9)' }} />
         <div
           ref={comboRef}
-          className="absolute left-1/2 top-[22px] -translate-x-1/2 text-[13px] text-[#ffee22]"
+          className="absolute left-1/2 top-[20px] -translate-x-1/2 text-[15px] font-bold text-[#ffee22]"
           style={{ display: 'none', textShadow: '0 1px 0 rgba(0,0,0,0.9)' }}
         />
-        <div ref={dailyBadgeRef} className="absolute left-1/2 top-[50px] -translate-x-1/2 text-[10px] text-[#55ffaa]" style={{ display: 'none' }}>
+        <div ref={dailyBadgeRef} className="absolute left-1/2 top-[52px] -translate-x-1/2 text-[11px] text-[#55ffaa]" style={{ display: 'none' }}>
           {'◆ DAILY CHALLENGE'}
         </div>
-        <div ref={livesRef} className="absolute right-[15px] top-[15px] flex flex-row-reverse gap-[4px]">
+        <div ref={livesRef} className="absolute right-[62px] top-[14px] flex flex-row-reverse gap-[6px]">
           {[0, 1, 2, 3, 4].map((i) => (
-            <span key={i} className="text-xl leading-none">{'☠'}</span>
+            <span key={i} className="text-2xl leading-none">{'☠'}</span>
           ))}
         </div>
-        <div ref={oilWarningRef} className="absolute right-[12px] top-[48px] text-xs text-[#8888ff]" style={{ display: 'none' }}>
+        <div ref={oilWarningRef} className="absolute right-[62px] top-[52px] text-xs font-semibold text-[#a9b6ff]" style={{ display: 'none' }}>
           {'⚠ SLIPPING'}
         </div>
       </div>
+
+      {/* Earned Rush control. It is deliberately a physical tap target on
+          touch devices and keyboard players can activate it with Space. */}
+      <button
+        ref={rushButtonRef}
+        type="button"
+        onClick={() => engine.triggerRush()}
+        aria-label="Activate Rush when charged"
+        className="pointer-events-auto absolute left-1/2 bottom-[26px] -translate-x-1/2 w-[196px] h-[62px] rounded-md overflow-hidden border bg-[#050816]/90 text-white transition-[opacity,box-shadow,border-color] duration-150 active:scale-[0.96] motion-reduce:active:scale-100"
+      >
+        <div ref={rushFillRef} className="absolute inset-y-0 left-0 w-0 opacity-70 transition-[width] duration-100" />
+        <span ref={rushLabelRef} className="relative z-10 text-[13px] font-bold tracking-[0.16em]">RUSH 0%</span>
+        <span className="relative z-10 block mt-0.5 text-[9px] tracking-[0.2em] text-[#d4e6f1]/85">CLOSE PASSES CHARGE</span>
+      </button>
 
       {/* Power-up bar (bottom left) */}
       <div ref={powerUpBarRef} className="absolute left-[10px] bottom-[16px] w-[210px] h-[48px] bg-black/65 rounded-sm p-2" style={{ display: 'none' }}>
@@ -217,7 +261,7 @@ export function GameHudOverlay({ engine }: { engine: GameEngine }) {
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
           <div ref={speedTextRef} className="text-sm font-bold" />
-          <div className="text-[8px] text-[#888]">SPD</div>
+          <div className="text-[9px] font-semibold text-[#d4e6f1]">SPD</div>
         </div>
       </div>
 
@@ -235,7 +279,7 @@ export function GameHudOverlay({ engine }: { engine: GameEngine }) {
       </div>
 
       {/* Near-miss combo text */}
-      <div ref={nearMissRef} className="absolute left-1/2 bottom-[100px] -translate-x-1/2 font-bold text-[#ffff44] font-['Russo_One',sans-serif]" style={{ display: 'none', textShadow: '0 0 12px #ff8800' }} />
+      <div ref={nearMissRef} className="absolute left-1/2 bottom-[102px] -translate-x-1/2 font-bold text-[#df4bff] font-['Russo_One',sans-serif]" style={{ display: 'none', textShadow: '0 0 12px #27d9ff' }} />
     </div>
   );
 }

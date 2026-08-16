@@ -118,6 +118,9 @@ export interface Player extends GameObject {
   invulnTimer: number;
   oilSlicked: boolean;
   oilTimer: number;
+  // Lateral velocity is simulation state rather than a renderer-only value,
+  // so every platform gets the same responsive but non-binary steering feel.
+  vx: number;
 }
 
 export interface Vehicle extends GameObject {
@@ -176,6 +179,13 @@ export interface GameState {
   screenShake: number;
   roadOffset: number;
   baseSpeed: number;
+  // Presentation-facing drive state. Renderers read these values but never
+  // author their own handling or boost rules, preserving web/native parity.
+  driveTilt: number;
+  rushCharge: number;
+  rushTimer: number;
+  rushPulse: number;
+  nearMissPulse: number;
   lanes: number[];
   // Combo / near-miss
   combo: number;
@@ -216,6 +226,56 @@ const NEAR_MISS_EXTRA_PX = 22;
 // though the average rate is unchanged. A cooldown keeps gaps consistent.
 const VEHICLE_SPAWN_MIN_MS = 550;
 const VEHICLE_SPAWN_MAX_MS = 1350;
+
+// --- Authored traffic patterns -------------------------------------------
+// The cooldown scheduler above fixed burstiness but left every encounter
+// identical in shape: one car, wait, one car. Playtest feedback was that
+// traffic "has no rhythm" — nothing to read, anticipate or thread, just a
+// stream. Difficulty could only be raised by shortening the cooldown, which
+// makes the road denser without making it more interesting.
+//
+// Traffic is now emitted as short authored *patterns*: a sequence of beats,
+// each naming the lanes that spawn on that beat, followed by an enforced rest
+// so the player always gets a readable breath between encounters. Difficulty
+// ramps by pattern TIER (which patterns are in the pool), not by raw spawn
+// frequency.
+//
+// Invariant: no beat may occupy all four lanes. Every pattern is threadable.
+export interface TrafficPattern {
+  readonly id: string;
+  /** Minimum distance before this pattern enters the pool. */
+  readonly tier: number;
+  /** Lane indices (0-3) spawning on each beat. */
+  readonly beats: readonly (readonly number[])[];
+  /** Gap after each beat, ms at 1x speed. */
+  readonly beatGapMs: number;
+}
+
+export const TRAFFIC_PATTERNS: readonly TrafficPattern[] = [
+  // Tier 0 — the vocabulary the player learns on.
+  { id: 'single', tier: 0, beats: [[1]], beatGapMs: 620 },
+  { id: 'single_wide', tier: 0, beats: [[3]], beatGapMs: 620 },
+  // A slow car followed by a second in the neighbouring lane: teaches that
+  // committing to a gap early can trap you.
+  { id: 'stagger', tier: 0, beats: [[0], [1]], beatGapMs: 430 },
+  // Tier 1 — two-lane shapes.
+  { id: 'pair_split', tier: 6000, beats: [[0, 2]], beatGapMs: 700 },
+  { id: 'diagonal', tier: 9000, beats: [[0], [1], [2]], beatGapMs: 380 },
+  { id: 'convoy', tier: 9000, beats: [[2], [2], [2]], beatGapMs: 460 },
+  // Tier 2 — the shapes that need a committed line.
+  // Three abreast with exactly one gap: the signature "thread the needle".
+  { id: 'wall_gap', tier: 18000, beats: [[0, 1, 2]], beatGapMs: 900 },
+  { id: 'pincer', tier: 18000, beats: [[0, 3], [1, 2]], beatGapMs: 500 },
+  // Funnel: the gap migrates across the road, so holding one line fails.
+  { id: 'funnel', tier: 30000, beats: [[0, 1], [1, 2], [2, 3]], beatGapMs: 470 },
+  { id: 'zipper', tier: 30000, beats: [[0, 2], [1, 3], [0, 2]], beatGapMs: 440 },
+];
+
+// Enforced quiet after a pattern completes. Without it, back-to-back patterns
+// read as one undifferentiated stream again and the rhythm is lost. Scales
+// down with speed so it stays a beat rather than a stall.
+const PATTERN_REST_MIN_MS = 420;
+const PATTERN_REST_MAX_MS = 900;
 const POWERUP_SPAWN_MIN_MS = 5000;
 const POWERUP_SPAWN_MAX_MS = 11000;
 const OBSTACLE_SPAWN_MIN_MS = 1800;
@@ -266,6 +326,10 @@ export class GameEngine {
   private renderer: GameRenderer | null = null;
   // Bounded spawn-cooldown timers — see VEHICLE_SPAWN_MIN_MS doc comment.
   private vehicleSpawnTimer: number = 400;
+  // Authored-pattern playback state — see TRAFFIC_PATTERNS.
+  private activePattern: TrafficPattern | null = null;
+  private patternBeat: number = 0;
+  private patternMirrored: boolean = false;
   private powerupSpawnTimer: number = POWERUP_SPAWN_MIN_MS;
   private obstacleSpawnTimer: number = OBSTACLE_SPAWN_MIN_MS;
   private audio: AudioAdapter;
@@ -281,6 +345,9 @@ export class GameEngine {
   // (web: window.matchMedia; native: AccessibilityInfo) instead of read
   // directly, since neither API exists universally.
   private reducedMotion: boolean;
+  // Set by a keyboard press or a platform HUD control, then consumed inside
+  // update() so a Rush starts on a deterministic simulation frame.
+  private rushRequested = false;
 
   // dims are logical simulation pixels (not a canvas/element) — each
   // platform adapter maps its own rendering surface onto this space (see
@@ -301,6 +368,9 @@ export class GameEngine {
       audio?: AudioAdapter;
       haptics?: (pattern: number | number[]) => void;
       reducedMotion?: boolean;
+      // Test/support hook: a caller may provide a deterministic source for
+      // ordinary runs. Daily runs keep their date-seeded generator instead.
+      random?: () => number;
     }
   ) {
     this.width = dims.width;
@@ -315,6 +385,7 @@ export class GameEngine {
     this.audio = options?.audio ?? NOOP_AUDIO;
     this.haptics = options?.haptics;
     this.reducedMotion = options?.reducedMotion ?? false;
+    this.rng = options?.random ?? Math.random;
 
     if (this.isDailyChallenge) {
       this.initDailyRNG();
@@ -331,6 +402,7 @@ export class GameEngine {
         invulnTimer: 0,
         oilSlicked: false,
         oilTimer: 0,
+        vx: 0,
       },
       vehicles: [],
       powerups: [],
@@ -346,6 +418,11 @@ export class GameEngine {
       screenShake: 0,
       roadOffset: 0,
       baseSpeed: 5,
+      driveTilt: 0,
+      rushCharge: 0,
+      rushTimer: 0,
+      rushPulse: 0,
+      nearMissPulse: 0,
       lanes: [],
       combo: 0,
       comboTimer: 0,
@@ -416,6 +493,7 @@ export class GameEngine {
   // values (e.g. 'ArrowLeft', 'KeyA').
   public handleKeyDown(code: string) {
     this.keys.add(code);
+    if (code === 'Space') this.rushRequested = true;
   }
 
   public handleKeyUp(code: string) {
@@ -452,6 +530,9 @@ export class GameEngine {
     if (this.isDragging && !this.state.player.oilSlicked) {
       this.state.player.x = x - this.touchOffset.x;
       this.state.player.y = y - this.touchOffset.y;
+      // Direct touch drag remains instant and accessible; clearing carry-over
+      // velocity prevents a keyboard/joystick steering drift after a touch grab.
+      this.state.player.vx = 0;
       this.clampPlayerPosition();
     }
   }
@@ -516,6 +597,22 @@ export class GameEngine {
     return this.state;
   }
 
+  // Rush is an earned burst, not a purchasable advantage. A host can expose
+  // this through any suitable input surface (Space on keyboard, a touch HUD
+  // control on mobile) while the shared simulation owns eligibility and timing.
+  public triggerRush(): boolean {
+    const state = this.state;
+    if (state.isGameOver || state.rushTimer > 0 || state.rushCharge < 100) return false;
+    state.rushCharge = 0;
+    state.rushTimer = 2400;
+    state.rushPulse = 420;
+    this.audio.play('powerup');
+    this.haptics?.(25);
+    this.createParticles(state.player.x, state.player.y + state.player.height * 0.35, '#27d9ff', 14);
+    this.createParticles(state.player.x, state.player.y + state.player.height * 0.35, '#df4bff', 8);
+    return true;
+  }
+
   // Swaps the active renderer (see `GameRenderer` above). Passing null
   // reverts to `renderFallback()` — a no-op here; the web package
   // overrides it with a Canvas2D draw path (see web-engine.ts).
@@ -563,6 +660,14 @@ export class GameEngine {
 
   private update(dt: number) {
     const state = this.state;
+    // Frame normalization factor — the per-frame motion below (traffic,
+    // obstacles, powerups, particles) is expressed in "pixels per 60fps
+    // frame" and must be scaled by this so the same wall-clock duration
+    // moves the world identically at 30fps or 120fps. The player, distance,
+    // and score updates already scale by dt/16; these must too, or the game
+    // plays slower/faster depending on the device's refresh rate (see the
+    // framerate-independence test in engine.test.ts).
+    const frameScale = dt / 16;
 
     // Input vector (keys + joystick)
     let dx = 0;
@@ -584,10 +689,16 @@ export class GameEngine {
       }
     }
 
+    // A requested Rush is consumed on the simulation frame, avoiding a
+    // renderer- or platform-specific timing advantage.
+    if (this.rushRequested) {
+      this.triggerRush();
+      this.rushRequested = false;
+    }
+
     // Speed
     const newLevel = this.getSpeedLevel(state.distance);
     const speedMult = this.getSpeedMultiplier(state.distance);
-    state.speedMultiplier = speedMult;
 
     if (newLevel > state.lastSpeedLevel) {
       state.lastSpeedLevel = newLevel;
@@ -599,6 +710,8 @@ export class GameEngine {
     const carMod = CAR_STATS[this.selectedCar].speedMod * (1 + this.upgrades.speed * 0.03);
     let currentSpeed = state.baseSpeed * speedMult * carMod * this.dailyModifier.speedMult;
     if (state.activePowerUp === 'SLOWMO') currentSpeed *= 0.4;
+    if (state.rushTimer > 0) currentSpeed *= 1.24;
+    state.speedMultiplier = speedMult * (state.rushTimer > 0 ? 1.24 : 1);
 
     // Forward / back speed feel (up = faster, down = slower)
     if (!state.player.oilSlicked) {
@@ -616,27 +729,30 @@ export class GameEngine {
     // Road scroll
     state.roadOffset = (state.roadOffset + currentSpeed * 1.5) % 80;
 
-    // Player movement
+    // Player movement. Lateral steering now has a small, deterministic
+    // velocity curve: responsive enough for a dodge game, but with visible
+    // weight and recovery instead of the previous binary positional slide.
     if (!state.player.oilSlicked) {
       const len = Math.sqrt(dx * dx + dy * dy);
+      const handling = 1 + this.upgrades.handling * 0.08;
+      const targetVx = len > 0 ? (dx / len) * 5.1 * handling : 0;
+      const steeringResponse = Math.min(1, 0.38 * frameScale);
+      state.player.vx += (targetVx - state.player.vx) * steeringResponse;
+      if (Math.abs(targetVx) < 0.01) state.player.vx *= Math.pow(0.72, frameScale);
+      state.player.x += state.player.vx * frameScale;
       if (len > 0) {
-        // Base speed tuned so diagonal doesn't outrun horizontal/vertical.
-        // Was 0.42 (≈25px/sec at 60fps) since this was first written —
-        // crossing a single lane took several seconds, an order of
-        // magnitude slower than drag/touch input (which sets player.x
-        // directly, effectively instant), so keyboard/joystick players
-        // could never out-steer approaching traffic. A first pass raised
-        // this to 5.5, which real playtesting called too twitchy; settled
-        // here at a pace that crosses one of the (now-narrower, 105px)
-        // lanes in a bit over half a second.
-        const moveSpeed = 3.2 * (1 + this.upgrades.handling * 0.08) * (dt / 16);
-        state.player.x += (dx / len) * moveSpeed;
-        state.player.y += (dy / len) * moveSpeed;
+        const verticalSpeed = 3.2 * handling * frameScale;
+        state.player.y += (dy / len) * verticalSpeed;
       }
+      state.driveTilt = Math.max(-1, Math.min(1, state.player.vx / (5.1 * handling)));
       this.clampPlayerPosition();
     } else {
-      // Slight drift when oiled
-      state.player.x += Math.sin(state.distance * 0.08) * 2;
+      // Slight drift when oiled, with a matching visual bank that signals the
+      // loss of control without relying on color alone.
+      const slip = Math.sin(state.distance * 0.08) * 2;
+      state.player.x += slip;
+      state.player.vx = slip;
+      state.driveTilt = Math.max(-1, Math.min(1, slip / 2));
       this.clampPlayerPosition();
     }
 
@@ -660,6 +776,9 @@ export class GameEngine {
       state.player.oilSlicked = state.player.oilTimer > 0;
     }
     if (state.screenShake > 0) state.screenShake = Math.max(0, state.screenShake - dt);
+    if (state.rushTimer > 0) state.rushTimer = Math.max(0, state.rushTimer - dt);
+    if (state.rushPulse > 0) state.rushPulse = Math.max(0, state.rushPulse - dt);
+    if (state.nearMissPulse > 0) state.nearMissPulse = Math.max(0, state.nearMissPulse - dt);
     if (state.levelUpFlash > 0) state.levelUpFlash -= dt;
     if (state.scorePop > 0) state.scorePop = Math.max(0, state.scorePop - dt);
     if (state.comboPop > 0) state.comboPop = Math.max(0, state.comboPop - dt);
@@ -691,14 +810,7 @@ export class GameEngine {
     const densityRamp = Math.min(2.2, 1 + state.distance / 18000);
     this.vehicleSpawnTimer -= dt;
     if (this.vehicleSpawnTimer <= 0) {
-      const lane = this.spawnVehicle(currentSpeed);
-      // Occasional pairs at higher distances
-      if (state.distance > 25000 && lane !== undefined && this.rng() < 0.3) {
-        this.spawnVehicle(currentSpeed, lane);
-      }
-      const factor = Math.max(0.4, speedMult * densityRamp * this.dailyModifier.spawnMult);
-      const base = VEHICLE_SPAWN_MIN_MS + this.rng() * (VEHICLE_SPAWN_MAX_MS - VEHICLE_SPAWN_MIN_MS);
-      this.vehicleSpawnTimer = Math.max(200, base / factor);
+      this.advanceTrafficPattern(currentSpeed, speedMult, densityRamp);
     }
 
     // Spawn powerups
@@ -724,13 +836,27 @@ export class GameEngine {
       const v = state.vehicles[i];
       if (v.direction === 'SAME') {
         // Same-direction traffic: closing speed is currentSpeed minus its
-        // own pace, not a sum — a slower type (BUS/TANK, low speed
-        // multiplier) drifts toward the player like highway traffic
-        // you're gaining on; a faster one (SPORTS) can pull away instead.
-        // Floor keeps it from ever fully stalling on screen.
-        v.y += Math.max(1.2, currentSpeed - v.speed * 0.7);
+        // own pace, not a sum — a slower type (BUS/TANK) drifts toward the
+        // player like highway traffic you're gaining on.
+        //
+        // The 1.2px/frame floor that used to sit here meant *every* vehicle in
+        // the game moved down-screen, only at different rates. With nothing
+        // ever moving the other way there was no relative motion to read, and
+        // the road felt like a conveyor belt. A faster car (SPORTS) now
+        // genuinely recedes: it enters from behind the player (see
+        // spawnsFromBehind) , overtakes, and pulls away up-screen. That is the
+        // single clearest signal that the player is inside traffic rather than
+        // in front of a spawner.
+        v.y += (currentSpeed - v.speed * 0.7) * frameScale;
       } else {
-        v.y += currentSpeed + v.speed * 0.5;
+        v.y += (currentSpeed + v.speed * 0.5) * frameScale;
+      }
+
+      // Receding same-direction traffic exits off the top; without this it
+      // would climb forever and leak into the vehicle array.
+      if (v.y < -260) {
+        state.vehicles.splice(i, 1);
+        continue;
       }
 
       if (v.y > this.height + 150) {
@@ -758,6 +884,10 @@ export class GameEngine {
         if (xDist > minSafe && xDist < maxNearMiss) {
           state.combo++;
           state.comboPop = POP_DURATION_MS;
+          state.nearMissPulse = 300;
+          const wasBelowRush = state.rushCharge < 100;
+          state.rushCharge = Math.min(100, state.rushCharge + 25);
+          if (wasBelowRush && state.rushCharge === 100) this.audio.play('powerup');
           if (state.combo > state.maxCombo) state.maxCombo = state.combo;
           state.comboTimer = COMBO_DECAY_MS;
           if (state.combo >= 10) this.grantAchievement('combo_king');
@@ -793,7 +923,7 @@ export class GameEngine {
     // Update powerups
     for (let i = state.powerups.length - 1; i >= 0; i--) {
       const p = state.powerups[i];
-      p.y += currentSpeed;
+      p.y += currentSpeed * frameScale;
       if (p.y > this.height + 50) { state.powerups.splice(i, 1); continue; }
       if (this.checkCollision(state.player, p)) {
         this.collectPowerUp(p.type);
@@ -804,7 +934,7 @@ export class GameEngine {
     // Update obstacles
     for (let i = state.obstacles.length - 1; i >= 0; i--) {
       const o = state.obstacles[i];
-      o.y += currentSpeed * 0.55;
+      o.y += currentSpeed * 0.55 * frameScale;
       if (o.y > this.height + 80) { state.obstacles.splice(i, 1); continue; }
 
       if (!state.player.isInvulnerable && state.activePowerUp !== 'SHIELD' && this.checkCollision(state.player, o)) {
@@ -823,8 +953,8 @@ export class GameEngine {
     // Update particles
     for (let i = state.particles.length - 1; i >= 0; i--) {
       const p = state.particles[i];
-      p.x += p.vx;
-      p.y += p.vy + currentSpeed * 0.2;
+      p.x += p.vx * frameScale;
+      p.y += (p.vy + currentSpeed * 0.2) * frameScale;
       p.life -= dt;
       if (p.life <= 0) state.particles.splice(i, 1);
     }
@@ -890,10 +1020,80 @@ export class GameEngine {
     return null;
   }
 
+  // Plays back one beat of the current authored pattern, or picks the next
+  // pattern (after a rest beat) when the current one is exhausted. Called
+  // whenever the spawn timer elapses; see TRAFFIC_PATTERNS for the rationale.
+  private advanceTrafficPattern(currentSpeed: number, speedMult: number, densityRamp: number) {
+    const factor = Math.max(0.4, speedMult * densityRamp * this.dailyModifier.spawnMult);
+
+    if (!this.activePattern) {
+      // Pool is every pattern whose tier the player has reached. Weighting the
+      // pick toward the newest tiers keeps late runs from feeling like the
+      // opening minute with a shorter cooldown.
+      const pool = TRAFFIC_PATTERNS.filter((p) => this.state.distance >= p.tier);
+      const eligible = pool.length > 0 ? pool : [TRAFFIC_PATTERNS[0]];
+      const topTier = eligible[eligible.length - 1].tier;
+      const advanced = eligible.filter((p) => p.tier === topTier);
+      const useAdvanced = advanced.length > 0 && eligible.length > advanced.length && this.rng() < 0.45;
+      const from = useAdvanced ? advanced : eligible;
+      this.activePattern = from[Math.floor(this.rng() * from.length)];
+      // Mirroring doubles the pattern vocabulary for free and stops the same
+      // shape always resolving toward the same side of the road.
+      this.patternMirrored = this.rng() < 0.5;
+      this.patternBeat = 0;
+    }
+
+    const pattern = this.activePattern;
+    const beat = pattern.beats[this.patternBeat];
+    for (const lane of beat) {
+      this.spawnVehicleInLane(currentSpeed, this.patternMirrored ? 3 - lane : lane);
+    }
+    this.patternBeat++;
+
+    if (this.patternBeat >= pattern.beats.length) {
+      this.activePattern = null;
+      const rest = PATTERN_REST_MIN_MS + this.rng() * (PATTERN_REST_MAX_MS - PATTERN_REST_MIN_MS);
+      this.vehicleSpawnTimer = Math.max(220, rest / factor);
+    } else {
+      this.vehicleSpawnTimer = Math.max(150, pattern.beatGapMs / factor);
+    }
+  }
+
   private spawnVehicle(currentSpeed: number, excludeLane?: number): number | undefined {
+    const spec = this.rollVehicleSpec(currentSpeed);
+    const spot = this.findSafeSpawnX(spec.width, excludeLane);
+    if (!spot) return undefined;
+    this.pushVehicle(spec, spot.lane, spot.x, currentSpeed);
+    return spot.lane;
+  }
+
+  // Pattern-driven spawn: the lane is dictated by the beat, not sampled. If
+  // that lane is occupied the beat simply drops the car rather than sliding it
+  // elsewhere — moving it would destroy the pattern's shape, which is the
+  // whole point of authoring one.
+  private spawnVehicleInLane(currentSpeed: number, lane: number): boolean {
     const state = this.state;
+    const spec = this.rollVehicleSpec(currentSpeed);
+    const laneX = state.lanes[lane];
+    if (laneX === undefined) return false;
+    // Jitter within the lane. Pinning pattern spawns to exact lane centres
+    // made traffic look mechanically placed (and regressed the "not just
+    // dead-center" spawn test); +/-22% of a lane is enough variety to look
+    // driven without blurring which lane the beat claimed.
+    const laneWidth = this.width / 4;
+    const margin = 18 + spec.width / 2 + 8;
+    const jitter = (this.rng() - 0.5) * laneWidth * 0.44;
+    const x = Math.min(Math.max(laneX + jitter, margin), Math.max(margin, this.width - margin));
+    const fromBehind = this.spawnsFromBehind(spec, currentSpeed);
+    const probeY = fromBehind ? this.height + 100 : -100;
+    if (!this.isAreaClear(x, spec.width, probeY, 170)) return false;
+    this.pushVehicle(spec, lane, x, currentSpeed);
+    return true;
+  }
+
+  private rollVehicleSpec(currentSpeed: number): { type: VehicleType; width: number; height: number; speed: number } {
     const isTank = this.rng() < 0.01;
-    let type: VehicleType = isTank
+    const type: VehicleType = isTank
       ? 'TANK'
       : REGULAR_TYPES[Math.floor(this.rng() * REGULAR_TYPES.length)];
 
@@ -903,19 +1103,50 @@ export class GameEngine {
     if (type === 'SPORTS')   { height = 72; speed = currentSpeed * 1.5; }
     if (type === 'BOXTRUCK') { width = 56; height = 112; speed = currentSpeed * 0.7; }
     if (type === 'TANK')     { width = 80; height = 128; speed = currentSpeed * 0.4; }
+    return { type, width, height, speed };
+  }
 
-    const spot = this.findSafeSpawnX(width, excludeLane);
-    if (!spot) return undefined;
+  // Same-direction traffic faster than the player recedes up-screen (see the
+  // vehicle update loop). Such a car has to enter from *behind* the player or
+  // it would spawn ahead and immediately drive away off the top, which is both
+  // pointless and unreadable.
+  private spawnsFromBehind(spec: { type: VehicleType; speed: number }, currentSpeed: number): boolean {
+    if (spec.type === 'TANK' || spec.type === 'BOSS') return false;
+    return currentSpeed - spec.speed * 0.7 < 0;
+  }
 
+  private pushVehicle(
+    spec: { type: VehicleType; width: number; height: number; speed: number },
+    lane: number,
+    x: number,
+    currentSpeed: number
+  ) {
+    const state = this.state;
     const colors = ['#555', '#453c31', '#222', '#4b5320', '#cc0000', '#dcdcdc'];
     const color = colors[Math.floor(this.rng() * colors.length)];
     const variant = Math.floor(this.rng() * 3) + 1;
     // Lanes 0-1 = oncoming, 2-3 = same direction as the player — see
     // Vehicle.direction's doc comment.
-    const direction: Vehicle['direction'] = spot.lane < 2 ? 'OPPOSITE' : 'SAME';
+    const direction: Vehicle['direction'] = lane < 2 ? 'OPPOSITE' : 'SAME';
+    const fromBehind = direction === 'SAME' && this.spawnsFromBehind(spec, currentSpeed);
 
-    state.vehicles.push({ type, x: spot.x, y: -100, width, height, color, speed, lane: spot.lane, passed: false, variant, direction });
-    return spot.lane;
+    state.vehicles.push({
+      type: spec.type,
+      x,
+      y: fromBehind ? this.height + 100 : -100,
+      width: spec.width,
+      height: spec.height,
+      color,
+      speed: spec.speed,
+      lane,
+      // A car entering from behind starts below the player, so it has not been
+      // passed yet — but it also must not fire a near-miss the instant it
+      // spawns. The update loop only sets `passed` on a downward crossing, so
+      // marking it passed here keeps overtakes from counting twice.
+      passed: fromBehind,
+      variant,
+      direction,
+    });
   }
 
   private trySpawnPowerup() {
@@ -1005,6 +1236,8 @@ export class GameEngine {
     this.state.screenShake = this.reducedMotion ? 0 : 300;
     this.state.combo = 0;
     this.state.comboTimer = 0;
+    this.state.rushTimer = 0;
+    this.state.rushPulse = 0;
     this.state.wasHit = true;
     this.createParticles(this.state.player.x, this.state.player.y, '#ff3300', 20);
     this.haptics?.([100, 50, 100]);

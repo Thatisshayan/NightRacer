@@ -85,13 +85,26 @@ run_with_timeout() { # $1=seconds $2=label $3..=cmd
 if [ -n "$PM" ]; then
   case "$PM" in
     pnpm) run_with_timeout 300 build pnpm install --frozen-lockfile
-          pnpm run build --if-present 2>&1 | tail -3 ;;
+          # `pnpm run build --if-present` forwards the trailing flag into the
+          # root build script, where it can reach package scripts as
+          # `vite build --if-present`. The root build script is required here,
+          # so invoke it without a forwarded optional-script flag.
+          pnpm run build 2>&1 | tail -3 ;;
     yarn) run_with_timeout 300 build yarn install --frozen-lockfile ;;
     npm)  run_with_timeout 300 build npm ci ;;
   esac
   if [ $FAIL -eq 0 ]; then
-    (npm run build --if-present || pnpm run build --if-present || yarn build) >/dev/null 2>&1 && notice build "build ok" || error build "build failed"
-    (npm test --if-present || pnpm test --if-present || yarn test) >/dev/null 2>&1 && notice test "test ok" || error test "test failed"
+    if pnpm run build >/dev/null 2>&1; then
+      notice build "build ok"
+    else
+      error build "build failed"
+    fi
+
+    if (npm test --if-present || pnpm test --if-present || yarn test) >/dev/null 2>&1; then
+      notice test "test ok"
+    else
+      error test "test failed"
+    fi
   fi
 elif [ -f pyproject.toml ] || [ -f requirements.txt ]; then
   pip install -q -r requirements.txt 2>/dev/null || true
@@ -106,7 +119,16 @@ fi
 # ---------------------------------------------------------------- 4. deploy-dry
 echo "== deploy-dry =="
 if [ -f vercel.json ]; then
-  vercel build --dry-run >/dev/null 2>&1 || error "deploy" "vercel dry-run failed"
+  # Mirror the workflow's Vercel step: only attempt a dry-run when auth is
+  # present. Without VERCEL_TOKEN a dry-run fails unconditionally, which would
+  # red-break the gate on every run that doesn't inject credentials into this
+  # script's process tree (the gate calls `bash scripts/verify.sh` directly,
+  # so the workflow's scoped VERCEL_TOKEN env does not reach here).
+  if [ -z "${VERCEL_TOKEN:-}" ]; then
+    notice "deploy" "VERCEL_TOKEN not set; skipping vercel dry-run (matches workflow guard)"
+  else
+    vercel build --dry-run >/dev/null 2>&1 || error "deploy" "vercel dry-run failed"
+  fi
 elif [ -f railway.json ] || [ -f railway.toml ]; then
   notice "deploy" "railway target present; run 'railway up --detach' manually"
 elif [ -f eas.json ]; then
