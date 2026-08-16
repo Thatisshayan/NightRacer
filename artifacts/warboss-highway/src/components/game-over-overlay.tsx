@@ -4,8 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useLocation } from 'wouter';
 import { useToast } from '@/hooks/use-toast';
-import { ACHIEVEMENTS, getAchievementById } from '@/lib/game/achievements';
-import { CarType } from '@/lib/game/engine';
+import { ACHIEVEMENTS, getAchievementById, type CarType } from '@workspace/game-core';
 
 interface GameOverOverlayProps {
   score: number;
@@ -34,59 +33,59 @@ function generateShareCard(
   const ctx = canvas.getContext('2d')!;
 
   // Background
-  ctx.fillStyle = '#0a0a0a';
+  ctx.fillStyle = '#050816';
   ctx.fillRect(0, 0, 480, 240);
 
   // Left accent bar
-  ctx.fillStyle = '#8b0000';
+  ctx.fillStyle = '#27d9ff';
   ctx.fillRect(0, 0, 6, 240);
 
   // Top stripe
-  ctx.fillStyle = '#1a0000';
+  ctx.fillStyle = '#11192a';
   ctx.fillRect(6, 0, 474, 6);
 
   // Title
-  ctx.font = 'bold 36px Arial';
-  ctx.fillStyle = '#cc2222';
+  ctx.font = "bold 36px 'Russo One', Arial, sans-serif";
+  ctx.fillStyle = '#27d9ff';
   ctx.textAlign = 'left';
   ctx.fillText('WARBOSS', 24, 52);
-  ctx.font = 'bold 24px Arial';
-  ctx.fillStyle = '#cccccc';
+  ctx.font = "bold 24px 'Russo One', Arial, sans-serif";
+  ctx.fillStyle = '#eaf7ff';
   ctx.fillText('HIGHWAY', 24, 80);
 
   if (isDaily) {
-    ctx.font = 'bold 11px Arial';
+    ctx.font = "bold 11px 'Russo One', Arial, sans-serif";
     ctx.fillStyle = '#55ffaa';
     ctx.fillText('◆ DAILY CHALLENGE', 24, 100);
   }
 
   // Score (big)
-  ctx.font = 'bold 64px Arial';
+  ctx.font = "bold 64px 'Russo One', Arial, sans-serif";
   ctx.fillStyle = '#ffffff';
   ctx.textAlign = 'right';
   ctx.fillText(Math.floor(score).toLocaleString(), 460, 110);
 
-  ctx.font = '13px Arial';
-  ctx.fillStyle = '#666';
+  ctx.font = "13px 'Russo One', Arial, sans-serif";
+  ctx.fillStyle = '#8295aa';
   ctx.fillText('FINAL SCORE', 460, 130);
 
   // Stats row
-  ctx.font = '15px Arial';
-  ctx.fillStyle = '#999';
+  ctx.font = "15px 'Russo One', Arial, sans-serif";
+  ctx.fillStyle = '#d4e6f1';
   ctx.textAlign = 'left';
   ctx.fillText(`${Math.floor(distance)}m SURVIVED`, 24, 158);
 
-  ctx.fillStyle = '#aaa';
+  ctx.fillStyle = '#8295aa';
   ctx.fillText(`VEHICLE: ${car}`, 24, 180);
 
   // Player name
-  ctx.font = 'bold 20px Arial';
-  ctx.fillStyle = '#cc2222';
+  ctx.font = "bold 20px 'Russo One', Arial, sans-serif";
+  ctx.fillStyle = '#27d9ff';
   ctx.fillText(playerName.toUpperCase(), 24, 210);
 
   // Tag line
-  ctx.font = '11px Arial';
-  ctx.fillStyle = '#333';
+  ctx.font = "11px 'Russo One', Arial, sans-serif";
+  ctx.fillStyle = '#8295aa';
   ctx.textAlign = 'right';
   ctx.fillText('SURVIVE THE WASTELAND  warboss-highway.repl.co', 460, 230);
 
@@ -271,6 +270,26 @@ export function GameOverOverlay({
             </div>
           )}
 
+          {/* Primary continue actions — restart is the action players want
+              first after a run; score submission is secondary. */}
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              onClick={onRestart}
+              className="flex-[2] h-14 text-lg font-black tracking-widest bg-primary hover:bg-primary/80 text-primary-foreground"
+            >
+              PLAY AGAIN
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onBack}
+              className="flex-1 h-14 border-border hover:bg-secondary font-mono text-sm"
+            >
+              MENU
+            </Button>
+          </div>
+
           {/* Score submit form */}
           <form onSubmit={handleSubmit} className="space-y-3">
             <div className="space-y-1">
@@ -288,13 +307,13 @@ export function GameOverOverlay({
                 placeholder="WARBOSS_99"
                 className="font-mono uppercase bg-black/50 border-primary/50 focus-visible:ring-primary text-lg text-center h-12"
                 required
-                autoFocus
                 autoComplete="off"
               />
             </div>
             <Button
               type="submit"
-              className="w-full h-14 text-lg font-black tracking-widest bg-primary hover:bg-primary/80 text-primary-foreground"
+              variant="outline"
+              className="w-full h-12 text-base font-bold tracking-widest border-primary/60 text-primary hover:bg-primary/10"
               disabled={submitScore.isPending}
             >
               {submitScore.isPending ? 'TRANSMITTING...' : 'SUBMIT TO KILL-BOARD'}
@@ -333,24 +352,6 @@ export function GameOverOverlay({
             </a>
           )}
 
-          <div className="flex gap-2 mt-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={onRestart}
-              className="flex-1 h-11 border-border hover:bg-secondary font-mono text-sm"
-            >
-              PLAY AGAIN
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={onBack}
-              className="flex-1 h-11 border-border hover:bg-secondary font-mono text-sm"
-            >
-              MAIN MENU
-            </Button>
-          </div>
         </div>
       </div>
     </div>

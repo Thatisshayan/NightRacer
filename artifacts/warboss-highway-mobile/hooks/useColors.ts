@@ -5,19 +5,14 @@ import colors from '@/constants/colors';
  * Returns the design tokens for the current color scheme.
  *
  * The returned object contains all color tokens for the active palette
- * plus scheme-independent values like `radius`.
- *
- * Falls back to the light palette when no dark key is defined in
- * constants/colors.ts (the scaffold ships light-only by default).
- * When a sibling web artifact's dark tokens are synced into a `dark`
- * key, this hook will automatically switch palettes based on the
- * device's appearance setting.
+ * plus scheme-independent values like `radius`. `light` and `dark` are
+ * the same grimdark palette (see constants/colors.ts) — the web app this
+ * mirrors never actually has a separate light theme, so there's nothing
+ * to switch between, but the hook still resolves per-scheme for when/if
+ * that changes.
  */
 export function useColors() {
   const scheme = useColorScheme();
-  const palette =
-    scheme === 'dark' && 'dark' in colors
-      ? (colors as Record<string, typeof colors.light>).dark
-      : colors.light;
+  const palette = scheme === 'dark' ? colors.dark : colors.light;
   return { ...palette, radius: colors.radius };
 }
