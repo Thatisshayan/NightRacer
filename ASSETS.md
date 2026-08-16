@@ -33,6 +33,37 @@ A functional color role must not be reused casually. In particular, red is reser
 
 The existing `sprites-premium` set will remain the baseline content library. The redesign should make it feel intentional through material treatment, glow, light cues, layered backgrounds, and renderer effects rather than replacing every vehicle with large unoptimized artwork.
 
+### Runtime sprite pack (added 2026-08-14)
+
+`artifacts/warboss-highway/assets-src/sprites-premium/` holds the **authoring masters** (vehicles at 1373x2048, boss at
+2048x2048; 125.7 MB across 41 PNGs). The game renders vehicles at 48-80 px wide, so shipping
+the masters meant a ~1:26 minification with no mipmaps: soft, aliased, low-contrast sprites and
+a huge first-load payload. That is why the high-quality art "did not look like anything" in play.
+
+`scripts/build-sprite-pack.mjs` (Lanczos3 via `sharp`) downsamples the masters into
+`public/sprites/` at render-appropriate sizes (vehicle 256w, boss 512w, prop/debris 256w, road
+512w; skyline and anything <=512w passes through) and writes a `manifest.json`. Result:
+**125.7 MB -> 6.5 MB (-94.8%)**, same 41 files.
+
+- Runtime loads from `/sprites` (`RUNTIME_SPRITE_BASE` in `src/lib/game/sprites.ts`).
+- Textures enable `autoGenerateMipmaps` + linear filtering after load.
+- Regenerate after changing any master: `node scripts/build-sprite-pack.mjs`
+- `SPRITE_PACK_VERSION` must be bumped when the pack output changes (cache-busting).
+- The masters live **outside** the Vite public dir at `artifacts/warboss-highway/assets-src/sprites-premium/`
+  (moved 2026-08-14 with Shayan's explicit R14 approval), so they are retained in-repo but no longer
+  deployed. Nothing at runtime may reference `sprites-premium/`; the menu skyline images were
+  repointed to `/sprites/` in the same pass.
+
+### Measured readability (2026-08-14, 420x800 viewport, in-play capture)
+
+| Metric | Before | After |
+| --- | --- | --- |
+| Road surface sample | `#080808` | mean `#242323` over the asphalt-indigo base |
+| Oncoming vehicle vs road | 3.25:1 | 9.57:1 |
+| Dark/red vehicle vs road | 2.48:1 | 4.41:1 |
+| `DIST`/`SPD` HUD text | 1.02:1 | 15.63:1 |
+
+
 | Group | Current source | New treatment |
 | --- | --- | --- |
 | Player and traffic cars | Existing player, traffic, tank, and boss sprites | Apply coherent direction lights, road shadow, controlled underglow, lateral bank, and speed-tier emissive response. |
@@ -55,7 +86,7 @@ A visual change is accepted only when the following conditions hold in a regular
 | Check | Required result |
 | --- | --- |
 | Player anchor | The player is clear within 250ms of first viewing the screen. |
-| Traffic direction | Oncoming headlights and same-direction taillights are distinguishable without relying only on color. |
+| Traffic direction | Oncoming headlights and same-direction taillights are distinguishable without relying only on color. Web renderer additionally satisfies the motion clause as of 2026-08-14: same-direction traffic faster than the player recedes up-screen instead of every vehicle sharing one direction. |
 | Road legibility | Lane edges, center divide, and safe drive area remain visible in rain and at high speed. |
 | Reward state | A near-miss, power-up, and boost each have a recognizably different event treatment. |
 | Performance | Additional ambience does not produce unbounded containers/nodes or per-frame framework reconciliation. |

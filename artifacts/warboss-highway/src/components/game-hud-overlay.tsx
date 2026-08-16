@@ -195,27 +195,27 @@ export function GameHudOverlay({ engine }: { engine: GameEngine }) {
   return (
     <div className="absolute inset-0 pointer-events-none select-none font-mono text-white z-10">
       {/* Top HUD bar */}
-      <div className="absolute top-0 left-0 right-0 h-[72px] bg-black/55">
+      <div className="absolute top-0 left-0 right-0 h-[86px] bg-black/60">
         <div
           ref={scoreRef}
-          className="absolute left-[15px] top-[14px] origin-left text-2xl font-['Russo_One',sans-serif]"
+          className="absolute left-[62px] top-[12px] origin-left text-2xl font-['Russo_One',sans-serif]"
           style={{ textShadow: '0 2px 0 rgba(0,0,0,0.9)' }}
         />
-        <div ref={distRef} className="absolute left-[15px] top-[44px] text-[13px] text-[#888]" style={{ textShadow: '0 1px 0 rgba(0,0,0,0.9)' }} />
+        <div ref={distRef} className="absolute left-[62px] top-[48px] text-[14px] font-semibold tracking-wide text-[#d4e6f1]" style={{ textShadow: '0 1px 0 rgba(0,0,0,0.9)' }} />
         <div
           ref={comboRef}
-          className="absolute left-1/2 top-[22px] -translate-x-1/2 text-[13px] text-[#ffee22]"
+          className="absolute left-1/2 top-[20px] -translate-x-1/2 text-[15px] font-bold text-[#ffee22]"
           style={{ display: 'none', textShadow: '0 1px 0 rgba(0,0,0,0.9)' }}
         />
-        <div ref={dailyBadgeRef} className="absolute left-1/2 top-[50px] -translate-x-1/2 text-[10px] text-[#55ffaa]" style={{ display: 'none' }}>
+        <div ref={dailyBadgeRef} className="absolute left-1/2 top-[52px] -translate-x-1/2 text-[11px] text-[#55ffaa]" style={{ display: 'none' }}>
           {'◆ DAILY CHALLENGE'}
         </div>
-        <div ref={livesRef} className="absolute right-[15px] top-[15px] flex flex-row-reverse gap-[4px]">
+        <div ref={livesRef} className="absolute right-[62px] top-[14px] flex flex-row-reverse gap-[6px]">
           {[0, 1, 2, 3, 4].map((i) => (
-            <span key={i} className="text-xl leading-none">{'☠'}</span>
+            <span key={i} className="text-2xl leading-none">{'☠'}</span>
           ))}
         </div>
-        <div ref={oilWarningRef} className="absolute right-[12px] top-[48px] text-xs text-[#8888ff]" style={{ display: 'none' }}>
+        <div ref={oilWarningRef} className="absolute right-[62px] top-[52px] text-xs font-semibold text-[#a9b6ff]" style={{ display: 'none' }}>
           {'⚠ SLIPPING'}
         </div>
       </div>
@@ -227,11 +227,11 @@ export function GameHudOverlay({ engine }: { engine: GameEngine }) {
         type="button"
         onClick={() => engine.triggerRush()}
         aria-label="Activate Rush when charged"
-        className="pointer-events-auto absolute left-1/2 bottom-[18px] -translate-x-1/2 w-[154px] h-[52px] overflow-hidden border bg-[#050816]/90 text-white transition-[opacity,box-shadow,border-color] duration-150 active:scale-[0.96] motion-reduce:active:scale-100"
+        className="pointer-events-auto absolute left-1/2 bottom-[26px] -translate-x-1/2 w-[196px] h-[62px] rounded-md overflow-hidden border bg-[#050816]/90 text-white transition-[opacity,box-shadow,border-color] duration-150 active:scale-[0.96] motion-reduce:active:scale-100"
       >
         <div ref={rushFillRef} className="absolute inset-y-0 left-0 w-0 opacity-70 transition-[width] duration-100" />
-        <span ref={rushLabelRef} className="relative z-10 text-[11px] font-bold tracking-[0.16em]">RUSH 0%</span>
-        <span className="relative z-10 block mt-0.5 text-[8px] tracking-[0.2em] text-[#d4e6f1]/75">CLOSE PASSES CHARGE</span>
+        <span ref={rushLabelRef} className="relative z-10 text-[13px] font-bold tracking-[0.16em]">RUSH 0%</span>
+        <span className="relative z-10 block mt-0.5 text-[9px] tracking-[0.2em] text-[#d4e6f1]/85">CLOSE PASSES CHARGE</span>
       </button>
 
       {/* Power-up bar (bottom left) */}
@@ -261,7 +261,7 @@ export function GameHudOverlay({ engine }: { engine: GameEngine }) {
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
           <div ref={speedTextRef} className="text-sm font-bold" />
-          <div className="text-[8px] text-[#888]">SPD</div>
+          <div className="text-[9px] font-semibold text-[#d4e6f1]">SPD</div>
         </div>
       </div>
 
@@ -279,7 +279,7 @@ export function GameHudOverlay({ engine }: { engine: GameEngine }) {
       </div>
 
       {/* Near-miss combo text */}
-      <div ref={nearMissRef} className="absolute left-1/2 bottom-[92px] -translate-x-1/2 font-bold text-[#df4bff] font-['Russo_One',sans-serif]" style={{ display: 'none', textShadow: '0 0 12px #27d9ff' }} />
+      <div ref={nearMissRef} className="absolute left-1/2 bottom-[102px] -translate-x-1/2 font-bold text-[#df4bff] font-['Russo_One',sans-serif]" style={{ display: 'none', textShadow: '0 0 12px #27d9ff' }} />
     </div>
   );
 }
