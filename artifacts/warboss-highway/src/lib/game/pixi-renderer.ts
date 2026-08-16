@@ -21,6 +21,7 @@ const LANE_DASH_PERIOD = LANE_DASH_LEN + LANE_DASH_GAP;
 const EXPLOSION_FLASH_MS = 400;
 const NEON = {
   midnight: 0x050816,
+  asphalt: 0x11192a,
   roadSheen: 0x294766,
   cyan: 0x27d9ff,
   magenta: 0xdf4bff,
@@ -108,6 +109,7 @@ export class PixiRenderer implements GameRenderer {
   private textures: SpriteTextures;
   private worldContainer: Container;
   private backdrop: Graphics;
+  private roadBase: Graphics;
   private road: TilingSprite;
   private roadSheen: Graphics;
   private weatherLayer: Graphics;
@@ -129,6 +131,7 @@ export class PixiRenderer implements GameRenderer {
   private exhaustLayer = new Container();
   private shieldLayer = new Container();
   private particleLayer = new Container();
+  private playerAnchor: Graphics;
   private playerSprite: Sprite;
   private exhaustSprite: Sprite;
   private explosionSprite: Sprite;
@@ -163,6 +166,17 @@ export class PixiRenderer implements GameRenderer {
     this.backdrop.rect(0, 0, app.screen.width, app.screen.height).fill(NEON.midnight);
     this.worldContainer.addChild(this.backdrop);
 
+    // Asphalt floor at the ASSETS.md-specified `#11192A`. The authored road
+    // tile is much darker than the spec, and compositing it straight onto the
+    // midnight backdrop measured at `#080808` in a real capture — roughly 3x
+    // darker than the approved surface, which is what pushed traffic contrast
+    // down to 2.5-3.2:1. Filling the surface first and letting the tile ride
+    // on top at partial alpha keeps the authored grain while anchoring the
+    // road's luminance to spec. See audits/2026-08-14_Viktor_UIUXVisual_Audit.md S2.1.
+    this.roadBase = new Graphics();
+    this.roadBase.rect(0, 0, app.screen.width, app.screen.height).fill(NEON.asphalt);
+    this.worldContainer.addChild(this.roadBase);
+
     this.road = new TilingSprite({
       texture: textures.roadTile,
       width: app.screen.width,
@@ -184,7 +198,9 @@ export class PixiRenderer implements GameRenderer {
     // tsx's ROAD_BOOST). Contrast raised further (was 1.3/0.05) — real
     // playtesting still called the asphalt too flat/hard to make out even
     // with the first boost pass.
-    this.road.filters = [boostFilter(1.55, 0.08)];
+    // Grain rides on the asphalt base rather than replacing it.
+    this.road.alpha = 0.78;
+    this.road.filters = [boostFilter(1.42, 0.5)];
     this.worldContainer.addChild(this.road);
 
     // Animated wet-road sheen and edge-light pools are drawn with one stable
@@ -269,7 +285,9 @@ export class PixiRenderer implements GameRenderer {
     this.worldContainer.addChild(this.obstacleLayer);
     this.vehicleLightLayer = new Graphics();
     this.worldContainer.addChild(this.vehicleLightLayer);
-    this.vehicleLayer.filters = [boostFilter(1.2, 0.12)];
+    // Raised from (1.2, 0.12): measured enemy-vs-road contrast was 3.25:1 and a
+    // light vehicle only 2.48:1, against a 4.5:1 minimum for hit-critical objects.
+    this.vehicleLayer.filters = [boostFilter(1.45, 0.42)];
     this.worldContainer.addChild(this.vehicleLayer);
     this.worldContainer.addChild(this.powerupLayer);
     this.worldContainer.addChild(this.exhaustLayer);
@@ -293,6 +311,13 @@ export class PixiRenderer implements GameRenderer {
     this.explosionSprite.anchor.set(0.5);
     this.explosionSprite.visible = false;
     this.worldContainer.addChild(this.explosionSprite);
+
+    // Player anchor. ASSETS.md requires the player to be clear within 250ms of
+    // first viewing the screen; a dark car on a dark road at the bottom edge
+    // with no shadow and no underglow failed that check outright. Drawn into
+    // one stable Graphics directly beneath the sprite, rebuilt in place.
+    this.playerAnchor = new Graphics();
+    this.worldContainer.addChild(this.playerAnchor);
 
     this.playerSprite = new Sprite(Object.values(textures.playerCars)[0]);
     this.playerSprite.anchor.set(0.5);
@@ -392,6 +417,22 @@ export class PixiRenderer implements GameRenderer {
     this.playerSprite.alpha = player.isInvulnerable ? (Math.floor(performance.now() / 100) % 2 === 0 ? 0.4 : 1) : 1;
     this.playerSprite.tint = player.oilSlicked ? 0x99aaff : 0xffffff;
     this.playerSprite.rotation = state.driveTilt * 0.14 + (state.rushTimer > 0 ? state.driveTilt * 0.035 : 0);
+    // Ground shadow + cyan underglow. Underglow intensity tracks speed and
+    // spikes during RUSH, so the player's own state is readable without
+    // looking away from the road at the HUD.
+    const glowColor = state.rushTimer > 0 ? NEON.magenta : NEON.cyan;
+    const glowStrength = 0.3 + Math.min(0.35, state.speedMultiplier * 0.12) + (state.rushTimer > 0 ? 0.2 : 0);
+    this.playerAnchor.clear();
+    this.playerAnchor
+      .ellipse(player.x, player.y + player.height * 0.44, player.width * 0.5, player.height * 0.12)
+      .fill({ color: 0x000000, alpha: 0.45 });
+    this.playerAnchor
+      .ellipse(player.x, player.y + player.height * 0.3, player.width * 0.78, player.height * 0.42)
+      .fill({ color: glowColor, alpha: glowStrength * 0.22 });
+    this.playerAnchor
+      .ellipse(player.x, player.y + player.height * 0.34, player.width * 0.55, player.height * 0.22)
+      .fill({ color: glowColor, alpha: glowStrength * 0.4 });
+
     this.exhaustSprite.visible = true;
     this.exhaustSprite.x = player.x;
     this.exhaustSprite.y = player.y + player.height / 2 + 4;
@@ -463,10 +504,55 @@ export class PixiRenderer implements GameRenderer {
       const color = oncoming ? NEON.headlight : NEON.trafficRed;
       const y = vehicle.y + vehicle.height * 0.34;
       const spread = Math.max(7, vehicle.width * 0.24);
-      const radius = Math.max(3, vehicle.width * 0.12);
-      this.vehicleLightLayer.circle(vehicle.x - spread, y, radius).fill({ color, alpha: oncoming ? 0.55 : 0.5 });
-      this.vehicleLightLayer.circle(vehicle.x + spread, y, radius).fill({ color, alpha: oncoming ? 0.55 : 0.5 });
-      if (oncoming) this.vehicleLightLayer.roundRect(vehicle.x - vehicle.width * 0.18, y + radius, vehicle.width * 0.36, vehicle.height * 0.42, 6).fill({ color, alpha: 0.045 });
+      // Direction lights existed but were drawn at ~5px radius, 0.5 alpha, with
+      // a 0.045-alpha beam — on a near-black playfield that is below the
+      // threshold of noticing, so oncoming and same-direction traffic read
+      // identically in play. Sized and lit to be the primary direction signal.
+      const radius = Math.max(5, vehicle.width * 0.17);
+
+      // Contact shadow first, so the lamps below stay the brightest pixels.
+      // Without it every vehicle floats, which is a large part of why the
+      // playfield reads as a flat box.
+      this.vehicleLightLayer
+        .ellipse(vehicle.x, vehicle.y + vehicle.height * 0.46, vehicle.width * 0.44, vehicle.height * 0.1)
+        .fill({ color: 0x000000, alpha: 0.4 });
+
+      if (oncoming) {
+        // Headlight cone thrown toward the player: the cue arrives before the
+        // vehicle does, which is what makes closing speed readable.
+        const coneLength = vehicle.height * 1.15;
+        const coneHalf = vehicle.width * 0.62;
+        this.vehicleLightLayer
+          .poly([
+            vehicle.x - spread, y,
+            vehicle.x + spread, y,
+            vehicle.x + coneHalf, y + coneLength,
+            vehicle.x - coneHalf, y + coneLength,
+          ])
+          .fill({ color, alpha: 0.16 });
+        this.vehicleLightLayer
+          .poly([
+            vehicle.x - spread, y,
+            vehicle.x + spread, y,
+            vehicle.x + coneHalf * 0.55, y + coneLength * 0.55,
+            vehicle.x - coneHalf * 0.55, y + coneLength * 0.55,
+          ])
+          .fill({ color, alpha: 0.2 });
+      } else {
+        // Same-direction traffic gets a taillight bar plus a short red wash —
+        // a different *shape*, not just a different hue, so the cue survives
+        // colour-vision deficiency (ASSETS.md accessibility clause).
+        this.vehicleLightLayer
+          .roundRect(vehicle.x - vehicle.width * 0.34, y - radius * 0.5, vehicle.width * 0.68, radius, radius * 0.5)
+          .fill({ color, alpha: 0.5 });
+        this.vehicleLightLayer
+          .roundRect(vehicle.x - vehicle.width * 0.3, y + radius, vehicle.width * 0.6, vehicle.height * 0.3, 6)
+          .fill({ color, alpha: 0.12 });
+      }
+
+      // Lamp cores last so they stay the brightest part of the cue.
+      this.vehicleLightLayer.circle(vehicle.x - spread, y, radius).fill({ color, alpha: 0.95 });
+      this.vehicleLightLayer.circle(vehicle.x + spread, y, radius).fill({ color, alpha: 0.95 });
     }
   }
 

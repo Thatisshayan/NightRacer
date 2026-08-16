@@ -267,9 +267,11 @@ export default function Game() {
 
   // Show tutorial on first title visit
   useEffect(() => {
-    if (screen === 'title' && !Settings.getTutorialSeen()) {
-      setShowTutorial(true);
-    }
+    if (screen !== 'title' || Settings.getTutorialSeen()) return;
+    // Let the title screen render and settle first — opening the modal on the
+    // same frame hides the game's identity behind a wall of instructions.
+    const timer = window.setTimeout(() => setShowTutorial(true), 1100);
+    return () => window.clearTimeout(timer);
   }, [screen]);
 
   const togglePause = useCallback(() => {
@@ -458,12 +460,12 @@ export default function Game() {
             <div className="absolute left-1/2 bottom-[-18%] h-[72%] w-[52%] -translate-x-1/2 skew-x-[-6deg] border-x border-[#27d9ff]/25 bg-gradient-to-t from-[#11192a]/90 via-[#101a2a]/30 to-transparent pointer-events-none" />
             {/* Skyline parallax backdrop remains low-contrast scenery, never a competing primary action. */}
             <img
-              src={`${import.meta.env.BASE_URL}sprites-premium/skyline_layer1.png`}
+              src={`${import.meta.env.BASE_URL}sprites/skyline_layer1.png`}
               alt=""
               className="absolute left-0 right-0 bottom-0 w-full h-[230px] object-cover opacity-38 mix-blend-screen pointer-events-none"
             />
             <img
-              src={`${import.meta.env.BASE_URL}sprites-premium/skyline_layer2.png`}
+              src={`${import.meta.env.BASE_URL}sprites/skyline_layer2.png`}
               alt=""
               className="absolute left-0 right-0 bottom-0 w-full h-[160px] object-cover opacity-58 pointer-events-none"
             />
