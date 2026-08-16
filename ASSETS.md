@@ -86,7 +86,7 @@ A visual change is accepted only when the following conditions hold in a regular
 | Check | Required result |
 | --- | --- |
 | Player anchor | The player is clear within 250ms of first viewing the screen. |
-| Traffic direction | Oncoming headlights and same-direction taillights are distinguishable without relying only on color. |
+| Traffic direction | Oncoming headlights and same-direction taillights are distinguishable without relying only on color. Web renderer additionally satisfies the motion clause as of 2026-08-14: same-direction traffic faster than the player recedes up-screen instead of every vehicle sharing one direction. |
 | Road legibility | Lane edges, center divide, and safe drive area remain visible in rain and at high speed. |
 | Reward state | A near-miss, power-up, and boost each have a recognizably different event treatment. |
 | Performance | Additional ambience does not produce unbounded containers/nodes or per-frame framework reconciliation. |

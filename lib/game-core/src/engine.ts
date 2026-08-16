@@ -226,6 +226,56 @@ const NEAR_MISS_EXTRA_PX = 22;
 // though the average rate is unchanged. A cooldown keeps gaps consistent.
 const VEHICLE_SPAWN_MIN_MS = 550;
 const VEHICLE_SPAWN_MAX_MS = 1350;
+
+// --- Authored traffic patterns -------------------------------------------
+// The cooldown scheduler above fixed burstiness but left every encounter
+// identical in shape: one car, wait, one car. Playtest feedback was that
+// traffic "has no rhythm" — nothing to read, anticipate or thread, just a
+// stream. Difficulty could only be raised by shortening the cooldown, which
+// makes the road denser without making it more interesting.
+//
+// Traffic is now emitted as short authored *patterns*: a sequence of beats,
+// each naming the lanes that spawn on that beat, followed by an enforced rest
+// so the player always gets a readable breath between encounters. Difficulty
+// ramps by pattern TIER (which patterns are in the pool), not by raw spawn
+// frequency.
+//
+// Invariant: no beat may occupy all four lanes. Every pattern is threadable.
+export interface TrafficPattern {
+  readonly id: string;
+  /** Minimum distance before this pattern enters the pool. */
+  readonly tier: number;
+  /** Lane indices (0-3) spawning on each beat. */
+  readonly beats: readonly (readonly number[])[];
+  /** Gap after each beat, ms at 1x speed. */
+  readonly beatGapMs: number;
+}
+
+export const TRAFFIC_PATTERNS: readonly TrafficPattern[] = [
+  // Tier 0 — the vocabulary the player learns on.
+  { id: 'single', tier: 0, beats: [[1]], beatGapMs: 620 },
+  { id: 'single_wide', tier: 0, beats: [[3]], beatGapMs: 620 },
+  // A slow car followed by a second in the neighbouring lane: teaches that
+  // committing to a gap early can trap you.
+  { id: 'stagger', tier: 0, beats: [[0], [1]], beatGapMs: 430 },
+  // Tier 1 — two-lane shapes.
+  { id: 'pair_split', tier: 6000, beats: [[0, 2]], beatGapMs: 700 },
+  { id: 'diagonal', tier: 9000, beats: [[0], [1], [2]], beatGapMs: 380 },
+  { id: 'convoy', tier: 9000, beats: [[2], [2], [2]], beatGapMs: 460 },
+  // Tier 2 — the shapes that need a committed line.
+  // Three abreast with exactly one gap: the signature "thread the needle".
+  { id: 'wall_gap', tier: 18000, beats: [[0, 1, 2]], beatGapMs: 900 },
+  { id: 'pincer', tier: 18000, beats: [[0, 3], [1, 2]], beatGapMs: 500 },
+  // Funnel: the gap migrates across the road, so holding one line fails.
+  { id: 'funnel', tier: 30000, beats: [[0, 1], [1, 2], [2, 3]], beatGapMs: 470 },
+  { id: 'zipper', tier: 30000, beats: [[0, 2], [1, 3], [0, 2]], beatGapMs: 440 },
+];
+
+// Enforced quiet after a pattern completes. Without it, back-to-back patterns
+// read as one undifferentiated stream again and the rhythm is lost. Scales
+// down with speed so it stays a beat rather than a stall.
+const PATTERN_REST_MIN_MS = 420;
+const PATTERN_REST_MAX_MS = 900;
 const POWERUP_SPAWN_MIN_MS = 5000;
 const POWERUP_SPAWN_MAX_MS = 11000;
 const OBSTACLE_SPAWN_MIN_MS = 1800;
@@ -276,6 +326,10 @@ export class GameEngine {
   private renderer: GameRenderer | null = null;
   // Bounded spawn-cooldown timers — see VEHICLE_SPAWN_MIN_MS doc comment.
   private vehicleSpawnTimer: number = 400;
+  // Authored-pattern playback state — see TRAFFIC_PATTERNS.
+  private activePattern: TrafficPattern | null = null;
+  private patternBeat: number = 0;
+  private patternMirrored: boolean = false;
   private powerupSpawnTimer: number = POWERUP_SPAWN_MIN_MS;
   private obstacleSpawnTimer: number = OBSTACLE_SPAWN_MIN_MS;
   private audio: AudioAdapter;
@@ -756,14 +810,7 @@ export class GameEngine {
     const densityRamp = Math.min(2.2, 1 + state.distance / 18000);
     this.vehicleSpawnTimer -= dt;
     if (this.vehicleSpawnTimer <= 0) {
-      const lane = this.spawnVehicle(currentSpeed);
-      // Occasional pairs at higher distances
-      if (state.distance > 25000 && lane !== undefined && this.rng() < 0.3) {
-        this.spawnVehicle(currentSpeed, lane);
-      }
-      const factor = Math.max(0.4, speedMult * densityRamp * this.dailyModifier.spawnMult);
-      const base = VEHICLE_SPAWN_MIN_MS + this.rng() * (VEHICLE_SPAWN_MAX_MS - VEHICLE_SPAWN_MIN_MS);
-      this.vehicleSpawnTimer = Math.max(200, base / factor);
+      this.advanceTrafficPattern(currentSpeed, speedMult, densityRamp);
     }
 
     // Spawn powerups
@@ -789,13 +836,27 @@ export class GameEngine {
       const v = state.vehicles[i];
       if (v.direction === 'SAME') {
         // Same-direction traffic: closing speed is currentSpeed minus its
-        // own pace, not a sum — a slower type (BUS/TANK, low speed
-        // multiplier) drifts toward the player like highway traffic
-        // you're gaining on; a faster one (SPORTS) can pull away instead.
-        // Floor keeps it from ever fully stalling on screen.
-        v.y += Math.max(1.2, currentSpeed - v.speed * 0.7) * frameScale;
+        // own pace, not a sum — a slower type (BUS/TANK) drifts toward the
+        // player like highway traffic you're gaining on.
+        //
+        // The 1.2px/frame floor that used to sit here meant *every* vehicle in
+        // the game moved down-screen, only at different rates. With nothing
+        // ever moving the other way there was no relative motion to read, and
+        // the road felt like a conveyor belt. A faster car (SPORTS) now
+        // genuinely recedes: it enters from behind the player (see
+        // spawnsFromBehind) , overtakes, and pulls away up-screen. That is the
+        // single clearest signal that the player is inside traffic rather than
+        // in front of a spawner.
+        v.y += (currentSpeed - v.speed * 0.7) * frameScale;
       } else {
         v.y += (currentSpeed + v.speed * 0.5) * frameScale;
+      }
+
+      // Receding same-direction traffic exits off the top; without this it
+      // would climb forever and leak into the vehicle array.
+      if (v.y < -260) {
+        state.vehicles.splice(i, 1);
+        continue;
       }
 
       if (v.y > this.height + 150) {
@@ -959,10 +1020,80 @@ export class GameEngine {
     return null;
   }
 
+  // Plays back one beat of the current authored pattern, or picks the next
+  // pattern (after a rest beat) when the current one is exhausted. Called
+  // whenever the spawn timer elapses; see TRAFFIC_PATTERNS for the rationale.
+  private advanceTrafficPattern(currentSpeed: number, speedMult: number, densityRamp: number) {
+    const factor = Math.max(0.4, speedMult * densityRamp * this.dailyModifier.spawnMult);
+
+    if (!this.activePattern) {
+      // Pool is every pattern whose tier the player has reached. Weighting the
+      // pick toward the newest tiers keeps late runs from feeling like the
+      // opening minute with a shorter cooldown.
+      const pool = TRAFFIC_PATTERNS.filter((p) => this.state.distance >= p.tier);
+      const eligible = pool.length > 0 ? pool : [TRAFFIC_PATTERNS[0]];
+      const topTier = eligible[eligible.length - 1].tier;
+      const advanced = eligible.filter((p) => p.tier === topTier);
+      const useAdvanced = advanced.length > 0 && eligible.length > advanced.length && this.rng() < 0.45;
+      const from = useAdvanced ? advanced : eligible;
+      this.activePattern = from[Math.floor(this.rng() * from.length)];
+      // Mirroring doubles the pattern vocabulary for free and stops the same
+      // shape always resolving toward the same side of the road.
+      this.patternMirrored = this.rng() < 0.5;
+      this.patternBeat = 0;
+    }
+
+    const pattern = this.activePattern;
+    const beat = pattern.beats[this.patternBeat];
+    for (const lane of beat) {
+      this.spawnVehicleInLane(currentSpeed, this.patternMirrored ? 3 - lane : lane);
+    }
+    this.patternBeat++;
+
+    if (this.patternBeat >= pattern.beats.length) {
+      this.activePattern = null;
+      const rest = PATTERN_REST_MIN_MS + this.rng() * (PATTERN_REST_MAX_MS - PATTERN_REST_MIN_MS);
+      this.vehicleSpawnTimer = Math.max(220, rest / factor);
+    } else {
+      this.vehicleSpawnTimer = Math.max(150, pattern.beatGapMs / factor);
+    }
+  }
+
   private spawnVehicle(currentSpeed: number, excludeLane?: number): number | undefined {
+    const spec = this.rollVehicleSpec(currentSpeed);
+    const spot = this.findSafeSpawnX(spec.width, excludeLane);
+    if (!spot) return undefined;
+    this.pushVehicle(spec, spot.lane, spot.x, currentSpeed);
+    return spot.lane;
+  }
+
+  // Pattern-driven spawn: the lane is dictated by the beat, not sampled. If
+  // that lane is occupied the beat simply drops the car rather than sliding it
+  // elsewhere — moving it would destroy the pattern's shape, which is the
+  // whole point of authoring one.
+  private spawnVehicleInLane(currentSpeed: number, lane: number): boolean {
     const state = this.state;
+    const spec = this.rollVehicleSpec(currentSpeed);
+    const laneX = state.lanes[lane];
+    if (laneX === undefined) return false;
+    // Jitter within the lane. Pinning pattern spawns to exact lane centres
+    // made traffic look mechanically placed (and regressed the "not just
+    // dead-center" spawn test); +/-22% of a lane is enough variety to look
+    // driven without blurring which lane the beat claimed.
+    const laneWidth = this.width / 4;
+    const margin = 18 + spec.width / 2 + 8;
+    const jitter = (this.rng() - 0.5) * laneWidth * 0.44;
+    const x = Math.min(Math.max(laneX + jitter, margin), Math.max(margin, this.width - margin));
+    const fromBehind = this.spawnsFromBehind(spec, currentSpeed);
+    const probeY = fromBehind ? this.height + 100 : -100;
+    if (!this.isAreaClear(x, spec.width, probeY, 170)) return false;
+    this.pushVehicle(spec, lane, x, currentSpeed);
+    return true;
+  }
+
+  private rollVehicleSpec(currentSpeed: number): { type: VehicleType; width: number; height: number; speed: number } {
     const isTank = this.rng() < 0.01;
-    let type: VehicleType = isTank
+    const type: VehicleType = isTank
       ? 'TANK'
       : REGULAR_TYPES[Math.floor(this.rng() * REGULAR_TYPES.length)];
 
@@ -972,19 +1103,50 @@ export class GameEngine {
     if (type === 'SPORTS')   { height = 72; speed = currentSpeed * 1.5; }
     if (type === 'BOXTRUCK') { width = 56; height = 112; speed = currentSpeed * 0.7; }
     if (type === 'TANK')     { width = 80; height = 128; speed = currentSpeed * 0.4; }
+    return { type, width, height, speed };
+  }
 
-    const spot = this.findSafeSpawnX(width, excludeLane);
-    if (!spot) return undefined;
+  // Same-direction traffic faster than the player recedes up-screen (see the
+  // vehicle update loop). Such a car has to enter from *behind* the player or
+  // it would spawn ahead and immediately drive away off the top, which is both
+  // pointless and unreadable.
+  private spawnsFromBehind(spec: { type: VehicleType; speed: number }, currentSpeed: number): boolean {
+    if (spec.type === 'TANK' || spec.type === 'BOSS') return false;
+    return currentSpeed - spec.speed * 0.7 < 0;
+  }
 
+  private pushVehicle(
+    spec: { type: VehicleType; width: number; height: number; speed: number },
+    lane: number,
+    x: number,
+    currentSpeed: number
+  ) {
+    const state = this.state;
     const colors = ['#555', '#453c31', '#222', '#4b5320', '#cc0000', '#dcdcdc'];
     const color = colors[Math.floor(this.rng() * colors.length)];
     const variant = Math.floor(this.rng() * 3) + 1;
     // Lanes 0-1 = oncoming, 2-3 = same direction as the player — see
     // Vehicle.direction's doc comment.
-    const direction: Vehicle['direction'] = spot.lane < 2 ? 'OPPOSITE' : 'SAME';
+    const direction: Vehicle['direction'] = lane < 2 ? 'OPPOSITE' : 'SAME';
+    const fromBehind = direction === 'SAME' && this.spawnsFromBehind(spec, currentSpeed);
 
-    state.vehicles.push({ type, x: spot.x, y: -100, width, height, color, speed, lane: spot.lane, passed: false, variant, direction });
-    return spot.lane;
+    state.vehicles.push({
+      type: spec.type,
+      x,
+      y: fromBehind ? this.height + 100 : -100,
+      width: spec.width,
+      height: spec.height,
+      color,
+      speed: spec.speed,
+      lane,
+      // A car entering from behind starts below the player, so it has not been
+      // passed yet — but it also must not fire a near-miss the instant it
+      // spawns. The update loop only sets `passed` on a downward crossing, so
+      // marking it passed here keeps overtakes from counting twice.
+      passed: fromBehind,
+      variant,
+      direction,
+    });
   }
 
   private trySpawnPowerup() {
