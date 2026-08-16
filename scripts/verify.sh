@@ -119,15 +119,13 @@ fi
 # ---------------------------------------------------------------- 4. deploy-dry
 echo "== deploy-dry =="
 if [ -f vercel.json ]; then
-  # Mirror the workflow's Vercel step: only attempt a dry-run when auth is
-  # present. Without VERCEL_TOKEN a dry-run fails unconditionally, which would
-  # red-break the gate on every run that doesn't inject credentials into this
-  # script's process tree (the gate calls `bash scripts/verify.sh` directly,
-  # so the workflow's scoped VERCEL_TOKEN env does not reach here).
-  if [ -z "${VERCEL_TOKEN:-}" ]; then
-    notice "deploy" "VERCEL_TOKEN not set; skipping vercel dry-run (matches workflow guard)"
+  if [ -n "${VERCEL_TOKEN:-}" ]; then
+    # `vercel build` has no --dry-run flag; --yes skips the interactive
+    # confirmation prompt when VERCEL_ORG_ID/VERCEL_PROJECT_ID are set,
+    # which is what actually gives us a non-interactive dry build.
+    npx --yes vercel@latest build --yes >/dev/null 2>&1 || error "deploy" "vercel build failed"
   else
-    vercel build --dry-run >/dev/null 2>&1 || error "deploy" "vercel dry-run failed"
+    notice "deploy" "vercel.json present but VERCEL_TOKEN not set in this environment; skipping dry-run (run 'vercel build --yes' locally, or add VERCEL_TOKEN/VERCEL_ORG_ID/VERCEL_PROJECT_ID as CI secrets for full coverage)"
   fi
 elif [ -f railway.json ] || [ -f railway.toml ]; then
   notice "deploy" "railway target present; run 'railway up --detach' manually"
