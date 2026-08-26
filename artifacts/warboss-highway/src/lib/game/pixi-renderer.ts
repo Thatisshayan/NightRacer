@@ -518,7 +518,8 @@ export class PixiRenderer implements GameRenderer {
     for (let k = 0; k < 14; k++) {
       const worldY = k * LAMP_SPAN + phase - LAMP_SPAN;
       if (worldY < 0 || worldY > H) continue;
-      const side = k % 2 === 0 ? -1 : 1;
+      const lampIndex = Math.floor(worldY / LAMP_SPAN);
+      const side = lampIndex % 2 === 0 ? 1 : -1;
       const scale = proj.scaleAt(worldY);
       const baseY = proj.screenY(worldY);
       const edgeX = proj.centerX + side * proj.halfWidthAt(worldY);
@@ -825,6 +826,7 @@ export class PixiRenderer implements GameRenderer {
       this.textures.oilSlick.destroy(true);
       this.textures.debris.destroy(true);
       this.textures.guardrail.destroy(true);
+      this.textures.skylineFar.destroy(true); // shared with skylineNear
     }
     this.textures.softGlow.destroy(true); // always runtime-generated, never Assets-managed
 

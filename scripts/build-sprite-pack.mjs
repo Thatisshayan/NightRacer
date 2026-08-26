@@ -19,7 +19,7 @@
  * Usage: node scripts/build-sprite-pack.mjs [--check]
  *   --check  exit non-zero if the generated pack is missing or stale
  */
-import { mkdir, readdir, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -68,7 +68,10 @@ async function main() {
     console.error('sprite pack missing - run: node scripts/build-sprite-pack.mjs');
     process.exit(1);
   }
-  await mkdir(OUT, { recursive: true });
+
+  if (!check) {
+    await mkdir(OUT, { recursive: true });
+  }
 
   let srcBytes = 0;
   let outBytes = 0;
@@ -76,29 +79,62 @@ async function main() {
 
   for (const file of files) {
     const srcPath = path.join(SRC, file);
-    const outPath = path.join(OUT, file);
     srcBytes += (await stat(srcPath)).size;
 
     const image = sharp(srcPath);
     const meta = await image.metadata();
     const targetWidth = classify(file, meta.width);
 
+    let info;
     if (targetWidth === null || targetWidth >= meta.width) {
-      await image.png({ compressionLevel: 9, palette: false }).toFile(outPath);
+      if (!check) {
+        info = await image.png({ compressionLevel: 9, palette: false }).toFile(path.join(OUT, file));
+      }
     } else {
       const targetHeight = Math.round((meta.height * targetWidth) / meta.width);
-      await image
-        // Lanczos3 over the full source: every source texel contributes, which
-        // is exactly what runtime bilinear minification fails to do.
-        .resize(targetWidth, targetHeight, { kernel: 'lanczos3', fit: 'fill' })
-        .png({ compressionLevel: 9, palette: false })
-        .toFile(outPath);
+      if (!check) {
+        info = await image
+          .resize(targetWidth, targetHeight, { kernel: 'lanczos3', fit: 'fill' })
+          .png({ compressionLevel: 9, palette: false })
+          .toFile(path.join(OUT, file));
+      }
     }
 
-    const size = (await stat(outPath)).size;
-    outBytes += size;
-    const outMeta = await sharp(outPath).metadata();
-    manifest[file] = { width: outMeta.width, height: outMeta.height, bytes: size };
+    let width = meta.width;
+    let height = meta.height;
+    let bytes = 0;
+    if (info) {
+      width = info.width;
+      height = info.height;
+      bytes = info.size;
+    } else if (check) {
+      const existingPath = path.join(OUT, file);
+      if (!existsSync(existingPath)) {
+        console.error(`stale pack: ${file} missing from OUT`);
+        process.exit(1);
+      }
+      const existing = await sharp(existingPath).metadata();
+      width = existing.width;
+      height = existing.height;
+      bytes = (await stat(existingPath)).size;
+    }
+
+    outBytes += bytes;
+    manifest[file] = { width, height, bytes };
+  }
+
+  if (check) {
+    const manifestPath = path.join(OUT, 'manifest.json');
+    if (!existsSync(manifestPath)) {
+      console.error('stale pack: manifest.json missing from OUT');
+      process.exit(1);
+    }
+    const existingManifest = JSON.parse(await readFile(manifestPath, 'utf-8'));
+    if (JSON.stringify(existingManifest) !== JSON.stringify({ generatedFrom: 'assets-src/sprites-premium', sprites: manifest })) {
+      console.error('stale pack: manifest.json does not match source');
+      process.exit(1);
+    }
+    return;
   }
 
   await writeFile(

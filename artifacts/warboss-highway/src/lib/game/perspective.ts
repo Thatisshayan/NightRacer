@@ -1,3 +1,5 @@
+import { SPAWN_DEPTH } from '@workspace/game-core';
+
 // Pseudo-3D ground-plane projection for the Pixi gameplay renderer.
 //
 // Why this exists
@@ -111,18 +113,18 @@ export class Projection {
   }
 
   /**
-   * Entities spawn above the playfield (world Y as low as -160) and would
+   * Entities spawn above the playfield (world Y as low as -SPAWN_DEPTH) and would
    * otherwise project past the horizon and pop into view. Anything beyond
    * this depth is clamped to the horizon row and faded, so traffic resolves
    * out of the distance instead of appearing instantly.
    */
   fadeInAlpha(worldY: number): number {
     if (worldY >= 0) return 1;
-    return Math.max(0, 1 + worldY / 160);
+    return Math.max(0, 1 + worldY / SPAWN_DEPTH);
   }
 
   /** Clamp world Y so off-playfield entities still land on visible road. */
   clampWorldY(worldY: number): number {
-    return Math.max(0, worldY);
+    return Math.max(0, Math.min(this.height, worldY));
   }
 }

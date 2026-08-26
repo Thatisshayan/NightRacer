@@ -226,6 +226,9 @@ const NEAR_MISS_EXTRA_PX = 22;
 // though the average rate is unchanged. A cooldown keeps gaps consistent.
 const VEHICLE_SPAWN_MIN_MS = 550;
 const VEHICLE_SPAWN_MAX_MS = 1350;
+// How far above the playfield entities spawn (negative world Y). Also the
+// fade-in band width in the perspective renderer.
+export const SPAWN_DEPTH = 160;
 
 // --- Authored traffic patterns -------------------------------------------
 // The cooldown scheduler above fixed burstiness but left every encounter
@@ -875,8 +878,13 @@ export class GameEngine {
         continue;
       }
 
-      // Near-miss detection: vehicle just passed the player's midpoint
-      if (!v.passed && v.y > state.player.y + state.player.height / 2) {
+      // Near-miss detection: vehicle just passed the player's midpoint.
+      // Covers both oncoming/slower same-direction traffic crossing from
+      // above and faster same-direction traffic receding from below.
+      const playerMid = state.player.y + state.player.height / 2;
+      const receding = v.direction === 'SAME' && currentSpeed - v.speed * 0.7 < 0;
+      const crossed = receding ? v.y < playerMid : v.y > playerMid;
+      if (!v.passed && crossed) {
         v.passed = true;
         const xDist = Math.abs(v.x - state.player.x);
         const minSafe = (state.player.width + v.width) / 2 - 5;
@@ -1139,11 +1147,9 @@ export class GameEngine {
       color,
       speed: spec.speed,
       lane,
-      // A car entering from behind starts below the player, so it has not been
-      // passed yet — but it also must not fire a near-miss the instant it
-      // spawns. The update loop only sets `passed` on a downward crossing, so
-      // marking it passed here keeps overtakes from counting twice.
-      passed: fromBehind,
+      // Always start unpassed; the update loop marks it once the vehicle
+      // crosses the player's midpoint in its travel direction.
+      passed: false,
       variant,
       direction,
     });
