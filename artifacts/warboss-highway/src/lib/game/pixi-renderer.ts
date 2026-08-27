@@ -379,81 +379,89 @@ export class PixiRenderer implements GameRenderer {
   // The absence of random allocations means renderer output remains stable and
   // effects remain inexpensive even when several traffic sprites are active.
   private drawAtmosphere(state: GameState) {
-    const g = this.atmosphereLayer;
-    const proj = this.projection;
     const distance = state.distance;
+    const lightning = this.lightningStrength(distance);
+    this.atmosphereLayer.clear();
+    this.drawLightning(lightning);
+    this.drawBillboards(distance, lightning);
+  }
+
+  private lightningStrength(distance: number): number {
     const strikePhase = distance % 3200;
     const mainFlash = strikePhase < 38 ? 1 - strikePhase / 38 : 0;
     const echoFlash = strikePhase > 110 && strikePhase < 125 ? (125 - strikePhase) / 15 * 0.42 : 0;
-    const lightning = Math.max(mainFlash, echoFlash);
-    const pulse = 0.52 + 0.48 * Math.sin(distance * 0.024);
-    const flicker = (distance % 530) < 74 ? 0.45 : 0;
+    return Math.max(mainFlash, echoFlash);
+  }
 
-    g.clear();
+  // A soft, brief luminance lift samples sky, city void and road separately
+  // instead of applying an expensive fullscreen filter. It stays below the
+  // headlight brightness threshold and does not change gameplay contrast.
+  private drawLightning(lightning: number) {
+    if (lightning <= 0.01) return;
+    const g = this.atmosphereLayer;
+    const proj = this.projection;
+    const leftNear = proj.centerX - proj.halfWidthAt(proj.height) - SHOULDER_WIDTH;
+    const rightNear = proj.centerX + proj.halfWidthAt(proj.height) + SHOULDER_WIDTH;
+    const leftHorizon = proj.centerX - proj.halfWidthAt(0) - 1;
+    const rightHorizon = proj.centerX + proj.halfWidthAt(0) + 1;
+    g.rect(0, 0, proj.width, proj.horizonY + HORIZON_HAZE_PX)
+      .fill({ color: NEON.headlight, alpha: 0.12 * lightning });
+    g.poly([leftHorizon, proj.horizonY, rightHorizon, proj.horizonY, rightNear, proj.height, leftNear, proj.height])
+      .fill({ color: NEON.headlight, alpha: 0.045 * lightning });
+    // Fixed zig-zag geometry makes the strike recognizable without spawning
+    // a line pool or disturbing rain/traffic ownership.
+    g.moveTo(proj.width * 0.72, 6)
+      .lineTo(proj.width * 0.64, proj.horizonY * 0.26)
+      .lineTo(proj.width * 0.71, proj.horizonY * 0.48)
+      .lineTo(proj.width * 0.61, proj.horizonY * 0.88)
+      .stroke({ width: 1.5, color: NEON.headlight, alpha: 0.82 * lightning });
+    g.moveTo(proj.width * 0.33, proj.horizonY * 0.12)
+      .lineTo(proj.width * 0.38, proj.horizonY * 0.43)
+      .lineTo(proj.width * 0.31, proj.horizonY * 0.7)
+      .stroke({ width: 1, color: NEON.cyan, alpha: 0.42 * lightning });
+  }
 
-    // A soft, brief luminance lift samples sky, city void and road separately
-    // instead of applying an expensive fullscreen filter. It stays below the
-    // headlight brightness threshold and does not change gameplay contrast.
-    if (lightning > 0.01) {
-      g.rect(0, 0, proj.width, proj.horizonY + HORIZON_HAZE_PX)
-        .fill({ color: NEON.headlight, alpha: 0.12 * lightning });
-      const leftNear = proj.centerX - proj.halfWidthAt(proj.height) - SHOULDER_WIDTH;
-      const rightNear = proj.centerX + proj.halfWidthAt(proj.height) + SHOULDER_WIDTH;
-      const leftHorizon = proj.centerX - proj.halfWidthAt(0) - 1;
-      const rightHorizon = proj.centerX + proj.halfWidthAt(0) + 1;
-      g.poly([leftHorizon, proj.horizonY, rightHorizon, proj.horizonY, rightNear, proj.height, leftNear, proj.height])
-        .fill({ color: NEON.headlight, alpha: 0.045 * lightning });
-      // Fixed zig-zag geometry makes the strike recognizable without spawning
-      // a line pool or disturbing rain/traffic ownership.
-      g.moveTo(proj.width * 0.72, 6)
-        .lineTo(proj.width * 0.64, proj.horizonY * 0.26)
-        .lineTo(proj.width * 0.71, proj.horizonY * 0.48)
-        .lineTo(proj.width * 0.61, proj.horizonY * 0.88)
-        .stroke({ width: 1.5, color: NEON.headlight, alpha: 0.82 * lightning });
-      g.moveTo(proj.width * 0.33, proj.horizonY * 0.12)
-        .lineTo(proj.width * 0.38, proj.horizonY * 0.43)
-        .lineTo(proj.width * 0.31, proj.horizonY * 0.7)
-        .stroke({ width: 1, color: NEON.cyan, alpha: 0.42 * lightning });
-    }
-
+  private drawBillboards(distance: number, lightning: number) {
     const boards = [
       { worldY: 155, side: -1, color: NEON.magenta, offset: 0 },
       { worldY: 285, side: 1, color: NEON.cyan, offset: 1.7 },
       { worldY: 430, side: -1, color: NEON.amber, offset: 3.4 },
     ];
-    for (const board of boards) {
-      const p = proj.project(proj.centerX, board.worldY);
-      const k = p.scale;
-      const roadEdge = proj.centerX + board.side * proj.halfWidthAt(board.worldY);
-      const panelW = Math.max(14, 42 * k);
-      const panelH = Math.max(7, 18 * k);
-      const x = roadEdge + board.side * (SHOULDER_WIDTH * k + panelW * 0.62);
-      const y = p.y - panelH * 1.35;
-      const boardPulse = Math.max(0.14, pulse * (0.72 + 0.28 * Math.sin(distance * 0.013 + board.offset)) + flicker * 0.55);
-      const lit = Math.min(1, boardPulse + lightning * 0.4);
+    const pulse = 0.52 + 0.48 * Math.sin(distance * 0.024);
+    const flicker = (distance % 530) < 74 ? 0.45 : 0;
+    for (const board of boards) this.drawBillboard(board.worldY, board.side, board.color, board.offset, pulse, flicker, lightning, distance);
+  }
 
-      // Sign chassis + two unequal bars: readable as billboard light without
-      // text texture allocations or UI-like cards over the playfield.
-      g.roundRect(x - panelW / 2, y - panelH / 2, panelW, panelH, Math.max(2, panelH * 0.16))
-        .fill({ color: 0x10172a, alpha: 0.92 });
-      g.roundRect(x - panelW * 0.38, y - panelH * 0.23, panelW * 0.76, panelH * 0.18, 1)
-        .fill({ color: board.color, alpha: 0.8 * lit });
-      g.roundRect(x - panelW * 0.38, y + panelH * 0.12, panelW * 0.45, panelH * 0.12, 1)
-        .fill({ color: board.color, alpha: 0.42 * lit });
-      g.roundRect(x - panelW / 2, y - panelH / 2, panelW, panelH, Math.max(2, panelH * 0.16))
-        .stroke({ width: Math.max(0.7, 1.4 * k), color: board.color, alpha: 0.68 * lit });
+  private drawBillboard(worldY: number, side: number, color: number, offset: number, pulse: number, flicker: number, lightning: number, distance: number) {
+    const g = this.atmosphereLayer;
+    const proj = this.projection;
+    const p = proj.project(proj.centerX, worldY);
+    const k = p.scale;
+    const panelW = Math.max(14, 42 * k);
+    const panelH = Math.max(7, 18 * k);
+    const x = proj.centerX + side * (proj.halfWidthAt(worldY) + SHOULDER_WIDTH * k + panelW * 0.62);
+    const y = p.y - panelH * 1.35;
+    const boardPulse = Math.max(0.14, pulse * (0.72 + 0.28 * Math.sin(distance * 0.013 + offset)) + flicker * 0.55);
+    const lit = Math.min(1, boardPulse + lightning * 0.4);
+    const corner = Math.max(2, panelH * 0.16);
+    g.roundRect(x - panelW / 2, y - panelH / 2, panelW, panelH, corner).fill({ color: 0x10172a, alpha: 0.92 });
+    g.roundRect(x - panelW * 0.38, y - panelH * 0.23, panelW * 0.76, panelH * 0.18, 1).fill({ color, alpha: 0.8 * lit });
+    g.roundRect(x - panelW * 0.38, y + panelH * 0.12, panelW * 0.45, panelH * 0.12, 1).fill({ color, alpha: 0.42 * lit });
+    g.roundRect(x - panelW / 2, y - panelH / 2, panelW, panelH, corner).stroke({ width: Math.max(0.7, 1.4 * k), color, alpha: 0.68 * lit });
+    this.drawBillboardReflection(worldY, side, color, panelW, panelH, k, lit);
+  }
 
-      // Each sign's glow lands inside the wet lane band at a deeper projected
-      // row, with a short fading trapezoid instead of a blur/render target.
-      const reflectionY = Math.min(proj.height - 6, board.worldY + 120);
-      const r = proj.project(proj.centerX + board.side * proj.halfWidthAt(board.worldY) * 0.52, reflectionY);
-      const reflectionW = Math.max(8, panelW * 0.72 * (r.scale / k));
-      const reflectionH = Math.max(3, panelH * 0.34 * (r.scale / k));
-      g.roundRect(r.x - reflectionW / 2, r.y - reflectionH / 2, reflectionW, reflectionH, reflectionH * 0.5)
-        .fill({ color: board.color, alpha: 0.19 * lit });
-      g.roundRect(r.x - reflectionW * 0.28, r.y + reflectionH * 0.9, reflectionW * 0.56, reflectionH * 0.55, reflectionH * 0.28)
-        .fill({ color: board.color, alpha: 0.075 * lit });
-    }
+  private drawBillboardReflection(worldY: number, side: number, color: number, panelW: number, panelH: number, scale: number, lit: number) {
+    const g = this.atmosphereLayer;
+    const proj = this.projection;
+    const reflectionY = Math.min(proj.height - 6, worldY + 120);
+    const r = proj.project(proj.centerX + side * proj.halfWidthAt(worldY) * 0.52, reflectionY);
+    const reflectionW = Math.max(8, panelW * 0.72 * (r.scale / scale));
+    const reflectionH = Math.max(3, panelH * 0.34 * (r.scale / scale));
+    g.roundRect(r.x - reflectionW / 2, r.y - reflectionH / 2, reflectionW, reflectionH, reflectionH * 0.5)
+      .fill({ color, alpha: 0.19 * lit });
+    g.roundRect(r.x - reflectionW * 0.28, r.y + reflectionH * 0.9, reflectionW * 0.56, reflectionH * 0.55, reflectionH * 0.28)
+      .fill({ color, alpha: 0.075 * lit });
   }
 
   private syncWorldTransform(cameraY: number, screenShake: number) {
