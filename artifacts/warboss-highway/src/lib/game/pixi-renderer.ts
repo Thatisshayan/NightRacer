@@ -18,6 +18,10 @@ const SHOULDER_WIDTH = 26;
 const ROAD_SEAM_PERIOD = ROAD_TILE_DISPLAY_SIZE;
 // Vertical depth of the distance-fog band under the horizon line.
 const HORIZON_HAZE_PX = 34;
+// Elevated-deck structure repeats in world units, so posts shrink and compress
+// toward the horizon with the same projection as traffic and lane markings.
+const DECK_POST_PERIOD = 160;
+const VOID_BAND_COUNT = 11;
 const LAMP_WIDTH = 34;
 const LAMP_HEIGHT = 70;
 const LAMP_SPAN = 6 * ROAD_TILE_DISPLAY_SIZE; // between same-side posts
@@ -139,6 +143,12 @@ export class PixiRenderer implements GameRenderer {
   private skyGradient: Graphics;
   private skylineFar: TilingSprite;
   private skylineNear: TilingSprite;
+  // The void sits behind the deck and adds the industrial drop outside the
+  // highway without touching game-world or collision geometry.
+  private cityVoidLayer: Graphics;
+  // Rails, uprights, and braces sit above the road skin so the deck reads as
+  // a constructed bridge rather than an asphalt trapezoid.
+  private deckStructureLayer: Graphics;
   // Road surface, lane markings, shoulders and horizon haze are now one
   // rebuilt-in-place Graphics: in perspective every band has a different
   // width and spacing per frame, so a static build + scrolled transform (the
@@ -239,8 +249,14 @@ export class PixiRenderer implements GameRenderer {
     this.skylineNear.tint = 0x9fd8ff;
     this.worldContainer.addChild(this.skyLayer);
 
+    this.cityVoidLayer = new Graphics();
+    this.worldContainer.addChild(this.cityVoidLayer);
+
     this.roadLayer = new Graphics();
     this.worldContainer.addChild(this.roadLayer);
+
+    this.deckStructureLayer = new Graphics();
+    this.worldContainer.addChild(this.deckStructureLayer);
 
     // Animated wet-road sheen and edge-light pools are drawn with one stable
     // Graphics node. Their geometry is rebuilt in sync(), not allocated as
@@ -384,9 +400,10 @@ export class PixiRenderer implements GameRenderer {
     const hwTop = (W / 2) * sHorizon;
     const hwBottom = (W / 2) * sBottom;
 
-    // Ground beyond the shoulders: dark scrubland so the road reads as a
-    // ribbon through somewhere, not as the entire world.
-    g.poly([0, horizonY, W, horizonY, W, H, 0, H]).fill({ color: 0x070a14 });
+    // The city void is a dedicated background layer so the bridge remains
+    // visibly suspended over an industrial depth without touching the road's
+    // collision plane or the shared engine's lane math.
+    this.drawCityVoid(state, hwTop, hwBottom);
 
     // Road surface.
     g.poly([
@@ -399,9 +416,114 @@ export class PixiRenderer implements GameRenderer {
     this.drawRoadShadingAndMarkings(state, hwTop, hwBottom);
     this.drawShoulders(sHorizon, sBottom, hwTop, hwBottom);
     this.drawHorizonHaze();
+    this.drawDeckStructure(state, sHorizon, sBottom, hwTop, hwBottom);
 
     this.drawLamps(state);
     this.syncSkyline(state);
+  }
+
+  // Rebuilds the world outside the road as a dark urban drop. The shapes use
+  // the road projection instead of screen-space rectangles so supports and
+  // distant structures compress naturally into the horizon.
+  private drawCityVoid(state: GameState, hwTop: number, hwBottom: number) {
+    const proj = this.projection;
+    const { width: W, height: H, horizonY, centerX: cx } = proj;
+    const g = this.cityVoidLayer;
+    g.clear();
+
+    const sHorizon = proj.scaleAt(0);
+    const shoulderTop = SHOULDER_WIDTH * sHorizon;
+    const shoulderBottom = SHOULDER_WIDTH * proj.scaleAt(H);
+
+    for (const side of [-1, 1]) {
+      const deckTop = cx + side * (hwTop + shoulderTop);
+      const deckBottom = cx + side * (hwBottom + shoulderBottom);
+      const screenEdge = side < 0 ? 0 : W;
+
+      // A subtly blue-black void separates the elevated deck from the skyline.
+      g.poly([deckTop, horizonY, screenEdge, horizonY, screenEdge, H, deckBottom, H])
+        .fill({ color: 0x030712 });
+      // Atmospheric light bloom sits high in the void so it reads as distant
+      // city haze rather than a bright playfield-side distraction.
+      g.poly([deckTop, horizonY, screenEdge, horizonY, screenEdge, horizonY + H * 0.38, deckBottom, horizonY + H * 0.18])
+        .fill({ color: NEON.cyan, alpha: 0.025 });
+
+      for (let i = 0; i < VOID_BAND_COUNT; i++) {
+        const worldY = i * DECK_POST_PERIOD + (state.roadOffset * 0.18) % DECK_POST_PERIOD - DECK_POST_PERIOD;
+        if (worldY < 0 || worldY > H) continue;
+        const scale = proj.scaleAt(worldY);
+        const y = proj.screenY(worldY);
+        const roadHalfWidth = proj.halfWidthAt(worldY);
+        const inner = cx + side * (roadHalfWidth + SHOULDER_WIDTH * scale);
+        const towerWidth = (18 + (i % 3) * 7) * scale;
+        const towerHeight = (42 + (i % 4) * 16) * scale;
+        const towerX = side < 0 ? inner - towerWidth * 2.25 : inner + towerWidth * 1.25;
+        const towerY = y - towerHeight * (0.75 + (i % 2) * 0.22);
+
+        // Broken industrial silhouettes: deliberately sparse at the horizon
+        // and more pronounced in the foreground, matching the reference's
+        // city abyss while leaving traffic silhouette contrast intact.
+        g.roundRect(towerX, towerY, towerWidth, towerHeight, Math.max(1, scale * 2))
+          .fill({ color: i % 2 === 0 ? 0x07101d : 0x0a1321, alpha: 0.72 });
+        if (i % 2 === 0) {
+          const windowY = towerY + towerHeight * 0.33;
+          g.rect(towerX + towerWidth * 0.28, windowY, towerWidth * 0.16, Math.max(0.8, towerHeight * 0.08))
+            .fill({ color: NEON.cyan, alpha: 0.25 * scale });
+        }
+      }
+    }
+  }
+
+  // Rails, posts and braces make the road a physical elevated deck. They are
+  // decorative-only and render after asphalt so the playable road width remains
+  // defined exclusively by the GameEngine.
+  private drawDeckStructure(state: GameState, sHorizon: number, sBottom: number, hwTop: number, hwBottom: number) {
+    const proj = this.projection;
+    const { height: H, horizonY, centerX: cx } = proj;
+    const g = this.deckStructureLayer;
+    g.clear();
+
+    const shoulderTop = SHOULDER_WIDTH * sHorizon;
+    const shoulderBottom = SHOULDER_WIDTH * sBottom;
+    for (const side of [-1, 1]) {
+      const roadTop = cx + side * hwTop;
+      const roadBottom = cx + side * hwBottom;
+      const railTop = roadTop + side * shoulderTop;
+      const railBottom = roadBottom + side * shoulderBottom;
+      const outerTop = railTop + side * Math.max(2, 7 * sHorizon);
+      const outerBottom = railBottom + side * Math.max(5, 11 * sBottom);
+
+      // A layered rail silhouette: dark metal core, bright cyan road edge,
+      // then a muted outer lip. This retains the reference's neon separation
+      // without an expensive glow filter.
+      g.moveTo(railTop, horizonY).lineTo(railBottom, H)
+        .stroke({ width: Math.max(1.1, 4.5 * sBottom), color: 0x111d30, alpha: 0.98 });
+      g.moveTo(roadTop, horizonY).lineTo(roadBottom, H)
+        .stroke({ width: Math.max(0.8, 2.3 * sBottom), color: NEON.cyan, alpha: 0.75 });
+      g.moveTo(outerTop, horizonY).lineTo(outerBottom, H)
+        .stroke({ width: Math.max(0.6, 1.4 * sBottom), color: NEON.magenta, alpha: 0.32 });
+
+      for (let i = 0; i < 10; i++) {
+        const worldY = i * DECK_POST_PERIOD + state.roadOffset % DECK_POST_PERIOD - DECK_POST_PERIOD;
+        if (worldY < 0 || worldY > H) continue;
+        const scale = proj.scaleAt(worldY);
+        const y = proj.screenY(worldY);
+        const railX = cx + side * (proj.halfWidthAt(worldY) + SHOULDER_WIDTH * scale);
+        const postHeight = Math.max(4, 34 * scale);
+        const postWidth = Math.max(1, 4.5 * scale);
+        const braceOut = side * Math.max(4, 20 * scale);
+
+        // Uprights and one diagonal brace establish scale at a low command
+        // count. Their screen-space sizes are depth-scaled, so nearer bridge
+        // structure visibly passes the player faster than far structure.
+        g.rect(railX - postWidth / 2, y - postHeight, postWidth, postHeight)
+          .fill({ color: 0x172742, alpha: 0.96 });
+        g.moveTo(railX, y - postHeight * 0.78).lineTo(railX + braceOut, y)
+          .stroke({ width: Math.max(0.7, 1.6 * scale), color: 0x27415f, alpha: 0.85 });
+        g.circle(railX, y - postHeight * 0.86, Math.max(0.9, 3.4 * scale))
+          .fill({ color: NEON.amber, alpha: 0.82 });
+      }
+    }
   }
 
   // Depth shading, transverse seams, and lane markings on the road surface.

@@ -50,9 +50,11 @@ platform to `supportedArchitectures` and add a matching CI smoke job first.
 
 ## Design and repository governance
 - [`docs/NEON_RAINWAY_DESIGN.md`](docs/NEON_RAINWAY_DESIGN.md) — the current visual-system, Rush-mechanic, performance, and cross-platform implementation guide.
+- [`docs/ELEVATED_HIGHWAY_ART_DIRECTION.md`](docs/ELEVATED_HIGHWAY_ART_DIRECTION.md) — the reference-driven elevated deck composition, asset budget, fallback policy, and implementation sequence.
 - [`ASSETS.md`](ASSETS.md) — functional palette, visual target, and asset usage rules for the Neon Rainway overhaul.
 - [`WARBOSS_HIGHWAY_HANDOFF.md`](WARBOSS_HIGHWAY_HANDOFF.md) — cross-platform architecture, local-operation workflow, release limitations, and key-file map.
 - [`audits/2026-08-14_Manus_NeonArcadeBaseline_Audit.md`](audits/2026-08-14_Manus_NeonArcadeBaseline_Audit.md) — baseline, visual QA captures, and verification evidence.
+- [`audits/2026-08-27_Manus_ElevatedHighway_Audit.md`](audits/2026-08-27_Manus_ElevatedHighway_Audit.md) — elevated-deck implementation scope, live visual evidence, and verification record.
 - This repo is governed by `REPO_RULES.md` (branch-only, main protected, no secret commits) and `REPO_DIRECTIVE.md` (goal layer). CI gate: `bash scripts/verify.sh`. Never push to `main`; open a PR from a feature/agent branch and require Shayan approval.
 
 ## Gotchas

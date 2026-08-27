@@ -48,7 +48,10 @@ import { SPAWN_DEPTH } from '@workspace/game-core';
 // X converges on the road centre by the same scale factor, which is what
 // turns the rectangle into a trapezoid and the parallel lane dashes into
 // converging ones.
-export const HORIZON_FRACTION = 0.17;
+// A lower horizon leaves most of the portrait frame to the road deck, creating
+// the steep elevated-highway read of a low chase camera rather than a distant
+// overhead view. It is render-only: no simulation or collision coordinates move.
+export const HORIZON_FRACTION = 0.135;
 // Larger = more aggressive foreshortening. 2.8 puts the horizon-line scale at
 // ~0.41x and the bottom-edge scale at ~1.56x relative to the player, which
 // reads as a low chase camera without distorting vehicle silhouettes into
