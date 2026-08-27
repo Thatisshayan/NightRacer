@@ -1,7 +1,7 @@
 # Elevated Highway Art Direction
 
 **Author:** Manus AI  
-**Status:** Active direction; web deck milestone implemented 2026-08-27  
+**Status:** Active direction; elevated-deck, grounded-vehicle, and atmosphere pass implemented 2026-08-27
 **Reference:** User-supplied 9:16 neon-rain elevated-highway image
 
 ## Design intent
@@ -31,28 +31,28 @@ The gameplay camera should reserve the top 12% of the screen for the dark sky an
 | Layer order | WebGL high-quality implementation | Canvas 2D / Pixi Canvas / low-mobile equivalent |
 | --- | --- | --- |
 | 1. Atmosphere | Blue-black vertical gradient, horizon mist, light pollution | Gradient and a single translucent fog band |
-| 2. City depth | Three tinted parallax silhouette strips and rare antenna blink lights | One or two static silhouette strips; no animated blink particles |
+| 2. City depth | Parallax silhouettes, sparse deck-side billboard panels, and restrained lightning | Static industrial silhouettes, fixed billboard geometry, and low-frequency path lightning |
 | 3. Elevated deck | Projected asphalt, segmented shoulders, rails, lamps, support-column cut-outs | Projected asphalt, shoulders, sparse rails and lamps |
-| 4. Wet material | Depth-projected sheen, lamp pools, car reflections, restrained bloom | Six reusable reflection strips and alpha-blended light pools |
-| 5. Traffic | Projected vehicle sprites, direction lights, headlight cones, contact shadows | Projected sprites, compact direction glow, no cone if frame budget is exceeded |
-| 6. Player | Car sprite, underglow, exhaust, Rush ring/ion wake, selective motion blur | Car sprite, underglow, two exhaust lines, no blur filter |
-| 7. Weather and feedback | Two rain layers, spray bursts, screen shake, limited post-filters | One rain layer, sparse splash particles, no expensive filters |
+| 4. Wet material | Depth-projected sheen, lamp pools, car and billboard reflection strips | Reusable projected reflection strips and alpha-blended light pools |
+| 5. Traffic | Wheel-contact-projected vehicle sprites, direction lights, headlight cones, tight contact shadows | Wheel-contact-projected pooled sprites with compact ellipse contact shadows |
+| 6. Player | Wheel-contact projection, underglow, exhaust, Rush ring/ion wake, selective motion blur | Wheel-contact projection, underglow, two exhaust lines, no blur filter |
+| 7. Weather and feedback | Two rain layers, distance-driven lightning, screen shake, limited post-filters | Fixed rain/lightning geometry and SharedValue opacity updates, no expensive filters |
 | 8. HUD | Transparent low-profile instruments outside the player silhouette | Identical layout, reduced animation cadence on native |
 
 ## Current foundation and required visual upgrades
 
-The current web renderer already has the correct foundational direction: `Projection` creates a non-linear receding road, projected traffic grows toward the player, `PixiRenderer` has skyline layers, road shading, cyan/amber lane language, directional vehicle lights, wet-road sheen, and Rush feedback. The next pass should make the road unmistakably **elevated** and make the wet-material/light relationship much more coherent.
+The active web and native renderers now share the correct foundational direction: a non-linear projected deck, grounded entity sprites, cyan/amber lane language, directional vehicle lights, wet-road sheen, and Rush feedback. The current refinement target is visual tuning under hardware WebGL and physical-device profiling, not another change to shared driving simulation.
 
 | Area | Current foundation | Required upgrade for the reference |
 | --- | --- | --- |
-| Road camera | Projected road with a horizon at 17% of screen height | Move the camera lower to a 12–14% horizon and tune the depth curve so traffic appears small for longer, then closes faster. |
-| Road edges | Converging shoulders and lamp posts | Replace plain outer ground with an elevated deck profile: twin guardrails, repeating structural uprights, and an under-deck void/silhouette band. |
-| City | Two skyline strips | Add three discrete depth bands: far fog towers, mid industrial silhouettes, and near broken superstructure. Keep them as thin horizontal atlases, not full-scene textures. |
-| Wetness | Road sheen bands and lamp pools | Add short vertical reflections tied to the lights of each nearby car/lamp. Reflections must converge and shorten toward the horizon. |
-| Traffic | Vehicle light halos and cones | Add small red/white mirrored streaks under every vehicle and make same-direction and oncoming composition visually distinct at a glance. |
-| Player | Underglow and exhaust | Widen the rear silhouette, add blue-white twin thrusters during Rush, and cast a long cyan reflection that tapers into the road. |
-| Weather | Rain graphics | Add depth weighting: distant rain is small and slow; foreground rain is brighter/faster but capped to avoid masking traffic. |
-| Native parity | Skia has a flat top-down canvas architecture | Port the **same art hierarchy**, not every WebGL filter: projected deck geometry, skyline bands, directional lights, reflection streaks, and Rush exhaust first. |
+| Road camera | 13.5% horizon with a non-linear deck projection. | Tune only after hardware visual review; preserve the shared flat simulation. |
+| Road edges | Converging shoulders, rails, lamps, supports, and city void. | Maintain cyan rail hierarchy above decorative billboard light. |
+| City | Skyline depth, three roadside panels, and sparse lightning paths. | Add no new large city textures before a mobile residency trace. |
+| Wetness | Road sheen, lamp pools, vehicle contact cues, puddle strips, and billboard reflection strips. | Keep reflection opacity below traffic/headlight contrast thresholds. |
+| Traffic | Vehicle sprites derive visual center from a projected wheel-contact row; red/white direction cues and tight shadows share that row. | Hardware visual check at dense-traffic/Rush stress. |
+| Player | Unit-size sprite uses a projected wheel-contact row, with aligned underglow, exhaust, shield, Rush, and crash effects. | Preserve bottom-frame control readability. |
+| Weather | Capped rain plus distance-driven lightning flashes. | Keep flash cadence sparse and avoid full-screen filters. |
+| Native parity | Fixed Skia geometry plus SharedValue transforms/opacities; all entity pools now receive projected ground placement. | Physical-device FPS, UI/JS thread, GPU, and memory trace remain required. |
 
 ## Asset plan and hard performance budget
 
@@ -83,13 +83,13 @@ Traffic should be choreographed in small readable groups. Never fill every lane 
 | 1. Camera and deck | Lower horizon, stronger road taper, elevated shoulders/rails, structural void | A still gameplay frame unmistakably reads as a high bridge, not a flat road. |
 | 2. Lighting language | Directional car lights, projected reflection streaks, lamp pools, player ion wake | Players identify traffic direction before vehicle body detail is visible. |
 | 3. World depth | Three skyline depth bands, fog, rain-depth separation, support silhouettes | The road feels suspended in a living industrial city without obscuring hazards. |
-| 4. Cross-platform tiering | WebGL high / Pixi Canvas / Canvas2D / Skia equivalence map | Web Pixi and native Skia elevated-deck parity are implemented; Canvas fallback parity remains the next backend-specific follow-up. |
+| 4. Cross-platform tiering | WebGL high / Pixi Canvas / Canvas2D / Skia equivalence map | Web Pixi and native Skia share deck, grounded-contact, rain, lightning, and billboard-reflection hierarchy; Canvas fallback parity remains a backend-specific follow-up. |
 | 5. Asset compression and staging | Final-use texture sizes, loading priorities, lazy rare assets | Native memory and first-play latency are measured against a device profile budget. |
 | 6. Visual playtest | Deterministic high-speed run, Rush, rain, traffic, boss, game-over | Screenshots and device traces confirm readability at normal and peak stress. |
 
 ## Implemented milestone
 
-The web Pixi renderer and native Skia canvas now implement the first production milestone: a 13.5%-height horizon, projected elevated-deck rails, depth-scaled uprights and braces, amber maintenance lights, a dedicated city-void layer, two-rate neon rain, and pooled-transform puddle reflections. The shared simulation is unchanged. Native visual behavior is type-checked and repository-gate verified; a physical-device frame and memory trace remains the required release-quality follow-up.
+The web Pixi renderer and native Skia canvas now implement the elevated-highway presentation pass: a 13.5%-height horizon, projected elevated-deck rails, depth-scaled uprights and braces, city void, neon rain, puddle reflections, sparse distance-driven lightning, and flashing roadside billboard reflections. Vehicle and player sprites now derive their visual center from projected wheel-contact points, while vehicle shadows use the same contact row. The shared simulation, collision behavior, and input coordinates remain unchanged. Both renderers are type-checked and repository-gate verified; a physical-device frame/memory trace and hardware-WebGL review remain required release-quality follow-ups.
 
 ## Non-negotiable fallback policy
 

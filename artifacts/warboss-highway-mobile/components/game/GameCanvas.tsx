@@ -10,6 +10,7 @@ import {
   Image,
   Line,
   LinearGradient,
+  Oval,
   Paint,
   Path,
   RadialGradient,
@@ -137,6 +138,35 @@ function projectNativeGround(worldX: number, worldY: number): NativeProjectedPoi
   };
 }
 
+interface NativeGroundedPlacement {
+  centerX: number;
+  centerY: number;
+  contactY: number;
+  width: number;
+  height: number;
+  scale: number;
+  opacity: number;
+}
+
+// A car's contact row is the midpoint of its lower edge, not its simulation
+// center. Build all visual placement from that contact row so each sprite and
+// its shadow sit on the projected deck rather than floating above it.
+function groundedNativePlacement(worldX: number, worldY: number, width: number, height: number, fixedScale?: number): NativeGroundedPlacement {
+  const contact = projectNativeGround(worldX, worldY + height / 2);
+  const scale = fixedScale ?? contact.scale;
+  const visualWidth = width * scale;
+  const visualHeight = height * scale;
+  return {
+    centerX: contact.x,
+    centerY: contact.y - visualHeight / 2,
+    contactY: contact.y,
+    width: visualWidth,
+    height: visualHeight,
+    scale,
+    opacity: contact.alpha,
+  };
+}
+
 function hexagonPath(cx: number, cy: number, r: number, rotation: number): string {
   let d = '';
   for (let i = 0; i < 6; i++) {
@@ -146,6 +176,73 @@ function hexagonPath(cx: number, cy: number, r: number, rotation: number): strin
     d += i === 0 ? `M ${x} ${y} ` : `L ${x} ${y} `;
   }
   return `${d}Z`;
+}
+
+type NumberSharedValue = ReturnType<typeof useSharedValue<number>>;
+
+interface NativeBillboardGeometry {
+  color: string;
+  panelX: number;
+  panelY: number;
+  panelW: number;
+  panelH: number;
+  reflectionX: number;
+  reflectionY: number;
+  reflectionW: number;
+  reflectionH: number;
+}
+
+// Fixed projected geometry plus SharedValue opacity updates keeps the native
+// atmosphere local and inexpensive: no timer-owned React state, no blur pass,
+// no particle allocation, and no per-frame JSX reconstruction.
+const NATIVE_LIGHTNING_MAIN = `M 302 6 L 269 ${HORIZON_Y * 0.26} L 298 ${HORIZON_Y * 0.48} L 256 ${HORIZON_Y * 0.88}`;
+const NATIVE_LIGHTNING_ECHO = `M 139 ${HORIZON_Y * 0.12} L 160 ${HORIZON_Y * 0.43} L 130 ${HORIZON_Y * 0.7}`;
+const NATIVE_LIGHTNING_ROAD_FLASH = `M ${GAME_WIDTH / 2 - 6} ${HORIZON_Y} L ${GAME_WIDTH / 2 + 6} ${HORIZON_Y} L ${GAME_WIDTH + 26} ${GAME_HEIGHT} L -26 ${GAME_HEIGHT} Z`;
+
+const NATIVE_BILLBOARDS: NativeBillboardGeometry[] = ([
+  { worldY: 155, side: -1, color: '#df4bff' },
+  { worldY: 285, side: 1, color: '#27d9ff' },
+  { worldY: 430, side: -1, color: '#ffb347' },
+] as const).map(({ worldY, side, color }) => {
+  const p = projectNativeGround(GAME_WIDTH / 2, worldY);
+  const edge = GAME_WIDTH / 2 + side * (GAME_WIDTH / 2) * p.scale;
+  const panelW = Math.max(14, 42 * p.scale);
+  const panelH = Math.max(7, 18 * p.scale);
+  const panelX = edge + side * (DECK_SHOULDER_WIDTH * p.scale + panelW * 0.62);
+  const panelY = p.y - panelH * 1.35;
+  const reflectedWorldY = Math.min(GAME_HEIGHT - 6, worldY + 120);
+  const reflection = projectNativeGround(GAME_WIDTH / 2 + side * (GAME_WIDTH / 2) * p.scale * 0.52, reflectedWorldY);
+  const reflectionW = Math.max(8, panelW * 0.72 * (reflection.scale / p.scale));
+  const reflectionH = Math.max(3, panelH * 0.34 * (reflection.scale / p.scale));
+  return { color, panelX, panelY, panelW, panelH, reflectionX: reflection.x, reflectionY: reflection.y, reflectionW, reflectionH };
+});
+
+function NativeLightning({ opacity }: { opacity: NumberSharedValue }) {
+  return (
+    <Group opacity={opacity}>
+      <Rect x={0} y={0} width={GAME_WIDTH} height={HORIZON_Y + 34} color="#eaf7ff" opacity={0.12} />
+      <Path path={NATIVE_LIGHTNING_ROAD_FLASH} color="#eaf7ff" opacity={0.045} />
+      <Path path={NATIVE_LIGHTNING_MAIN} color="#eaf7ff" style="stroke" strokeWidth={1.5} opacity={0.82} />
+      <Path path={NATIVE_LIGHTNING_ECHO} color="#27d9ff" style="stroke" strokeWidth={1} opacity={0.42} />
+    </Group>
+  );
+}
+
+function NativeBillboardReflections({ opacities }: { opacities: [NumberSharedValue, NumberSharedValue, NumberSharedValue] }) {
+  return (
+    <>
+      {NATIVE_BILLBOARDS.map((board, index) => (
+        <Group key={`${board.color}-${index}`} opacity={opacities[index]}>
+          <Rect x={board.panelX - board.panelW / 2} y={board.panelY - board.panelH / 2} width={board.panelW} height={board.panelH} color="#10172a" opacity={0.92} />
+          <Rect x={board.panelX - board.panelW * 0.38} y={board.panelY - board.panelH * 0.23} width={board.panelW * 0.76} height={Math.max(1, board.panelH * 0.18)} color={board.color} opacity={0.8} />
+          <Rect x={board.panelX - board.panelW * 0.38} y={board.panelY + board.panelH * 0.12} width={board.panelW * 0.45} height={Math.max(1, board.panelH * 0.12)} color={board.color} opacity={0.42} />
+          <Rect x={board.panelX - board.panelW / 2} y={board.panelY - board.panelH / 2} width={board.panelW} height={board.panelH} color={board.color} style="stroke" strokeWidth={Math.max(0.7, 1.4 * (board.panelW / 42))} opacity={0.68} />
+          <Rect x={board.reflectionX - board.reflectionW / 2} y={board.reflectionY - board.reflectionH / 2} width={board.reflectionW} height={board.reflectionH} color={board.color} opacity={0.19} />
+          <Rect x={board.reflectionX - board.reflectionW * 0.28} y={board.reflectionY + board.reflectionH * 0.9} width={board.reflectionW * 0.56} height={Math.max(1, board.reflectionH * 0.55)} color={board.color} opacity={0.075} />
+        </Group>
+      ))}
+    </>
+  );
 }
 
 // --- Pooled sprite rendering ---------------------------------------------
@@ -178,7 +275,7 @@ function hexagonPath(cx: number, cy: number, r: number, rotation: number): strin
 // no risk of a mid-array removal reassigning a slot to the wrong entity.
 
 interface SpriteSlotHandle {
-  set(x: number, y: number, width: number, height: number, opacity: number, image: SkImage | null, rotate: number): void;
+  set(x: number, y: number, width: number, height: number, opacity: number, image: SkImage | null, rotate: number, contactY?: number): void;
   hide(): void;
 }
 
@@ -191,31 +288,26 @@ const IDENTITY_TRANSFORM: { rotate: number }[] = [{ rotate: 0 }];
 // render one. Mounting this as its own child component means non-shadow
 // slots never create the worklets at all.
 function GroundShadow({
-  x, y, w, h, opacity,
+  x, w, h, contactY, opacity,
 }: {
   x: ReturnType<typeof useSharedValue<number>>;
-  y: ReturnType<typeof useSharedValue<number>>;
   w: ReturnType<typeof useSharedValue<number>>;
   h: ReturnType<typeof useSharedValue<number>>;
+  contactY: ReturnType<typeof useSharedValue<number>>;
   opacity: ReturnType<typeof useSharedValue<number>>;
 }) {
-  // A soft dark ellipse anchored slightly below the sprite's center,
-  // derived reactively from the same x/y/w/h SharedValues rather than
-  // tracked separately, so it never needs its own imperative updates.
-  const shadowCx = useDerivedValue(() => x.value + w.value / 2);
-  const shadowCy = useDerivedValue(() => y.value + h.value * 0.62);
-  const shadowR = useDerivedValue(() => Math.max(w.value, h.value) * 0.42);
-  const shadowOpacity = useDerivedValue(() => opacity.value * 0.4);
+  // A narrow ellipse follows the projected wheel-contact row. The geometry is
+  // derived from slot SharedValues, so grounding updates stay outside React's
+  // reconciliation path and do not affect generic power-up/obstacle slots.
+  const shadowRect = useDerivedValue(() => ({
+    x: x.value + w.value * 0.08,
+    y: contactY.value - h.value * 0.125,
+    width: w.value * 0.84,
+    height: Math.max(1.5, h.value * 0.18),
+  }));
+  const shadowOpacity = useDerivedValue(() => opacity.value * 0.52);
 
-  return (
-    <Circle cx={shadowCx} cy={shadowCy} r={shadowR} color="#000000" opacity={shadowOpacity}>
-      {/* respectCTM: without it the blur radius is a fixed device-pixel
-          amount regardless of the canvas's own scale transform (see
-          GameCanvas's `scale` prop, applied per-device via groupTransform)
-          — CodeRabbit catch. */}
-      <BlurMask blur={6} style="normal" respectCTM />
-    </Circle>
-  );
+  return <Oval rect={shadowRect} color="#000000" opacity={shadowOpacity} />;
 }
 
 const SpriteSlot = React.memo(
@@ -228,6 +320,7 @@ const SpriteSlot = React.memo(
     const w = useSharedValue(0);
     const h = useSharedValue(0);
     const opacity = useSharedValue(0);
+    const contactY = useSharedValue(0);
     // transform/origin are whole-object SharedValues (not derived from
     // x/y/w/h) so rotation always pivots on the entity's own center —
     // mutated together with x/y/w/h in `set()` below. Passing plain
@@ -242,12 +335,13 @@ const SpriteSlot = React.memo(
     useImperativeHandle(
       ref,
       () => ({
-        set(nx, ny, nw, nh, nOpacity, nImage, nRotate) {
+        set(nx, ny, nw, nh, nOpacity, nImage, nRotate, nContactY) {
           x.value = nx;
           y.value = ny;
           w.value = nw;
           h.value = nh;
           opacity.value = nOpacity;
+          contactY.value = nContactY ?? ny + nh;
           transform.value = nRotate === 0 ? IDENTITY_TRANSFORM : [{ rotate: nRotate }];
           origin.value = { x: nx + nw / 2, y: ny + nh / 2 };
           if (imageRef.current !== nImage) {
@@ -259,13 +353,13 @@ const SpriteSlot = React.memo(
           opacity.value = 0;
         },
       }),
-      [x, y, w, h, opacity, transform, origin]
+      [x, y, w, h, opacity, contactY, transform, origin]
     );
 
     if (!image) return null;
     return (
       <>
-        {shadow && <GroundShadow x={x} y={y} w={w} h={h} opacity={opacity} />}
+        {shadow && <GroundShadow x={x} w={w} h={h} contactY={contactY} opacity={opacity} />}
         <Image image={image} x={x} y={y} width={w} height={h} opacity={opacity} fit={fit} transform={transform} origin={origin}>
           {boost && <ColorMatrix matrix={boost} />}
         </Image>
@@ -406,6 +500,17 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
   const puddleOpacity = useSharedValue(0.58);
   const farRainOpacity = useSharedValue(0.14);
   const foregroundRainOpacity = useSharedValue(0.1);
+  // Atmospheric pulses are one scalar per fixed scene element. This prevents
+  // timer-owned React state and keeps the native visual path bounded.
+  const lightningOpacity = useSharedValue(0);
+  const billboardOpacity0 = useSharedValue(0.48);
+  const billboardOpacity1 = useSharedValue(0.48);
+  const billboardOpacity2 = useSharedValue(0.48);
+  const billboardOpacities: [NumberSharedValue, NumberSharedValue, NumberSharedValue] = [
+    billboardOpacity0,
+    billboardOpacity1,
+    billboardOpacity2,
+  ];
   const groupTransform = useSharedValue<({ scale: number } | { translateX: number } | { translateY: number })[]>([
     { scale },
     { translateX: 0 },
@@ -537,25 +642,68 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
         farRainOpacity.value = state.rushTimer > 0 ? 0.2 : 0.14;
         foregroundRainOpacity.value = state.rushTimer > 0 ? 0.2 : 0.1;
 
+        // Deterministic distance-driven weather cadence mirrors the web path:
+        // sparse lightning and individually flickering board light, without
+        // any change to shared world state, collision, or scoring.
+        const strikePhase = state.distance % 3200;
+        const mainFlash = strikePhase < 38 ? 1 - strikePhase / 38 : 0;
+        const echoFlash = strikePhase > 110 && strikePhase < 125 ? ((125 - strikePhase) / 15) * 0.42 : 0;
+        const lightning = Math.max(mainFlash, echoFlash);
+        const pulse = 0.52 + 0.48 * Math.sin(state.distance * 0.024);
+        const flicker = (state.distance % 530) < 74 ? 0.45 : 0;
+        lightningOpacity.value = lightning;
+        billboardOpacity0.value = Math.min(1, Math.max(0.14, pulse * (0.72 + 0.28 * Math.sin(state.distance * 0.013)) + flicker * 0.55) + lightning * 0.4);
+        billboardOpacity1.value = Math.min(1, Math.max(0.14, pulse * (0.72 + 0.28 * Math.sin(state.distance * 0.013 + 1.7)) + flicker * 0.55) + lightning * 0.4);
+        billboardOpacity2.value = Math.min(1, Math.max(0.14, pulse * (0.72 + 0.28 * Math.sin(state.distance * 0.013 + 3.4)) + flicker * 0.55) + lightning * 0.4);
+
         vehiclePool.sync(state.vehicles, (handle, v) => {
           const img = vehicleImage(images, v.type, v.variant);
+          const placed = groundedNativePlacement(v.x, v.y, v.width, v.height);
           // Oncoming traffic (lanes 0-1) faces the player, same-direction
           // traffic (lanes 2-3) faces away — matches the player's own
           // orientation, like real two-way traffic. See Vehicle.direction.
           const rotate = v.direction === 'OPPOSITE' ? Math.PI : 0;
-          (handle as SpriteSlotHandle).set(v.x - v.width / 2, v.y - v.height / 2, v.width, v.height, img ? 1 : 0, img, rotate);
+          (handle as SpriteSlotHandle).set(
+            placed.centerX - placed.width / 2,
+            placed.centerY - placed.height / 2,
+            placed.width,
+            placed.height,
+            img ? placed.opacity : 0,
+            img,
+            rotate,
+            placed.contactY,
+          );
         });
         obstaclePool.sync(state.obstacles, (handle, o) => {
           const img = o.type === 'OIL_SLICK' ? images.oilSlick : images.debris;
-          (handle as SpriteSlotHandle).set(o.x - o.width / 2, o.y - o.height / 2, o.width, o.height, img ? 1 : 0, img, 0);
+          const placed = groundedNativePlacement(o.x, o.y, o.width, o.height);
+          (handle as SpriteSlotHandle).set(
+            placed.centerX - placed.width / 2,
+            placed.centerY - placed.height / 2,
+            placed.width,
+            placed.height,
+            img ? placed.opacity : 0,
+            img,
+            0,
+          );
         });
         powerupPool.sync(state.powerups, (handle, p) => {
           const img = images.powerups[p.type];
-          (handle as SpriteSlotHandle).set(p.x - p.width / 2, p.y - p.height / 2, p.width, p.height, img ? 1 : 0, img, 0);
+          const placed = groundedNativePlacement(p.x, p.y, p.width, p.height);
+          (handle as SpriteSlotHandle).set(
+            placed.centerX - placed.width / 2,
+            placed.centerY - placed.height / 2,
+            placed.width,
+            placed.height,
+            img ? placed.opacity : 0,
+            img,
+            0,
+          );
         });
         particlePool.sync(state.particles, (handle, p) => {
           const life = Math.max(0, p.life / p.maxLife);
-          (handle as ParticleSlotHandle).set(p.x, p.y, p.size * 1.2, life, p.color);
+          const placed = projectNativeGround(p.x, p.y);
+          (handle as ParticleSlotHandle).set(placed.x, placed.y, p.size * placed.scale * 1.2, life * placed.alpha, p.color);
         });
 
         // Crash flash — see the explosionCx/Cy/Size/Opacity declaration
@@ -569,31 +717,42 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
         if (explosionRemaining > 0) {
           const t = 1 - explosionRemaining / EXPLOSION_FLASH_MS;
           explosionOpacity.value = 1 - t;
-          explosionCx.value = state.player.x;
-          explosionCy.value = state.player.y;
-          explosionSize.value = Math.max(state.player.width, state.player.height) * 1.8 * (0.7 + t * 0.9);
+          const crashPlaced = groundedNativePlacement(state.player.x, state.player.y, state.player.width, state.player.height, 1);
+          explosionCx.value = crashPlaced.centerX;
+          explosionCy.value = crashPlaced.centerY;
+          explosionSize.value = Math.max(crashPlaced.width, crashPlaced.height) * 1.8 * (0.7 + t * 0.9);
         } else {
           explosionOpacity.value = 0;
         }
 
         const carColor = CAR_STATS[state.selectedCar].color;
         carColorRef.current = carColor;
+        // Keep the player’s familiar unit scale but set its baseline by the
+        // same projected wheel-contact row as traffic. Simulation positions and
+        // hitboxes remain untouched; this is visual placement only.
+        const playerPlaced = groundedNativePlacement(
+          state.player.x,
+          state.player.y,
+          state.player.width,
+          state.player.height,
+          1,
+        );
 
         const flickerVisible = !state.player.isInvulnerable || Math.floor(now / 80) % 2 === 0;
         const invulnAlpha = state.player.isInvulnerable ? 0.7 + 0.3 * Math.sin(now * 0.03) : 1;
-        playerX.value = state.player.x - state.player.width / 2;
-        playerY.value = state.player.y - state.player.height / 2;
-        playerW.value = state.player.width;
-        playerH.value = state.player.height;
+        playerX.value = playerPlaced.centerX - playerPlaced.width / 2;
+        playerY.value = playerPlaced.centerY - playerPlaced.height / 2;
+        playerW.value = playerPlaced.width;
+        playerH.value = playerPlaced.height;
         playerOpacity.value = flickerVisible ? invulnAlpha : 0;
-        playerCenterX.value = state.player.x;
-        playerCenterY.value = state.player.y;
-        playerOrigin.value = { x: state.player.x, y: state.player.y };
+        playerCenterX.value = playerPlaced.centerX;
+        playerCenterY.value = playerPlaced.centerY;
+        playerOrigin.value = { x: playerPlaced.centerX, y: playerPlaced.centerY };
         playerTransform.value = state.driveTilt === 0 ? IDENTITY_TRANSFORM : [{ rotate: state.driveTilt * 0.14 }];
-        rushCx.value = state.player.x;
-        rushCy.value = state.player.y + state.player.height * 0.24;
-        rushCenter.value = { x: state.player.x, y: state.player.y + state.player.height * 0.24 };
-        rushR.value = Math.max(state.player.width, state.player.height) * (0.95 + (state.rushPulse / 420) * 0.4);
+        rushCx.value = playerPlaced.centerX;
+        rushCy.value = playerPlaced.contactY - playerPlaced.height * 0.16;
+        rushCenter.value = { x: playerPlaced.centerX, y: playerPlaced.contactY - playerPlaced.height * 0.16 };
+        rushR.value = Math.max(playerPlaced.width, playerPlaced.height) * (0.95 + (state.rushPulse / 420) * 0.4);
         rushOpacity.value = state.rushTimer > 0 ? 0.78 : 0;
 
         const playerImage = images.playerCars[state.selectedCar];
@@ -602,16 +761,16 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
           setPlayerImg(playerImage);
         }
 
-        underglowCx.value = state.player.x;
-        underglowCy.value = state.player.y + state.player.height * 0.35;
-        underglowR.value = state.player.width * 1.4;
-        underglowCenter.value = { x: state.player.x, y: state.player.y + state.player.height * 0.35 };
+        underglowCx.value = playerPlaced.centerX;
+        underglowCy.value = playerPlaced.contactY - playerPlaced.height * 0.12;
+        underglowR.value = playerPlaced.width * 1.4;
+        underglowCenter.value = { x: playerPlaced.centerX, y: playerPlaced.contactY - playerPlaced.height * 0.12 };
 
         if (state.player.oilSlicked !== oilSlicked) setOilSlicked(state.player.oilSlicked);
         if (state.player.oilSlicked) {
-          oilCx.value = state.player.x;
-          oilCy.value = state.player.y;
-          oilR.value = Math.max(state.player.width, state.player.height) * 0.55;
+          oilCx.value = playerPlaced.centerX;
+          oilCy.value = playerPlaced.centerY;
+          oilR.value = Math.max(playerPlaced.width, playerPlaced.height) * 0.55;
         }
 
         const nowShieldActive = state.activePowerUp === 'SHIELD';
@@ -622,8 +781,8 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
           // ones (PHANTOM's 16px-wide body inside a 76px hexagon). Scaled
           // to the player's own dimensions instead, matching the ratio
           // the web Pixi renderer already used correctly (maxDim * 0.75).
-          const shieldR = Math.max(state.player.width, state.player.height);
-          shieldHexPath.value = hexagonPath(state.player.x, state.player.y, shieldR * 0.62, now * 0.0012);
+          const shieldR = Math.max(playerPlaced.width, playerPlaced.height);
+          shieldHexPath.value = hexagonPath(playerPlaced.centerX, playerPlaced.centerY, shieldR * 0.62, now * 0.0012);
           shieldRingR.value = shieldR * 0.45 + (0.5 + 0.5 * Math.sin(now * 0.0012 * 4)) * (shieldR * 0.065);
         }
 
@@ -631,9 +790,9 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
         const showExhaust = spd > 1.1;
         exhaustOpacity.value = showExhaust ? 1 : 0;
         if (showExhaust) {
-          const px = state.player.x;
-          const py = state.player.y + state.player.height / 2;
-          const hw = state.player.width * 0.3;
+          const px = playerPlaced.centerX;
+          const py = playerPlaced.contactY;
+          const hw = playerPlaced.width * 0.3;
           const len = spd * 22;
           exhaustLP1.value = { x: px - hw, y: py };
           exhaustLP2.value = { x: px - hw, y: py + len };
@@ -646,13 +805,13 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
           exhaustBigP1.value = { x: px, y: py };
           exhaustBigP2.value = { x: px, y: py + bigLen };
           exhaustBigOpacity.value = spd >= 2.5 ? 1 : 0;
-          exhaustBigWidth.value = state.player.width * 0.7;
+          exhaustBigWidth.value = playerPlaced.width * 0.7;
           const hot = spd >= 2.2;
           if (hot !== exhaustHot) setExhaustHot(hot);
 
           smokeCx.value = px;
           smokeCy.value = py + len * 0.5;
-          smokeSize.value = state.player.width * 0.9 + len * 0.4;
+          smokeSize.value = playerPlaced.width * 0.9 + len * 0.4;
           smokeOpacity.value = 0.3 + Math.min(0.3, spd * 0.08);
         } else {
           smokeOpacity.value = 0;
@@ -741,6 +900,12 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
               low-chase-camera composition. Gameplay coordinates remain flat
               and entities are projected independently below. */}
           {elevatedDeck}
+
+          {/* Lightning and roadside boards are fixed projected geometry driven
+              by four opacity SharedValues. They stay behind traffic, player,
+              and HUD readability cues without a full-frame visual effect. */}
+          <NativeLightning opacity={lightningOpacity} />
+          <NativeBillboardReflections opacities={billboardOpacities} />
 
           {/* Wet-light reflections are a small static set translated through a
               parent SharedValue. They imply moving puddles without allocating

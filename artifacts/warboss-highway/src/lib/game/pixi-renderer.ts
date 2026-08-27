@@ -155,6 +155,10 @@ export class PixiRenderer implements GameRenderer {
   // old TilingSprite/laneDividers approach) no longer applies.
   private roadLayer: Graphics;
   private roadSheen: Graphics;
+  // One stable graphics node contains all atmosphere pulses. It is rebuilt in
+  // place from the existing deterministic distance state, not from timers,
+  // particles, render textures, or post-process passes.
+  private atmosphereLayer: Graphics;
   private weatherLayer: Graphics;
   private feedbackLayer: Graphics;
   private vehicleLightLayer: Graphics;
@@ -264,6 +268,12 @@ export class PixiRenderer implements GameRenderer {
     this.roadSheen = new Graphics();
     this.worldContainer.addChild(this.roadSheen);
 
+    // Lightning, billboards and their wet tarmac reflections render below
+    // lamps/traffic so they reinforce the scene without masking hit-critical
+    // white headlights, cyan rails, or the player car.
+    this.atmosphereLayer = new Graphics();
+    this.worldContainer.addChild(this.atmosphereLayer);
+
     // Lamp posts. Previously repeating Sprites on a scrolled Container; in
     // perspective each post needs its own per-frame position, scale and
     // light-cone, so they are drawn as geometry alongside the road.
@@ -360,7 +370,90 @@ export class PixiRenderer implements GameRenderer {
     this.drawWorld(state);
     this.syncPlayerEffects(state);
     this.syncEntityPools(state);
+    this.drawAtmosphere(state);
     this.drawNeonRainwayLayers(state);
+  }
+
+  // Distance-driven and bounded: a flash repeats only after roughly ten
+  // seconds of normal driving, while billboard variation repeats more often.
+  // The absence of random allocations means renderer output remains stable and
+  // effects remain inexpensive even when several traffic sprites are active.
+  private drawAtmosphere(state: GameState) {
+    const g = this.atmosphereLayer;
+    const proj = this.projection;
+    const distance = state.distance;
+    const strikePhase = distance % 3200;
+    const mainFlash = strikePhase < 38 ? 1 - strikePhase / 38 : 0;
+    const echoFlash = strikePhase > 110 && strikePhase < 125 ? (125 - strikePhase) / 15 * 0.42 : 0;
+    const lightning = Math.max(mainFlash, echoFlash);
+    const pulse = 0.52 + 0.48 * Math.sin(distance * 0.024);
+    const flicker = (distance % 530) < 74 ? 0.45 : 0;
+
+    g.clear();
+
+    // A soft, brief luminance lift samples sky, city void and road separately
+    // instead of applying an expensive fullscreen filter. It stays below the
+    // headlight brightness threshold and does not change gameplay contrast.
+    if (lightning > 0.01) {
+      g.rect(0, 0, proj.width, proj.horizonY + HORIZON_HAZE_PX)
+        .fill({ color: NEON.headlight, alpha: 0.12 * lightning });
+      const leftNear = proj.centerX - proj.halfWidthAt(proj.height) - SHOULDER_WIDTH;
+      const rightNear = proj.centerX + proj.halfWidthAt(proj.height) + SHOULDER_WIDTH;
+      const leftHorizon = proj.centerX - proj.halfWidthAt(0) - 1;
+      const rightHorizon = proj.centerX + proj.halfWidthAt(0) + 1;
+      g.poly([leftHorizon, proj.horizonY, rightHorizon, proj.horizonY, rightNear, proj.height, leftNear, proj.height])
+        .fill({ color: NEON.headlight, alpha: 0.045 * lightning });
+      // Fixed zig-zag geometry makes the strike recognizable without spawning
+      // a line pool or disturbing rain/traffic ownership.
+      g.moveTo(proj.width * 0.72, 6)
+        .lineTo(proj.width * 0.64, proj.horizonY * 0.26)
+        .lineTo(proj.width * 0.71, proj.horizonY * 0.48)
+        .lineTo(proj.width * 0.61, proj.horizonY * 0.88)
+        .stroke({ width: 1.5, color: NEON.headlight, alpha: 0.82 * lightning });
+      g.moveTo(proj.width * 0.33, proj.horizonY * 0.12)
+        .lineTo(proj.width * 0.38, proj.horizonY * 0.43)
+        .lineTo(proj.width * 0.31, proj.horizonY * 0.7)
+        .stroke({ width: 1, color: NEON.cyan, alpha: 0.42 * lightning });
+    }
+
+    const boards = [
+      { worldY: 155, side: -1, color: NEON.magenta, offset: 0 },
+      { worldY: 285, side: 1, color: NEON.cyan, offset: 1.7 },
+      { worldY: 430, side: -1, color: NEON.amber, offset: 3.4 },
+    ];
+    for (const board of boards) {
+      const p = proj.project(proj.centerX, board.worldY);
+      const k = p.scale;
+      const roadEdge = proj.centerX + board.side * proj.halfWidthAt(board.worldY);
+      const panelW = Math.max(14, 42 * k);
+      const panelH = Math.max(7, 18 * k);
+      const x = roadEdge + board.side * (SHOULDER_WIDTH * k + panelW * 0.62);
+      const y = p.y - panelH * 1.35;
+      const boardPulse = Math.max(0.14, pulse * (0.72 + 0.28 * Math.sin(distance * 0.013 + board.offset)) + flicker * 0.55);
+      const lit = Math.min(1, boardPulse + lightning * 0.4);
+
+      // Sign chassis + two unequal bars: readable as billboard light without
+      // text texture allocations or UI-like cards over the playfield.
+      g.roundRect(x - panelW / 2, y - panelH / 2, panelW, panelH, Math.max(2, panelH * 0.16))
+        .fill({ color: 0x10172a, alpha: 0.92 });
+      g.roundRect(x - panelW * 0.38, y - panelH * 0.23, panelW * 0.76, panelH * 0.18, 1)
+        .fill({ color: board.color, alpha: 0.8 * lit });
+      g.roundRect(x - panelW * 0.38, y + panelH * 0.12, panelW * 0.45, panelH * 0.12, 1)
+        .fill({ color: board.color, alpha: 0.42 * lit });
+      g.roundRect(x - panelW / 2, y - panelH / 2, panelW, panelH, Math.max(2, panelH * 0.16))
+        .stroke({ width: Math.max(0.7, 1.4 * k), color: board.color, alpha: 0.68 * lit });
+
+      // Each sign's glow lands inside the wet lane band at a deeper projected
+      // row, with a short fading trapezoid instead of a blur/render target.
+      const reflectionY = Math.min(proj.height - 6, board.worldY + 120);
+      const r = proj.project(proj.centerX + board.side * proj.halfWidthAt(board.worldY) * 0.52, reflectionY);
+      const reflectionW = Math.max(8, panelW * 0.72 * (r.scale / k));
+      const reflectionH = Math.max(3, panelH * 0.34 * (r.scale / k));
+      g.roundRect(r.x - reflectionW / 2, r.y - reflectionH / 2, reflectionW, reflectionH, reflectionH * 0.5)
+        .fill({ color: board.color, alpha: 0.19 * lit });
+      g.roundRect(r.x - reflectionW * 0.28, r.y + reflectionH * 0.9, reflectionW * 0.56, reflectionH * 0.55, reflectionH * 0.28)
+        .fill({ color: board.color, alpha: 0.075 * lit });
+    }
   }
 
   private syncWorldTransform(cameraY: number, screenShake: number) {
@@ -377,7 +470,7 @@ export class PixiRenderer implements GameRenderer {
     if (remaining <= 0) return;
     const progress = 1 - remaining / EXPLOSION_FLASH_MS;
     const scale = 0.7 + progress * 0.9;
-    const burst = this.projection.project(state.player.x, state.player.y);
+    const burst = this.groundedPlacement(state.player.x, state.player.y, state.player.width, state.player.height, 1);
     this.explosionSprite.x = burst.x;
     this.explosionSprite.y = burst.y;
     this.explosionSprite.width = state.player.width * 1.8 * scale;
@@ -679,14 +772,14 @@ export class PixiRenderer implements GameRenderer {
       this.currentCarType = state.selectedCar;
     }
     const player = state.player;
-    // Projected like every other entity. Projection.PLAYER_T pins the scale
-    // here to exactly 1.0, so the player car and its hitbox render at the
-    // same size as before the camera change — only its screen row moves.
-    const p = this.projection.project(player.x, player.y);
-    this.playerSprite.x = p.x;
-    this.playerSprite.y = p.y;
-    this.playerSprite.width = player.width * p.scale;
-    this.playerSprite.height = player.height * p.scale;
+    // The player keeps unit visual scale for control readability, but its wheel
+    // contact is still projected onto the deck. Anchoring its center above that
+    // contact avoids the suspended-car look while preserving familiar size.
+    const placed = this.groundedPlacement(player.x, player.y, player.width, player.height, 1);
+    this.playerSprite.x = placed.x;
+    this.playerSprite.y = placed.y;
+    this.playerSprite.width = placed.width;
+    this.playerSprite.height = placed.height;
     this.playerSprite.alpha = player.isInvulnerable ? (Math.floor(performance.now() / 100) % 2 === 0 ? 0.4 : 1) : 1;
     this.playerSprite.tint = player.oilSlicked ? 0x99aaff : 0xffffff;
     this.playerSprite.rotation = state.driveTilt * 0.14 + (state.rushTimer > 0 ? state.driveTilt * 0.035 : 0);
@@ -695,22 +788,22 @@ export class PixiRenderer implements GameRenderer {
     // looking away from the road at the HUD.
     const glowColor = state.rushTimer > 0 ? NEON.magenta : NEON.cyan;
     const glowStrength = 0.3 + Math.min(0.35, state.speedMultiplier * 0.12) + (state.rushTimer > 0 ? 0.2 : 0);
-    const pw = player.width * p.scale;
-    const ph = player.height * p.scale;
+    const pw = placed.width;
+    const ph = placed.height;
     this.playerAnchor.clear();
     this.playerAnchor
-      .ellipse(p.x, p.y + ph * 0.44, pw * 0.5, ph * 0.12)
-      .fill({ color: 0x000000, alpha: 0.45 });
+      .ellipse(placed.x, placed.contactY - ph * 0.035, pw * 0.48, ph * 0.09)
+      .fill({ color: 0x000000, alpha: 0.58 });
     this.playerAnchor
-      .ellipse(p.x, p.y + ph * 0.3, pw * 0.78, ph * 0.42)
-      .fill({ color: glowColor, alpha: glowStrength * 0.22 });
+      .ellipse(placed.x, placed.contactY - ph * 0.16, pw * 0.74, ph * 0.28)
+      .fill({ color: glowColor, alpha: glowStrength * 0.2 });
     this.playerAnchor
-      .ellipse(p.x, p.y + ph * 0.34, pw * 0.55, ph * 0.22)
-      .fill({ color: glowColor, alpha: glowStrength * 0.4 });
+      .ellipse(placed.x, placed.contactY - ph * 0.1, pw * 0.5, ph * 0.13)
+      .fill({ color: glowColor, alpha: glowStrength * 0.36 });
 
     this.exhaustSprite.visible = true;
-    this.exhaustSprite.x = p.x;
-    this.exhaustSprite.y = p.y + ph / 2 + 4;
+    this.exhaustSprite.x = placed.x;
+    this.exhaustSprite.y = placed.contactY + 4;
     this.exhaustSprite.width = pw * 0.5;
     this.exhaustSprite.height = 14 + state.speedMultiplier * 10;
     this.exhaustSprite.alpha = 0.35 + Math.min(0.4, state.speedMultiplier * 0.15);
@@ -723,10 +816,10 @@ export class PixiRenderer implements GameRenderer {
     this.shieldRing.visible = active;
     if (!active) return;
     const player = state.player;
-    const p = this.projection.project(player.x, player.y);
-    const radius = Math.max(player.width, player.height) * p.scale * 0.75 * (1 + Math.sin(performance.now() / 150) * 0.06);
-    this.shieldRing.x = p.x;
-    this.shieldRing.y = p.y;
+    const placed = this.groundedPlacement(player.x, player.y, player.width, player.height, 1);
+    const radius = Math.max(player.width, player.height) * 0.75 * (1 + Math.sin(performance.now() / 150) * 0.06);
+    this.shieldRing.x = placed.x;
+    this.shieldRing.y = placed.y;
     this.shieldRing.clear();
     this.shieldRing.circle(0, 0, radius).stroke({ width: 3, color: 0x00ffff, alpha: 0.9 });
   }
@@ -748,11 +841,41 @@ export class PixiRenderer implements GameRenderer {
     sprite.visible = sprite.alpha > 0.02;
   }
 
+  // Sprites are centered by Pixi, but a vehicle belongs to the road at its
+  // wheel contact row. Projecting the hitbox center made the lower half of the
+  // sprite hover above the deck as perspective steepened. This helper projects
+  // the contact point, then derives the visual center immediately above it.
+  private groundedPlacement(worldX: number, worldY: number, w: number, h: number, fixedScale?: number) {
+    const proj = this.projection;
+    const contact = proj.project(worldX, proj.clampWorldY(worldY + h / 2));
+    const scale = fixedScale ?? contact.scale;
+    const visualW = w * scale;
+    const visualH = h * scale;
+    return {
+      x: contact.x,
+      y: contact.y - visualH / 2,
+      contactY: contact.y,
+      width: visualW,
+      height: visualH,
+      scale,
+      alpha: proj.fadeInAlpha(worldY),
+    };
+  }
+
   private syncEntityPools(state: GameState) {
     this.gen++;
     syncPool(this.vehiclePool, state.vehicles, this.gen, this.vehicleLayer,
       (vehicle) => { const sprite = new Sprite(vehicleTexture(this.textures, vehicle)); sprite.anchor.set(0.5); return sprite; },
-      (vehicle, sprite) => this.placeEntity(sprite, vehicle.x, vehicle.y, vehicle.width, vehicle.height, vehicle.direction === 'OPPOSITE' ? Math.PI : 0));
+      (vehicle, sprite) => {
+        const placed = this.groundedPlacement(vehicle.x, vehicle.y, vehicle.width, vehicle.height);
+        sprite.x = placed.x;
+        sprite.y = placed.y;
+        sprite.width = placed.width;
+        sprite.height = placed.height;
+        sprite.rotation = vehicle.direction === 'OPPOSITE' ? Math.PI : 0;
+        sprite.alpha = placed.alpha;
+        sprite.visible = placed.alpha > 0.02;
+      });
     syncPool(this.obstaclePool, state.obstacles, this.gen, this.obstacleLayer,
       (obstacle) => { const sprite = new Sprite(obstacle.type === 'OIL_SLICK' ? this.textures.oilSlick : this.textures.debris); sprite.anchor.set(0.5); return sprite; },
       (obstacle, sprite) => this.placeEntity(sprite, obstacle.x, obstacle.y, obstacle.width, obstacle.height, 0));
@@ -808,16 +931,16 @@ export class PixiRenderer implements GameRenderer {
       if (vehicle.type === 'BOSS') continue;
       const alpha = proj.fadeInAlpha(vehicle.y);
       if (alpha <= 0.02) continue;
-      const p = proj.project(vehicle.x, proj.clampWorldY(vehicle.y));
-      // Every dimension below is a world-space measurement scaled to this
-      // vehicle's depth, so lights shrink into the distance with the car they
-      // belong to instead of staying a constant screen size.
-      const k = p.scale;
-      const w = vehicle.width * k;
-      const h = vehicle.height * k;
+      const placed = this.groundedPlacement(vehicle.x, vehicle.y, vehicle.width, vehicle.height);
+      // Every dimension below comes from the same wheel-contact projection as
+      // the sprite. This prevents lights and shadows from revealing a gap
+      // between a car and its projected road surface.
+      const k = placed.scale;
+      const w = placed.width;
+      const h = placed.height;
       const oncoming = vehicle.direction === 'OPPOSITE';
       const color = oncoming ? NEON.headlight : NEON.trafficRed;
-      const y = p.y + h * 0.34;
+      const y = placed.y + h * 0.34;
       const spread = Math.max(2, w * 0.24);
       // Direction lights existed before this pass but were drawn at ~5px
       // radius, 0.5 alpha, with a 0.045-alpha beam — on a near-black playfield
@@ -836,18 +959,18 @@ export class PixiRenderer implements GameRenderer {
       // behind each car, which is precisely the "everything is in a box" look
       // this pass exists to remove.
       this.vehicleLightLayer
-        .ellipse(p.x, p.y, w * 0.62, h * 0.58)
+        .ellipse(placed.x, placed.y, w * 0.62, h * 0.58)
         .fill({ color: NEON.headlight, alpha: 0.075 * alpha });
       this.vehicleLightLayer
-        .ellipse(p.x, p.y, w * 0.52, h * 0.5)
+        .ellipse(placed.x, placed.y, w * 0.52, h * 0.5)
         .fill({ color: NEON.headlight, alpha: 0.075 * alpha });
 
       // Contact shadow next, so the lamps below stay the brightest pixels.
       // Without it every vehicle floats, which is a large part of why the
       // playfield used to read as a flat box.
       this.vehicleLightLayer
-        .ellipse(p.x, p.y + h * 0.46, w * 0.44, h * 0.1)
-        .fill({ color: 0x000000, alpha: 0.4 * alpha });
+        .ellipse(placed.x, placed.contactY - h * 0.035, w * 0.44, h * 0.09)
+        .fill({ color: 0x000000, alpha: 0.54 * alpha });
 
       if (oncoming) {
         // Headlight cone thrown toward the player: the cue arrives before the
@@ -857,26 +980,26 @@ export class PixiRenderer implements GameRenderer {
         const coneLength = h * 1.15;
         const coneHalf = w * 0.62;
         this.vehicleLightLayer
-          .poly([p.x - spread, y, p.x + spread, y, p.x + coneHalf, y + coneLength, p.x - coneHalf, y + coneLength])
+          .poly([placed.x - spread, y, placed.x + spread, y, placed.x + coneHalf, y + coneLength, placed.x - coneHalf, y + coneLength])
           .fill({ color, alpha: 0.16 * alpha });
         this.vehicleLightLayer
-          .poly([p.x - spread, y, p.x + spread, y, p.x + coneHalf * 0.55, y + coneLength * 0.55, p.x - coneHalf * 0.55, y + coneLength * 0.55])
+          .poly([placed.x - spread, y, placed.x + spread, y, placed.x + coneHalf * 0.55, y + coneLength * 0.55, placed.x - coneHalf * 0.55, y + coneLength * 0.55])
           .fill({ color, alpha: 0.2 * alpha });
       } else {
         // Same-direction traffic gets a taillight bar plus a short red wash —
         // a different *shape*, not just a different hue, so the cue survives
         // colour-vision deficiency (ASSETS.md accessibility clause).
         this.vehicleLightLayer
-          .roundRect(p.x - w * 0.34, y - radius * 0.5, w * 0.68, radius, radius * 0.5)
+          .roundRect(placed.x - w * 0.34, y - radius * 0.5, w * 0.68, radius, radius * 0.5)
           .fill({ color, alpha: 0.5 * alpha });
         this.vehicleLightLayer
-          .roundRect(p.x - w * 0.3, y + radius, w * 0.6, h * 0.3, 6 * k)
+          .roundRect(placed.x - w * 0.3, y + radius, w * 0.6, h * 0.3, 6 * k)
           .fill({ color, alpha: 0.12 * alpha });
       }
 
       // Lamp cores last so they stay the brightest part of the cue.
-      this.vehicleLightLayer.circle(p.x - spread, y, radius).fill({ color, alpha: 0.95 * alpha });
-      this.vehicleLightLayer.circle(p.x + spread, y, radius).fill({ color, alpha: 0.95 * alpha });
+      this.vehicleLightLayer.circle(placed.x - spread, y, radius).fill({ color, alpha: 0.95 * alpha });
+      this.vehicleLightLayer.circle(placed.x + spread, y, radius).fill({ color, alpha: 0.95 * alpha });
     }
   }
 
@@ -902,23 +1025,23 @@ export class PixiRenderer implements GameRenderer {
 
   private drawNearMissFeedback(state: GameState, player: GameState['player']) {
     if (state.nearMissPulse <= 0) return;
-    const p = this.projection.project(player.x, player.y);
+    const placed = this.groundedPlacement(player.x, player.y, player.width, player.height, 1);
     const progress = state.nearMissPulse / 300;
-    const radius = Math.max(player.width, player.height) * p.scale * (0.72 + (1 - progress) * 0.7);
-    this.feedbackLayer.circle(p.x, p.y, radius).stroke({ width: 2.5 * progress, color: NEON.magenta, alpha: progress * 0.75 });
+    const radius = Math.max(player.width, player.height) * (0.72 + (1 - progress) * 0.7);
+    this.feedbackLayer.circle(placed.x, placed.y, radius).stroke({ width: 2.5 * progress, color: NEON.magenta, alpha: progress * 0.75 });
   }
 
   private drawRushFeedback(state: GameState, player: GameState['player']) {
     if (state.rushTimer <= 0) return;
-    const p = this.projection.project(player.x, player.y);
-    const pw = player.width * p.scale;
-    const ph = player.height * p.scale;
+    const placed = this.groundedPlacement(player.x, player.y, player.width, player.height, 1);
+    const pw = placed.width;
+    const ph = placed.height;
     const radius = Math.max(pw, ph) * 1.2 * (0.75 + Math.sin(performance.now() / 70) * 0.18);
-    this.feedbackLayer.circle(p.x, p.y + ph * 0.24, radius).fill({ color: NEON.cyan, alpha: 0.10 });
-    this.feedbackLayer.circle(p.x, p.y, radius * 0.9).stroke({ width: 2, color: NEON.magenta, alpha: 0.6 });
+    this.feedbackLayer.circle(placed.x, placed.contactY - ph * 0.14, radius).fill({ color: NEON.cyan, alpha: 0.10 });
+    this.feedbackLayer.circle(placed.x, placed.y, radius * 0.9).stroke({ width: 2, color: NEON.magenta, alpha: 0.6 });
     for (let i = -2; i <= 2; i++) {
-      const x = p.x + i * pw * 0.34;
-      this.feedbackLayer.moveTo(x, p.y + ph * 0.42).lineTo(x - state.driveTilt * 12, p.y + ph * (1.2 + Math.abs(i) * 0.14)).stroke({ width: 2.2, color: i % 2 === 0 ? NEON.cyan : NEON.magenta, alpha: 0.55 });
+      const x = placed.x + i * pw * 0.34;
+      this.feedbackLayer.moveTo(x, placed.contactY - ph * 0.08).lineTo(x - state.driveTilt * 12, placed.contactY + ph * (0.7 + Math.abs(i) * 0.14)).stroke({ width: 2.2, color: i % 2 === 0 ? NEON.cyan : NEON.magenta, alpha: 0.55 });
     }
   }
 
