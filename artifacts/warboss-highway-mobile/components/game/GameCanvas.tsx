@@ -153,6 +153,11 @@ interface NativeGroundedPlacement {
 // its shadow sit on the projected deck rather than floating above it.
 function groundedNativePlacement(worldX: number, worldY: number, width: number, height: number, fixedScale?: number): NativeGroundedPlacement {
   const contact = projectNativeGround(worldX, worldY + height / 2);
+  // Geometry belongs to the lower-edge contact row, but a sprite must still
+  // fade according to its original simulation row as it enters over horizon.
+  // Otherwise the half-height contact offset causes incoming traffic to appear
+  // fully opaque too early.
+  const entry = projectNativeGround(worldX, worldY);
   const scale = fixedScale ?? contact.scale;
   const visualWidth = width * scale;
   const visualHeight = height * scale;
@@ -163,7 +168,7 @@ function groundedNativePlacement(worldX: number, worldY: number, width: number, 
     width: visualWidth,
     height: visualHeight,
     scale,
-    opacity: contact.alpha,
+    opacity: entry.alpha,
   };
 }
 
