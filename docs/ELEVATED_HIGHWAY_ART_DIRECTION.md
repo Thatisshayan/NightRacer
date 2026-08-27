@@ -83,13 +83,13 @@ Traffic should be choreographed in small readable groups. Never fill every lane 
 | 1. Camera and deck | Lower horizon, stronger road taper, elevated shoulders/rails, structural void | A still gameplay frame unmistakably reads as a high bridge, not a flat road. |
 | 2. Lighting language | Directional car lights, projected reflection streaks, lamp pools, player ion wake | Players identify traffic direction before vehicle body detail is visible. |
 | 3. World depth | Three skyline depth bands, fog, rain-depth separation, support silhouettes | The road feels suspended in a living industrial city without obscuring hazards. |
-| 4. Cross-platform tiering | WebGL high / Pixi Canvas / Canvas2D / Skia equivalence map | Each backend communicates the same road, traffic, and player hierarchy with no silent feature loss. |
+| 4. Cross-platform tiering | WebGL high / Pixi Canvas / Canvas2D / Skia equivalence map | Web Pixi and native Skia elevated-deck parity are implemented; Canvas fallback parity remains the next backend-specific follow-up. |
 | 5. Asset compression and staging | Final-use texture sizes, loading priorities, lazy rare assets | Native memory and first-play latency are measured against a device profile budget. |
 | 6. Visual playtest | Deterministic high-speed run, Rush, rain, traffic, boss, game-over | Screenshots and device traces confirm readability at normal and peak stress. |
 
 ## Implemented milestone
 
-The web Pixi renderer now implements the first production milestone: a 13.5%-height horizon, projected elevated-deck rails, depth-scaled uprights and braces, amber maintenance lights, and a dedicated city-void layer. The shared simulation is unchanged. Native Skia parity remains a separately scoped follow-on task and should be validated on physical devices before it is accepted.
+The web Pixi renderer and native Skia canvas now implement the first production milestone: a 13.5%-height horizon, projected elevated-deck rails, depth-scaled uprights and braces, amber maintenance lights, a dedicated city-void layer, two-rate neon rain, and pooled-transform puddle reflections. The shared simulation is unchanged. Native visual behavior is type-checked and repository-gate verified; a physical-device frame and memory trace remains the required release-quality follow-up.
 
 ## Non-negotiable fallback policy
 

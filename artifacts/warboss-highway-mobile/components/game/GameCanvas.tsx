@@ -13,6 +13,7 @@ import {
   Paint,
   Path,
   RadialGradient,
+  Rect,
   type SkImage,
 } from '@shopify/react-native-skia';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -31,6 +32,17 @@ export const GAME_HEIGHT = 800;
 // texture's own grain/crack detail is visible per tile instead of being
 // downsampled away.
 const ROAD_TILE_SIZE = 110;
+// Must match the web Pixi projection closely enough that both platforms share
+// the same elevated-deck silhouette. This is presentation-only: GameEngine
+// retains flat-world positions, collision, and lane math.
+const HORIZON_FRACTION = 0.135;
+const HORIZON_Y = GAME_HEIGHT * HORIZON_FRACTION;
+const DEPTH_K = 2.8;
+const PLAYER_T = 0.8;
+const NATIVE_RAW_ZERO = 1 / (1 + DEPTH_K);
+const NATIVE_RAW_PLAYER = 1 / (1 + DEPTH_K * (1 - PLAYER_T));
+const DECK_SHOULDER_WIDTH = 26;
+const DECK_POST_PERIOD = 160;
 const GUARDRAIL_WIDTH = 24;
 const LAMP_WIDTH = 34;
 const LAMP_HEIGHT = 70;
@@ -97,6 +109,33 @@ const VEHICLE_BOOST = contrastBrightnessMatrix(1.2, 0.12);
 // Guardrails/lamp posts had no boost at all — dark art on a dark road
 // with nothing pushing it forward, easy to miss entirely at a glance.
 const ROADSIDE_BOOST = contrastBrightnessMatrix(1.4, 0.14);
+
+interface NativeProjectedPoint {
+  x: number;
+  y: number;
+  scale: number;
+  alpha: number;
+}
+
+function nativeProjectionRaw(worldY: number): number {
+  return 1 / (1 + DEPTH_K * (1 - worldY / GAME_HEIGHT));
+}
+
+// Shared simulation uses a flat top-down world; this maps it into the same
+// low chase-camera presentation as the web Pixi renderer. It must never be
+// used for collision or input hit testing.
+function projectNativeGround(worldX: number, worldY: number): NativeProjectedPoint {
+  const clampedY = Math.max(0, Math.min(GAME_HEIGHT, worldY));
+  const raw = nativeProjectionRaw(clampedY);
+  const scale = raw / NATIVE_RAW_PLAYER;
+  const screenY = HORIZON_Y + (GAME_HEIGHT - HORIZON_Y) * ((raw - NATIVE_RAW_ZERO) / (1 - NATIVE_RAW_ZERO));
+  return {
+    x: GAME_WIDTH / 2 + (worldX - GAME_WIDTH / 2) * scale,
+    y: screenY,
+    scale,
+    alpha: worldY >= 0 ? 1 : Math.max(0, 1 + worldY / 180),
+  };
+}
 
 function hexagonPath(cx: number, cy: number, r: number, rotation: number): string {
   let d = '';
@@ -354,36 +393,19 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
   const images = useSpriteImages();
   const [ready, setReady] = useState(false);
 
-  // Perf: the tile grid's x/y positions never change relative to each
-  // other — only the whole grid scrolls. Build the grid once (it only
-  // depends on the road tile image loading), and scroll it via a
-  // SharedValue-driven transform instead of rebuilding it every tick.
-  const roadTiles = useMemo(() => (images.roadTile ? buildRoadGrid(images.roadTile) : null), [images.roadTile]);
-  const neonRain = useMemo(() => buildNeonRain(), []);
-  // Roadside guardrails — this asset (and lamp_post.png) sat in the sprite
-  // pack fully rendered but completely unused: the road is full-bleed
-  // (buildRoadGrid tiles edge-to-edge across GAME_WIDTH), so there was no
-  // shoulder for roadside scenery. Rather than shrink the playable width
-  // (that's GameEngine's lane math too — shared with the web renderer, not
-  // worth the risk for a decorative pass), this overlays a tiled strip on
-  // top of the outermost road tiles at each edge, scrolling in the same
-  // transform group as the road so it reads as a road-edge barrier instead
-  // of drifting independently.
-  const guardrails = useMemo(() => (images.guardrail ? buildGuardrails(images.guardrail) : null), [images.guardrail]);
-  // Lamp posts — same reasoning as guardrails (real, unused art, no natural
-  // spawn point without touching shared lane math), but unlike the
-  // guardrail segment this one isn't seamlessly tileable, so it can't just
-  // repeat every row without looking like a fence. Sparsely spaced instead
-  // (every LAMP_SPAN, alternating edges), with its own dedicated scroll
-  // transform wrapped at LAMP_PERIOD instead of reusing roadTransform —
-  // see the LAMP_PERIOD comment above for why.
-  const lampPosts = useMemo(() => (images.lampPost ? buildLampPosts(images.lampPost) : null), [images.lampPost]);
-  const roadTransform = useSharedValue<{ translateY: number }[]>([{ translateY: 0 }]);
-  const lampTransform = useSharedValue<{ translateY: number }[]>([{ translateY: 0 }]);
-  // One static rain geometry group is translated through SharedValues; weather
-  // density increases for Rush without reconstructing the Skia scene graph.
-  const rainTransform = useSharedValue<{ translateY: number }[]>([{ translateY: 0 }]);
-  const rainOpacity = useSharedValue(0.16);
+  // The native scene mirrors the web Pixi projection with static Skia geometry.
+  // Deck, void, puddles, and rain are all built once; the frame loop mutates only
+  // a few parent transforms/opacities instead of reconstructing JSX.
+  const elevatedDeck = useMemo(() => buildElevatedDeck(), []);
+  const puddleReflections = useMemo(() => buildPuddleReflections(), []);
+  const farRain = useMemo(() => buildNeonRain('far'), []);
+  const foregroundRain = useMemo(() => buildNeonRain('foreground'), []);
+  const puddleTransform = useSharedValue<{ translateY: number }[]>([{ translateY: 0 }]);
+  const farRainTransform = useSharedValue<{ translateY: number }[]>([{ translateY: 0 }]);
+  const foregroundRainTransform = useSharedValue<{ translateY: number }[]>([{ translateY: 0 }]);
+  const puddleOpacity = useSharedValue(0.58);
+  const farRainOpacity = useSharedValue(0.14);
+  const foregroundRainOpacity = useSharedValue(0.1);
   const groupTransform = useSharedValue<({ scale: number } | { translateX: number } | { translateY: number })[]>([
     { scale },
     { translateX: 0 },
@@ -506,10 +528,14 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
         const shakeX = shakeAmp > 0 ? (Math.random() - 0.5) * shakeAmp : 0;
         const shakeY = shakeAmp > 0 ? (Math.random() - 0.5) * shakeAmp : 0;
         groupTransform.value = [{ scale }, { translateX: shakeX }, { translateY: shakeY - cameraY }];
-        roadTransform.value = [{ translateY: state.roadOffset % ROAD_TILE_SIZE }];
-        lampTransform.value = [{ translateY: state.roadOffset % LAMP_PERIOD }];
-        rainTransform.value = [{ translateY: state.roadOffset % 180 }];
-        rainOpacity.value = state.rushTimer > 0 ? 0.28 : 0.16;
+        // Static deck geometry is projected at build time; bounded transforms give
+        // puddles and weather motion without rebuilding the Skia scene graph.
+        puddleTransform.value = [{ translateY: state.roadOffset % 140 }];
+        farRainTransform.value = [{ translateY: state.roadOffset % 180 }];
+        foregroundRainTransform.value = [{ translateY: state.roadOffset % 280 }];
+        puddleOpacity.value = state.rushTimer > 0 ? 0.78 : 0.58;
+        farRainOpacity.value = state.rushTimer > 0 ? 0.2 : 0.14;
+        foregroundRainOpacity.value = state.rushTimer > 0 ? 0.2 : 0.1;
 
         vehiclePool.sync(state.vehicles, (handle, v) => {
           const img = vehicleImage(images, v.type, v.variant);
@@ -711,23 +737,25 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
     <GestureDetector gesture={pan}>
       <Canvas style={{ width: displayWidth, height: displayHeight, backgroundColor: '#0c0c0e' }}>
         <Group transform={groupTransform}>
-          {roadTiles && (
-            <Group transform={roadTransform} layer={<Paint><ColorMatrix matrix={ROAD_BOOST} /></Paint>}>
-              {roadTiles}
-            </Group>
-          )}
-          {guardrails && (
-            <Group transform={roadTransform} layer={<Paint><ColorMatrix matrix={ROADSIDE_BOOST} /></Paint>}>
-              {guardrails}
-            </Group>
-          )}
-          {lampPosts && (
-            <Group transform={lampTransform} layer={<Paint><ColorMatrix matrix={ROADSIDE_BOOST} /></Paint>}>
-              {lampPosts}
-            </Group>
-          )}
-          <Group transform={rainTransform} opacity={rainOpacity}>
-            {neonRain}
+          {/* Elevated bridge, city void, and fixed rails build the native
+              low-chase-camera composition. Gameplay coordinates remain flat
+              and entities are projected independently below. */}
+          {elevatedDeck}
+
+          {/* Wet-light reflections are a small static set translated through a
+              parent SharedValue. They imply moving puddles without allocating
+              a particle system or a blur pass on every device frame. */}
+          <Group transform={puddleTransform} opacity={puddleOpacity}>
+            {puddleReflections}
+          </Group>
+
+          {/* Far rain creates city depth; foreground rain becomes denser during
+              Rush. Both are memoized geometry controlled only by transforms. */}
+          <Group transform={farRainTransform} opacity={farRainOpacity}>
+            {farRain}
+          </Group>
+          <Group transform={foregroundRainTransform} opacity={foregroundRainOpacity}>
+            {foregroundRain}
           </Group>
 
           {obstaclePool.handles.map((ref, i) => (
@@ -837,22 +865,159 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
   );
 }
 
-// Static rain streak geometry. Only its parent transform and opacity change
-// through SharedValues, so weather stays outside React's frame loop.
-function buildNeonRain() {
+function nativeHalfWidthAt(worldY: number): number {
+  return (GAME_WIDTH / 2) * (nativeProjectionRaw(Math.max(0, Math.min(GAME_HEIGHT, worldY))) / NATIVE_RAW_PLAYER);
+}
+
+function trapezoidPath(topLeft: number, topRight: number, bottomRight: number, bottomLeft: number, topY = HORIZON_Y, bottomY = GAME_HEIGHT): string {
+  return `M ${topLeft} ${topY} L ${topRight} ${topY} L ${bottomRight} ${bottomY} L ${bottomLeft} ${bottomY} Z`;
+}
+
+// The native bridge is static draw geometry. The same low-horizon projection as
+// the web renderer creates the elevated highway without forcing GameEngine or
+// touch coordinates away from their shared flat-world contract.
+function buildElevatedDeck() {
+  const nodes: React.ReactNode[] = [];
+  const centerX = GAME_WIDTH / 2;
+  const horizonScale = NATIVE_RAW_ZERO / NATIVE_RAW_PLAYER;
+  const bottomScale = 1 / NATIVE_RAW_PLAYER;
+  const halfTop = (GAME_WIDTH / 2) * horizonScale;
+  const halfBottom = (GAME_WIDTH / 2) * bottomScale;
+  const shoulderTop = DECK_SHOULDER_WIDTH * horizonScale;
+  const shoulderBottom = DECK_SHOULDER_WIDTH * bottomScale;
+
+  // Rain-lit night sky and the low city haze under the HUD horizon.
+  nodes.push(
+    <Rect key="native-sky" x={0} y={0} width={GAME_WIDTH} height={HORIZON_Y}>
+      <LinearGradient
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0, y: HORIZON_Y }}
+        colors={["#020814", "#0a1930", "#123150"]}
+      />
+    </Rect>
+  );
+  nodes.push(<Rect key="native-horizon-haze" x={0} y={HORIZON_Y - 4} width={GAME_WIDTH} height={42} color="rgba(64,164,212,0.16)" />);
+
+  for (const side of [-1, 1]) {
+    const deckTop = centerX + side * (halfTop + shoulderTop);
+    const deckBottom = centerX + side * (halfBottom + shoulderBottom);
+    const screenEdge = side < 0 ? 0 : GAME_WIDTH;
+    const voidPath = side < 0
+      ? trapezoidPath(screenEdge, deckTop, deckBottom, screenEdge)
+      : trapezoidPath(deckTop, screenEdge, screenEdge, deckBottom);
+    nodes.push(<Path key={`city-void-${side}`} path={voidPath} color="#020711" />);
+
+    // Sparse industrial silhouettes keep the bridge suspended over a city
+    // without the mobile cost of full-resolution scene backgrounds.
+    for (let i = 0; i < 9; i++) {
+      const worldY = i * DECK_POST_PERIOD + 40;
+      const projected = projectNativeGround(centerX, worldY);
+      const railX = centerX + side * (nativeHalfWidthAt(worldY) + DECK_SHOULDER_WIDTH * projected.scale);
+      const buildingW = (14 + (i % 3) * 7) * projected.scale;
+      const buildingH = (34 + (i % 4) * 15) * projected.scale;
+      const buildingX = side < 0 ? railX - buildingW * 2.5 : railX + buildingW * 1.5;
+      const buildingY = projected.y - buildingH * (0.78 + (i % 2) * 0.18);
+      nodes.push(<Rect key={`void-building-${side}-${i}`} x={buildingX} y={buildingY} width={buildingW} height={buildingH} color={i % 2 === 0 ? "#07111f" : "#0b1727"} opacity={0.86} />);
+      if (i % 2 === 0) {
+        nodes.push(<Rect key={`void-window-${side}-${i}`} x={buildingX + buildingW * 0.28} y={buildingY + buildingH * 0.32} width={Math.max(0.7, buildingW * 0.18)} height={Math.max(0.8, buildingH * 0.08)} color="rgba(39,217,255,0.32)" />);
+      }
+    }
+  }
+
+  // Projected asphalt deck and restrained depth bands communicate wet material
+  // while preserving a dark surface behind hazards.
+  nodes.push(<Path key="native-deck-asphalt" path={trapezoidPath(centerX - halfTop, centerX + halfTop, centerX + halfBottom, centerX - halfBottom)} color="#202b3e" />);
+  for (let i = 0; i < 12; i++) {
+    const t0 = i / 12;
+    const t1 = (i + 1) / 12;
+    const y0 = HORIZON_Y + (GAME_HEIGHT - HORIZON_Y) * t0;
+    const y1 = HORIZON_Y + (GAME_HEIGHT - HORIZON_Y) * t1;
+    const hw0 = halfTop + (halfBottom - halfTop) * t0;
+    const hw1 = halfTop + (halfBottom - halfTop) * t1;
+    nodes.push(<Path key={`native-road-band-${i}`} path={`M ${centerX - hw0} ${y0} L ${centerX + hw0} ${y0} L ${centerX + hw1} ${y1} L ${centerX - hw1} ${y1} Z`} color="#050917" opacity={0.26 * (1 - t0) * (1 - t0)} />);
+  }
+
+  // Cyan lane edges, muted outer lips, and metal rail cores establish the
+  // elevated deck silhouette. The rails intentionally grow off-screen near the
+  // player, as they do in the visual reference.
+  for (const side of [-1, 1]) {
+    const roadTop = centerX + side * halfTop;
+    const roadBottom = centerX + side * halfBottom;
+    const railTop = roadTop + side * shoulderTop;
+    const railBottom = roadBottom + side * shoulderBottom;
+    const outerTop = railTop + side * Math.max(2, 7 * horizonScale);
+    const outerBottom = railBottom + side * Math.max(5, 11 * bottomScale);
+    nodes.push(<Line key={`deck-core-${side}`} p1={{ x: railTop, y: HORIZON_Y }} p2={{ x: railBottom, y: GAME_HEIGHT }} color="#172742" style="stroke" strokeWidth={Math.max(1.1, 4.5 * bottomScale)} />);
+    nodes.push(<Line key={`deck-edge-${side}`} p1={{ x: roadTop, y: HORIZON_Y }} p2={{ x: roadBottom, y: GAME_HEIGHT }} color="rgba(39,217,255,0.82)" style="stroke" strokeWidth={Math.max(0.8, 2.2 * bottomScale)} />);
+    nodes.push(<Line key={`deck-lip-${side}`} p1={{ x: outerTop, y: HORIZON_Y }} p2={{ x: outerBottom, y: GAME_HEIGHT }} color="rgba(223,75,255,0.34)" style="stroke" strokeWidth={Math.max(0.6, 1.35 * bottomScale)} />);
+
+    for (let i = 0; i < 9; i++) {
+      const worldY = i * DECK_POST_PERIOD + 20;
+      const p = projectNativeGround(centerX, worldY);
+      const railX = centerX + side * (nativeHalfWidthAt(worldY) + DECK_SHOULDER_WIDTH * p.scale);
+      const postH = Math.max(4, 34 * p.scale);
+      const postW = Math.max(1, 4.5 * p.scale);
+      const braceOut = side * Math.max(4, 20 * p.scale);
+      nodes.push(<Rect key={`deck-post-${side}-${i}`} x={railX - postW / 2} y={p.y - postH} width={postW} height={postH} color="#172742" opacity={0.98} />);
+      nodes.push(<Line key={`deck-brace-${side}-${i}`} p1={{ x: railX, y: p.y - postH * 0.78 }} p2={{ x: railX + braceOut, y: p.y }} color="rgba(60,98,139,0.88)" style="stroke" strokeWidth={Math.max(0.7, 1.5 * p.scale)} />);
+      nodes.push(<Circle key={`deck-light-${side}-${i}`} cx={railX} cy={p.y - postH * 0.86} r={Math.max(0.9, 3.2 * p.scale)} color="rgba(255,179,71,0.88)" />);
+    }
+  }
+
+  // Lane separators remain aligned to the shared four-lane world model but now
+  // converge at the horizon, matching the web deck and keeping traffic readable.
+  for (const laneFraction of [0.25, 0.75]) {
+    const topX = centerX + (laneFraction * GAME_WIDTH - centerX) * horizonScale;
+    const bottomX = centerX + (laneFraction * GAME_WIDTH - centerX) * bottomScale;
+    nodes.push(<Line key={`native-lane-${laneFraction}`} p1={{ x: topX, y: HORIZON_Y }} p2={{ x: bottomX, y: GAME_HEIGHT }} color="rgba(39,217,255,0.34)" style="stroke" strokeWidth={Math.max(0.7, 2 * bottomScale)}><DashPathEffect intervals={[18, 14]} /></Line>);
+  }
+  for (const offset of [-3, 3]) {
+    nodes.push(<Line key={`native-center-${offset}`} p1={{ x: centerX + offset * horizonScale, y: HORIZON_Y }} p2={{ x: centerX + offset * bottomScale, y: GAME_HEIGHT }} color="rgba(255,179,71,0.78)" style="stroke" strokeWidth={Math.max(0.8, 2.3 * bottomScale)} />);
+  }
+
+  return <>{nodes}</>;
+}
+
+// Wet-road reflections use a handful of projected, repeated strips rather than
+// full-screen blur. Parent translation makes them flow below lights while the
+// static allocation keeps the mobile render path predictable.
+function buildPuddleReflections() {
+  const strips: React.ReactNode[] = [];
+  const colors = ['rgba(39,217,255,0.34)', 'rgba(255,179,71,0.26)', 'rgba(223,75,255,0.25)'];
+  const laneXs = [GAME_WIDTH * 0.16, GAME_WIDTH * 0.37, GAME_WIDTH * 0.63, GAME_WIDTH * 0.84];
+  for (let i = 0; i < 12; i++) {
+    const worldY = 28 + i * 80;
+    const x = laneXs[i % laneXs.length];
+    const p = projectNativeGround(x, worldY);
+    const next = projectNativeGround(x, Math.min(GAME_HEIGHT, worldY + 38 + (i % 3) * 14));
+    const width = Math.max(4, (13 + (i % 3) * 6) * p.scale);
+    const left = p.x - width / 2;
+    const right = p.x + width / 2;
+    const nextWidth = width * 0.68;
+    strips.push(<Path key={`puddle-${i}`} path={`M ${left} ${p.y} L ${right} ${p.y} L ${next.x + nextWidth / 2} ${next.y} L ${next.x - nextWidth / 2} ${next.y} Z`} color={colors[i % colors.length]} />);
+  }
+  return <>{strips}</>;
+}
+
+// Two static rain fields establish depth without a particle lifecycle. Only the
+// parent transforms and opacities change through SharedValues during play.
+function buildNeonRain(layer: 'far' | 'foreground') {
   const streaks: React.ReactNode[] = [];
-  for (let i = 0; i < 28; i++) {
-    const x = 10 + ((i * 73) % (GAME_WIDTH - 20));
-    const y = -150 + ((i * 109) % (GAME_HEIGHT + 180));
-    const length = 12 + (i % 5) * 6;
+  const far = layer === 'far';
+  const count = far ? 20 : 18;
+  const yRange = GAME_HEIGHT + (far ? 180 : 300);
+  for (let i = 0; i < count; i++) {
+    const x = 8 + ((i * (far ? 71 : 97)) % (GAME_WIDTH - 16));
+    const y = -(far ? 110 : 210) + ((i * (far ? 109 : 83)) % yRange);
+    const length = (far ? 7 : 18) + (i % 5) * (far ? 2 : 5);
     streaks.push(
       <Line
-        key={`neon-rain-${i}`}
+        key={`neon-rain-${layer}-${i}`}
         p1={{ x, y }}
-        p2={{ x: x - 2, y: y + length }}
-        color={i % 4 === 0 ? 'rgba(185,233,255,0.85)' : 'rgba(105,185,225,0.62)'}
+        p2={{ x: x - (far ? 1 : 3), y: y + length }}
+        color={i % 4 === 0 ? 'rgba(185,233,255,0.88)' : far ? 'rgba(105,185,225,0.54)' : 'rgba(126,207,255,0.66)'}
         style="stroke"
-        strokeWidth={i % 3 === 0 ? 1.1 : 0.65}
+        strokeWidth={far ? 0.6 : i % 3 === 0 ? 1.1 : 0.75}
         strokeCap="round"
       />
     );
