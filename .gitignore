@@ -11,6 +11,10 @@ out-tsc
 # agent scratch (emulator screenshots etc.)
 .scratch
 
+# High-resolution renderer-rebuild source art. The compact runtime textures in
+# artifacts/warboss-highway/public/sprites/rebuild/ remain versioned.
+/rebuild-assets/
+
 # dependencies
 node_modules
 

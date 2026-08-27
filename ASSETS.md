@@ -31,7 +31,7 @@ A functional color role must not be reused casually. In particular, red is reser
 
 ## Existing assets and planned roles
 
-The existing `sprites-premium` set will remain the baseline content library. The redesign should make it feel intentional through material treatment, glow, light cues, layered backgrounds, and renderer effects rather than replacing every vehicle with large unoptimized artwork.
+The existing `sprites-premium` set remains the **legacy rollback** content library. It continues to support the merged Pixi/Skia renderer, but it is not the principal art direction for the active renderer-rebuild proof. The replacement proof uses the shallow rear-chase asset contract in [`docs/RENDERER_REBUILD_ASSETS.md`](docs/RENDERER_REBUILD_ASSETS.md), where every vehicle has a visible tire baseline and the renderer—not the image—owns its ground shadow and reflection.
 
 ### Runtime sprite pack (added 2026-08-14)
 
@@ -75,7 +75,7 @@ a huge first-load payload. That is why the high-quality art "did not look like a
 
 ## Rendering rules
 
-Every frame must preserve pooling and render through existing platform-native mechanisms. Web effects belong in Pixi containers/filters or inexpensive `Graphics` primitives. Native effects belong in stable Skia nodes driven through existing shared-value patterns. Heavy post-processing, non-pooled per-frame object allocation, or generated full-screen art used directly as a runtime background are prohibited.
+Every frame must preserve pooling and render through platform-native mechanisms. The active web rebuild proof uses one Canvas 2D scene behind the explicit `?renderer=rebuild` route; it is intentionally isolated from the legacy Pixi renderer until its contact frame is accepted. A future native adapter must consume the same pure visual-frame layout rather than reproduce camera math independently. Heavy post-processing, non-pooled per-frame object allocation, or generated full-screen art used directly as a runtime background are prohibited.
 
 The target image can inform small desktop/mobile-safe texture and color decisions. Its full-resolution composition will not be rendered whole in the game; instead, the game recreates its look through reusable road, skyline, rain, light, and vehicle layers.
 

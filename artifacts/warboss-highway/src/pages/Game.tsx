@@ -99,14 +99,17 @@ function CarPreview({ carType, selected }: { carType: CarType; selected: boolean
 // ── Main Page ──────────────────────────────────────────────────────────────────
 type Screen = 'title' | 'playing' | 'gameover';
 
-// Pixi.js (WebGL) is the default renderer now that the sprite pack (Phase E
-// of the "Warboss Highway Pixi rewrite" plan) is wired in — see
-// sprites.ts/pixi-renderer.ts. `?renderer=canvas2d` opts back into the
-// procedural Canvas 2D path for QA/debug comparison or as a manual escape
-// hatch if Pixi fails to init on a given device.
-const usePixiRenderer =
-  typeof window === 'undefined' ||
-  new URLSearchParams(window.location.search).get('renderer') !== 'canvas2d';
+// The shipped Pixi scene remains the default and `?renderer=canvas2d` remains
+// its explicit fallback. The isolated `?renderer=rebuild` path is the visual
+// replacement proof slice; it shares GameEngine but owns a separate canvas so
+// it can be judged and reverted without disturbing the shipped renderer.
+const requestedRenderer =
+  typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('renderer');
+const useRebuildRenderer = requestedRenderer === 'rebuild';
+const usePixiRenderer = requestedRenderer !== 'canvas2d' && !useRebuildRenderer;
+const useOverlayRenderer = usePixiRenderer || useRebuildRenderer;
+const useGroundingDemo =
+  typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('demo') === 'grounding';
 
 export default function Game() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -305,7 +308,7 @@ export default function Game() {
     setGameOverState(null);
     setNewRecord(false);
     setScreen('playing');
-    setPixiReady(!usePixiRenderer);
+    setPixiReady(!useOverlayRenderer);
 
     engineRef.current = new WebGameEngine(
       canvasRef.current,
@@ -334,24 +337,33 @@ export default function Game() {
         dailyModifier: isDailyChallenge ? dailyModifier : { name: 'NONE', description: 'Standard rules.', speedMult: 1, spawnMult: 1, scoreMult: 1, obstacleMult: 1, scrapBonus: 0 },
       }
     );
-    engineRef.current.start();
+    // The grounding proof is an approval frame, not a playable alternate mode.
+    // Keep the authoritative initial state frozen while its renderer loads so a
+    // collision cannot replace the proof with a game-over overlay before capture.
+    if (!useGroundingDemo) engineRef.current.start();
 
-    if (usePixiRenderer && pixiHostRef.current) {
+    if (useOverlayRenderer && pixiHostRef.current) {
       const engine = engineRef.current;
       const host = pixiHostRef.current;
       host.innerHTML = '';
-      import('@/lib/game/pixi-renderer').then(({ PixiRenderer }) =>
-        PixiRenderer.create(host, 420, 800)
-      ).then((renderer) => {
+      const rendererPromise = useRebuildRenderer
+        ? import('@/lib/game/rebuild-renderer').then(({ RebuildRenderer }) =>
+            RebuildRenderer.create(host, 420, 800, useGroundingDemo)
+          )
+        : import('@/lib/game/pixi-renderer').then(({ PixiRenderer }) =>
+            PixiRenderer.create(host, 420, 800)
+          );
+      rendererPromise.then((renderer) => {
         // Bail if the engine was torn down (restart) or the component
-        // unmounted while the Pixi bundle/app was still loading — otherwise
+        // unmounted while the renderer bundle was still loading — otherwise
         // this would attach to (or leak) a renderer nothing owns anymore.
         if (unmountedRef.current || engineRef.current !== engine) { renderer.destroy(); return; }
         engine.attachRenderer(renderer);
+        if (useGroundingDemo) renderer.sync(engine.getState(), 0, 0);
         setPixiReady(true);
       }).catch((err) => {
-        console.error('[pixi-debug] failed to attach Pixi renderer', err);
-        setPixiReady(true); // uncover the Canvas 2D fallback — it's genuinely the active renderer now
+        console.error('[renderer-debug] failed to attach renderer', err);
+        setPixiReady(true); // uncover the Canvas 2D fallback if attachment fails
       });
     }
   }, [isDailyChallenge, selectedCar, joystickEnabled]);
@@ -419,7 +431,7 @@ export default function Game() {
             engine stops calling draw() — hiding this on death would expose a
             blank layer instead of the frozen crash frame the game-over
             overlay is meant to fade in over. */}
-        {usePixiRenderer && (
+        {useOverlayRenderer && (
           <div
             ref={pixiHostRef}
             className="absolute inset-0 pointer-events-none"
@@ -431,7 +443,7 @@ export default function Game() {
             procedural road/guardrail/lamp-post rendering while Pixi's
             bundle + sprite pack are still loading. See pixiReady's doc
             comment. */}
-        {usePixiRenderer && screen === 'playing' && !pixiReady && (
+        {useOverlayRenderer && screen === 'playing' && !pixiReady && (
           <div className="absolute inset-0 z-20 flex items-center justify-center bg-black">
             <div className="text-xs font-mono text-muted-foreground tracking-widest uppercase">Loading…</div>
           </div>
