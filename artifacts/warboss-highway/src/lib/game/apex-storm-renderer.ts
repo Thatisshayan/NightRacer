@@ -34,32 +34,39 @@ class ApexVehicleVisual {
   private readonly shadow: Mesh;
   private readonly reflection: Mesh;
   private readonly lamps: Mesh[] = [];
-  private readonly bodyMaterial: StandardMaterial;
+  private readonly playerMaterial: StandardMaterial;
+  private readonly trafficMaterial: StandardMaterial;
   private readonly lightMaterial: StandardMaterial;
   private readonly shadowMaterial: StandardMaterial;
   private readonly reflectionMaterial: StandardMaterial;
+  private readonly bodyPlane: Mesh;
 
   constructor(scene: Scene, index: number) {
     this.root = new TransformNode(`apex-vehicle-root-${index}`, scene);
     this.root.setEnabled(false);
     this.body = new TransformNode(`apex-vehicle-body-${index}`, scene);
     this.body.parent = this.root;
-    this.bodyMaterial = this.createBodyMaterial(scene, index);
+    this.playerMaterial = this.createVehicleMaterial(scene, index, 'player');
+    this.trafficMaterial = this.createVehicleMaterial(scene, index, 'traffic');
     this.lightMaterial = this.createLightMaterial(scene, index);
     this.shadowMaterial = this.createShadowMaterial(scene, index);
     this.reflectionMaterial = this.createReflectionMaterial(scene, index);
     this.reflection = this.createReflection(scene, index);
     this.shadow = this.createShadow(scene, index);
-    this.createBody(scene, index);
+    this.bodyPlane = this.createBody(scene, index);
     this.createWheelSet(scene, index);
     this.createLamps(scene, index);
   }
 
-  private createBodyMaterial(scene: Scene, index: number) {
-    const material = new StandardMaterial(`apex-body-${index}`, scene);
-    material.diffuseColor = color('#1b365f');
-    material.specularColor = color('#7fb8ff');
-    material.specularPower = 96;
+  private createVehicleMaterial(scene: Scene, index: number, kind: 'player' | 'traffic') {
+    const material = new StandardMaterial(`apex-vehicle-${kind}-${index}`, scene);
+    const texturePath = kind === 'player' ? '/apex/player-vehicle-texture.png' : '/apex/traffic-vehicle-texture.png';
+    material.diffuseTexture = new Texture(texturePath, scene);
+    material.diffuseTexture.hasAlpha = true;
+    material.useAlphaFromDiffuseTexture = true;
+    material.specularColor = Color3.Black();
+    material.emissiveColor = Color3.White();
+    material.disableLighting = true; // Use emissive for full brightness
     return material;
   }
 
@@ -104,65 +111,22 @@ class ApexVehicleVisual {
     return shadow;
   }
 
-  private createBody(scene: Scene, index: number) {
-    const chassis = MeshBuilder.CreateBox(`apex-chassis-${index}`, { width: 2.3, height: 0.42, depth: 4.5 }, scene);
-    chassis.parent = this.body;
-    chassis.material = this.bodyMaterial;
-
-    const hood = MeshBuilder.CreateBox(`apex-hood-${index}`, { width: 2.08, height: 0.18, depth: 1.35 }, scene);
-    hood.parent = this.body;
-    hood.position.set(0, 0.24, 1.25);
-    hood.material = this.bodyMaterial;
-
-    const cabin = MeshBuilder.CreateBox(`apex-cabin-${index}`, { width: 1.55, height: 0.52, depth: 1.9 }, scene);
-    cabin.parent = this.body;
-    cabin.position.set(0, 0.41, -0.1);
-    cabin.material = this.bodyMaterial;
-
-    const bumper = MeshBuilder.CreateBox(`apex-bumper-${index}`, { width: 1.58, height: 0.16, depth: 0.24 }, scene);
-    bumper.parent = this.body;
-    bumper.position.set(0, 0.03, -2.22);
-    bumper.material = this.bodyMaterial;
+  private createBody(scene: Scene, index: number): Mesh {
+    const plane = MeshBuilder.CreatePlane(`apex-body-plane-${index}`, { width: 2.3, height: 2.3 }, scene);
+    plane.parent = this.body;
+    plane.material = this.playerMaterial;
+    return plane;
   }
 
-  private createWheelSet(scene: Scene, index: number) {
-    for (const side of [-1, 1]) {
-      for (const fore of [-1, 1]) this.createWheel(scene, index, side, fore);
-    }
+  private createWheelSet(_scene: Scene, _index: number) {
+    // Legacy procedural wheels hidden in favor of high-quality vehicle textures
   }
 
-  private createWheel(scene: Scene, index: number, side: number, fore: number) {
-    const wheel = MeshBuilder.CreateCylinder(`apex-wheel-${index}-${side}-${fore}`, { diameter: 0.66, height: 0.28, tessellation: 12 }, scene);
-    wheel.parent = this.root;
-    wheel.rotation.z = Math.PI / 2;
-    wheel.position.set(side * 1.28, 0.31, fore * 1.42);
-    const wheelMaterial = new StandardMaterial(`apex-wheel-mat-${index}-${side}-${fore}`, scene);
-    wheelMaterial.diffuseColor = color('#0a101a');
-    wheelMaterial.specularColor = color('#8ba7c8');
-    wheelMaterial.specularPower = 80;
-    wheel.material = wheelMaterial;
-
-    const rim = MeshBuilder.CreateCylinder(`apex-rim-${index}-${side}-${fore}`, { diameter: 0.28, height: 0.292, tessellation: 12 }, scene);
-    rim.parent = this.root;
-    rim.rotation.z = Math.PI / 2;
-    rim.position.set(side * 1.28, 0.31, fore * 1.42);
-    const rimMaterial = new StandardMaterial(`apex-rim-mat-${index}-${side}-${fore}`, scene);
-    rimMaterial.diffuseColor = color('#4e6985');
-    rimMaterial.emissiveColor = color('#102338');
-    rim.material = rimMaterial;
+  private createLamps(_scene: Scene, _index: number) {
+    // Legacy procedural lamps hidden in favor of high-quality vehicle textures
   }
 
-  private createLamps(scene: Scene, index: number) {
-    for (const side of [-1, 1]) {
-      const lamp = MeshBuilder.CreateBox(`apex-lamp-${index}-${side}`, { width: 0.48, height: 0.12, depth: 0.08 }, scene);
-      lamp.parent = this.body;
-      lamp.position.set(side * 0.62, 0.06, -2.27);
-      lamp.material = this.lightMaterial;
-      this.lamps.push(lamp);
-    }
-  }
-
-  update(pose: ApexVehiclePose, selectedCarColor: string) {
+  update(pose: ApexVehiclePose, _selectedCarColor: string) {
     this.root.setEnabled(true);
     const scaleX = pose.width / 2.3;
     const scaleZ = pose.length / 4.5;
@@ -170,6 +134,12 @@ class ApexVehicleVisual {
     this.root.rotation.set(0, pose.heading, 0);
     this.root.scaling.set(scaleX, 0.95, scaleZ);
     this.body.position.y = pose.y;
+
+    // Update body visual
+    this.bodyPlane.material = pose.kind === 'player' ? this.playerMaterial : this.trafficMaterial;
+    this.bodyPlane.scaling.set(1, 0.8, 1);
+    this.bodyPlane.alphaIndex = 10;
+
     this.shadow.scaling.set(pose.shadow.radiusX / scaleX, pose.shadow.radiusZ / scaleZ, 1);
     this.reflection.scaling.set(
       (pose.width * 0.20) / (0.5 * scaleX),
@@ -177,17 +147,9 @@ class ApexVehicleVisual {
       1,
     );
     this.reflection.position.z = (-pose.reflection.length * 0.76) / scaleZ;
-    this.lamps.forEach((lamp) => {
-      lamp.position.z = pose.lights.facesCamera ? 2.27 : -2.27;
-    });
 
-    const paint = pose.kind === 'player'
-      ? selectedCarColor
-      : pose.kind === 'oncoming'
-        ? '#26384e'
-        : '#722036';
-    this.bodyMaterial.diffuseColor = color(paint);
-    this.bodyMaterial.alpha = pose.alpha;
+    this.playerMaterial.alpha = pose.alpha;
+    this.trafficMaterial.alpha = pose.alpha;
     this.lightMaterial.emissiveColor = color(pose.lights.color);
     this.lightMaterial.alpha = pose.alpha;
     this.shadowMaterial.alpha = pose.shadow.alpha * pose.alpha;

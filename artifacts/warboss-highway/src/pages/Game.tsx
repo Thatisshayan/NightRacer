@@ -351,10 +351,8 @@ export default function Game() {
         engine.pointerMove(targetX, 720);
         
         if (useApexRushDemo) {
-          // Force high speed and Rush state
-          const state = engine.getState();
-          state.speedMultiplier = 3.5;
-          state.player.isRushActive = true;
+          // Force high speed for visual validation
+          // (Direct state mutation is invalid, just showing motion for now)
         }
         
         requestAnimationFrame(autopilot);
@@ -390,7 +388,7 @@ export default function Game() {
       ).then((renderer) => {
         if (unmountedRef.current || engineRef.current !== engine) { renderer.destroy(); return; }
         engine.attachRenderer(renderer);
-        if (useApexDemo) renderer.sync(engine.getState());
+        if (useApexDemo) renderer.sync(engine.getState(), 0, 0);
         setWorldRendererReady(true);
       }).catch((err) => {
         const detail = err instanceof Error ? `${err.message}\n${err.stack ?? ''}` : String(err);
