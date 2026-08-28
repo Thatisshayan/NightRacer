@@ -333,10 +333,10 @@ importers:
         specifier: 9.22.2
         version: 9.22.2
       pixi-filters:
-        specifier: ^6.1.5
+        specifier: 6.1.5
         version: 6.1.5(pixi.js@8.19.0)
       pixi.js:
-        specifier: ^8.19.0
+        specifier: 8.19.0
         version: 8.19.0
     devDependencies:
       '@hookform/resolvers':

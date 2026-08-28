@@ -195,77 +195,29 @@ export class ApexStormRenderer implements GameRenderer {
 
   private constructor(host: HTMLElement, width: number, height: number, options?: { demo?: boolean }) {
     this.demo = options?.demo ?? false;
-    this.canvas = document.createElement('canvas');
-    this.canvas.width = width;
-    this.canvas.height = height;
-    this.canvas.className = 'block w-full h-full pointer-events-none';
-    this.canvas.setAttribute('aria-hidden', 'true');
-    host.replaceChildren(this.canvas);
-
+    this.canvas = this.createCanvas(host, width, height);
     this.engine = new Engine(this.canvas, true, {
       preserveDrawingBuffer: true,
       stencil: true,
       disableWebGL2Support: false,
     });
-    this.scene = new Scene(this.engine);
-    this.scene.clearColor = new Color4(0.018, 0.045, 0.088, 1);
-    this.scene.ambientColor = color('#0a1520');
-    this.scene.fogMode = Scene.FOGMODE_EXP2;
-    this.scene.fogDensity = 0.012;
-    this.scene.fogColor = color('#112941');
+    this.scene = this.createScene();
+    this.camera = this.createCamera();
+    this.setupLights();
 
-    // Deliberately shallow rear chase: the vehicle rear and wheel line remain
-    // visible while the physical road, rather than a lane-grid projection, owns depth.
-    this.camera = new FreeCamera('apex-storm-camera', new Vector3(0, 2.55, -14.5), this.scene);
-    this.camera.fov = 0.82;
-    this.camera.minZ = 0.1;
-    this.camera.maxZ = 130;
-    this.camera.setTarget(new Vector3(3.45, 5.80, 24));
-
-    const skyFill = new HemisphericLight('apex-sky-fill', new Vector3(0, 1, 0), this.scene);
-    skyFill.diffuse = color('#5779a9');
-    skyFill.groundColor = color('#0b1728');
-    skyFill.intensity = 0.95;
-    const moonKey = new DirectionalLight('apex-moon-key', new Vector3(-0.35, -1, 0.35), this.scene);
-    moonKey.diffuse = color('#b8dcff');
-    moonKey.intensity = 1.35;
-
-    this.asphaltTexture = new Texture(`${import.meta.env.BASE_URL}apex/wet-asphalt-tile.jpg`, this.scene, true, false);
-    this.asphaltTexture.uScale = 2.2;
-    this.asphaltTexture.vScale = 6.5;
-
-    this.asphaltMaterial = new StandardMaterial('apex-asphalt-mat', this.scene);
-    this.asphaltMaterial.diffuseTexture = this.asphaltTexture;
-    this.asphaltMaterial.diffuseColor = color('#405672');
-    this.asphaltMaterial.emissiveColor = color('#071625');
-    this.asphaltMaterial.specularColor = color('#b5dbff');
-    this.asphaltMaterial.specularPower = 128;
-
-    const concreteTexture = new Texture(`${import.meta.env.BASE_URL}apex/concrete-tunnel-tile.jpg`, this.scene, true, false);
-    concreteTexture.uScale = 2.2;
-    concreteTexture.vScale = 6.5;
-    this.concreteMaterial = new StandardMaterial('apex-concrete-mat', this.scene);
-    this.concreteMaterial.diffuseTexture = concreteTexture;
-    this.concreteMaterial.diffuseColor = color('#505a66');
-    this.concreteMaterial.emissiveColor = color('#0a0f18');
-    this.concreteMaterial.specularColor = color('#8ba7c8');
-    this.concreteMaterial.specularPower = 64;
+    const roadMaterials = this.createRoadMaterials();
+    this.asphaltTexture = roadMaterials.asphaltTexture;
+    this.asphaltMaterial = roadMaterials.asphaltMaterial;
+    this.concreteMaterial = roadMaterials.concreteMaterial;
 
     this.roadVisuals = this.createRoad();
     this.createCity();
     this.tunnelRoot = this.createTunnel();
     this.vehicleVisuals = Array.from({ length: MAX_VEHICLE_SLOTS }, (_, index) => new ApexVehicleVisual(this.scene, index));
 
-    this.flashMaterial = new StandardMaterial('apex-flash', this.scene);
-    this.flashMaterial.disableLighting = true;
-    this.flashMaterial.emissiveColor = color('#ffffff');
-    this.flashMaterial.alpha = 0;
-
-    this.flashPlane = MeshBuilder.CreatePlane('apex-flash-plane', { width: 10, height: 10 }, this.scene);
-    this.flashPlane.parent = this.camera;
-    this.flashPlane.position.z = 1;
-    this.flashPlane.material = this.flashMaterial;
-    this.flashPlane.isPickable = false;
+    const flash = this.createFlashPlane();
+    this.flashMaterial = flash.material;
+    this.flashPlane = flash.plane;
 
     this.lightningLight = new PointLight('apex-lightning-light', new Vector3(0, 10, 30), this.scene);
     this.lightningLight.intensity = 0;
@@ -278,6 +230,87 @@ export class ApexStormRenderer implements GameRenderer {
     this.engine.runRenderLoop(() => {
       if (!this.destroyed) this.scene.render();
     });
+  }
+
+  private createCanvas(host: HTMLElement, width: number, height: number): HTMLCanvasElement {
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    canvas.className = 'block w-full h-full pointer-events-none';
+    canvas.setAttribute('aria-hidden', 'true');
+    host.replaceChildren(canvas);
+    return canvas;
+  }
+
+  private createScene(): Scene {
+    const scene = new Scene(this.engine);
+    scene.clearColor = new Color4(0.018, 0.045, 0.088, 1);
+    scene.ambientColor = color('#0a1520');
+    scene.fogMode = Scene.FOGMODE_EXP2;
+    scene.fogDensity = 0.012;
+    scene.fogColor = color('#112941');
+    return scene;
+  }
+
+  private createCamera(): FreeCamera {
+    // Deliberately shallow rear chase: the vehicle rear and wheel line remain
+    // visible while the physical road, rather than a lane-grid projection, owns depth.
+    const camera = new FreeCamera('apex-storm-camera', new Vector3(0, 2.55, -14.5), this.scene);
+    camera.fov = 0.82;
+    camera.minZ = 0.1;
+    camera.maxZ = 130;
+    camera.setTarget(new Vector3(3.45, 5.80, 24));
+    return camera;
+  }
+
+  private setupLights(): void {
+    const skyFill = new HemisphericLight('apex-sky-fill', new Vector3(0, 1, 0), this.scene);
+    skyFill.diffuse = color('#5779a9');
+    skyFill.groundColor = color('#0b1728');
+    skyFill.intensity = 0.95;
+    const moonKey = new DirectionalLight('apex-moon-key', new Vector3(-0.35, -1, 0.35), this.scene);
+    moonKey.diffuse = color('#b8dcff');
+    moonKey.intensity = 1.35;
+  }
+
+  private createRoadMaterials(): { asphaltTexture: Texture; asphaltMaterial: StandardMaterial; concreteMaterial: StandardMaterial } {
+    const asphaltTexture = new Texture(`${import.meta.env.BASE_URL}apex/wet-asphalt-tile.jpg`, this.scene, true, false);
+    asphaltTexture.uScale = 2.2;
+    asphaltTexture.vScale = 6.5;
+
+    const asphaltMaterial = new StandardMaterial('apex-asphalt-mat', this.scene);
+    asphaltMaterial.diffuseTexture = asphaltTexture;
+    asphaltMaterial.diffuseColor = color('#405672');
+    asphaltMaterial.emissiveColor = color('#071625');
+    asphaltMaterial.specularColor = color('#b5dbff');
+    asphaltMaterial.specularPower = 128;
+
+    const concreteTexture = new Texture(`${import.meta.env.BASE_URL}apex/concrete-tunnel-tile.jpg`, this.scene, true, false);
+    concreteTexture.uScale = 2.2;
+    concreteTexture.vScale = 6.5;
+    const concreteMaterial = new StandardMaterial('apex-concrete-mat', this.scene);
+    concreteMaterial.diffuseTexture = concreteTexture;
+    concreteMaterial.diffuseColor = color('#505a66');
+    concreteMaterial.emissiveColor = color('#0a0f18');
+    concreteMaterial.specularColor = color('#8ba7c8');
+    concreteMaterial.specularPower = 64;
+
+    return { asphaltTexture, asphaltMaterial, concreteMaterial };
+  }
+
+  private createFlashPlane(): { material: StandardMaterial; plane: Mesh } {
+    const material = new StandardMaterial('apex-flash', this.scene);
+    material.disableLighting = true;
+    material.emissiveColor = color('#ffffff');
+    material.alpha = 0;
+
+    const plane = MeshBuilder.CreatePlane('apex-flash-plane', { width: 10, height: 10 }, this.scene);
+    plane.parent = this.camera;
+    plane.position.z = 1;
+    plane.material = material;
+    plane.isPickable = false;
+
+    return { material, plane };
   }
 
   static async create(host: HTMLElement, width = VIEWPORT_WIDTH, height = VIEWPORT_HEIGHT, options?: { demo?: boolean }) {
@@ -529,11 +562,14 @@ export class ApexStormRenderer implements GameRenderer {
     this.lightningLight.intensity = frame.lightningIntensity * 12;
     this.scene.ambientColor = color('#0a1520').scale(1 + frame.lightningIntensity * 4);
 
-    // Apply screen shake to camera position
+    // Apply screen shake to camera position. Uses deterministic high-frequency
+    // noise (not Math.random) so repeated captures of the same frame are
+    // reproducible.
     if (screenShake > 0) {
       const shake = screenShake * 0.05;
-      this.camera.position.x = (Math.random() - 0.5) * shake;
-      this.camera.position.y = 2.55 + (Math.random() - 0.5) * shake;
+      const now = performance.now();
+      this.camera.position.x = Math.sin(now * 0.083) * shake * 0.5;
+      this.camera.position.y = 2.55 + Math.sin(now * 0.071 + 1.7) * shake * 0.5;
       this.flashMaterial.alpha = Math.min(0.8, screenShake * 0.15);
     } else {
       this.camera.position.x = 0;

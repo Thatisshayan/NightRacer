@@ -3,38 +3,38 @@
 **Date:** 2026-08-28
 **Author:** Manus AI
 **Branch:** `feat/apex-storm-renderer`
-**Scope:** Integration of real web gameplay motion for the **Apex Storm** renderer. This audit documents the transition from a static composition to a live-synchronized driving experience.
+**Scope:** Software-WebGL demo routes (`demo=motion`, `demo=rush`) that drive the **Apex Storm** renderer with a scripted autopilot, exercised as an internal engineering check ahead of visual review. Per the PR summary and `docs/governance/DEFERRED_WORK.md`, this PR does **not** claim real gameplay-motion, high-speed, or hardware/device validation — that remains explicitly deferred until Shayan's visual acceptance.
 
 ## Audit basis
 
-This audit evaluates the motion stability and gameplay integration of the Apex Storm renderer against `docs/APEX_STORM_VISUAL_CONTRACT.md` and Phase 3 of the approved implementation plan. The authoritative simulation in `lib/game-core` remains unchanged.
+This audit records what the scripted autopilot demo routes exercised against `docs/APEX_STORM_VISUAL_CONTRACT.md`, and is a supplement to the static composition proof, not a substitute for it. The authoritative simulation in `lib/game-core` remains unchanged.
 
 | Motion criterion | Evidence | Status |
 | --- | --- | --- |
-| Stable camera follow | Camera follows the curved highway spline and player lateral movement without jitter. | **Verified.** |
-| Road recycling | 22 road segments recycle seamlessly as the distance increases; texture offsets provide a consistent sense of speed. | **Verified.** |
-| Grounded lane changes | Vehicles stay planted on the `y=0` plane during rapid lateral movement. | **Verified.** |
-| High-speed FOV | Camera field-of-view widens dynamically at high speeds (Rush mode) to enhance cinematic sensation. | **Verified.** |
-| Collision response | Screen shake and a white flash overlay trigger during collisions. | **Verified.** |
+| Stable camera follow | Camera follows the curved highway spline and player lateral movement in the autopilot capture. | **Exercised in software WebGL; unvalidated on target hardware/devices.** |
+| Road recycling | 22 road segments recycle as distance increases; texture offsets animate. | **Exercised in software WebGL; unvalidated on target hardware/devices.** |
+| Grounded lane changes | Vehicles stay planted on the `y=0` plane during scripted lateral movement. | **Exercised in software WebGL; unvalidated on target hardware/devices.** |
+| High-speed FOV | Camera field-of-view widens at high speeds (Rush mode) in the capture. | **Exercised in software WebGL; unvalidated on target hardware/devices.** |
+| Collision response | Screen shake and a white flash overlay trigger during collisions. | **Exercised in software WebGL; unvalidated on target hardware/devices.** |
 
 ## Verification evidence
 
 | Check | Command or route | Result |
 | --- | --- | --- |
-| Normal motion demo | `?renderer=apex&demo=motion&autostart=1` | **Passed.** Autopilot sine-wave movement verified across 1s, 3s, and 5s captures. |
-| Rush mode demo | `?renderer=apex&demo=rush&autostart=1` | **Passed.** Verified dynamic FOV widening at 3.5x speed multiplier. |
+| Normal motion demo | `?renderer=apex&demo=motion&autostart=1` | Autopilot sine-wave movement captured across 1s, 3s, and 5s software-WebGL frames. |
+| Rush mode demo | `?renderer=apex&demo=rush&autostart=1` | Dynamic FOV widening captured at 3.5x speed multiplier in software WebGL. |
 | Deterministic frame invariants | `pnpm --filter @workspace/scripts test:apex-frame` | **Passed.** |
 | Type safety | `pnpm run typecheck` | **Passed.** |
 
 ## Visual captures
 
-- **Normal Motion (3s):** `audits/.draft/motion/apex-motion-3s.png` (verified car lane-crossing)
-- **Rush Mode (2s):** `audits/.draft/motion/apex-rush-2s.png` (verified FOV widening)
+- **Normal Motion (3s):** `audits/.draft/motion/apex-motion-3s.png`
+- **Rush Mode (2s):** `audits/.draft/motion/apex-rush-2s.png`
 
 ## Residual risk and deferred work
 
-The motion proof was validated using software WebGL. Real-device performance, touch latency, and hardware-specific rendering artifacts remain unverified.
+These captures used software WebGL (SwiftShader/Chromium). Real-device performance, touch latency, hardware-specific rendering artifacts, and actual gameplay-motion feel remain unvalidated, consistent with the PR's explicit scope.
 
-Per the plan, work now stops for owner approval of the motion proof. **Phase 4 (Atmosphere & Effects)**, including rain, lightning, and neon billboard reflections, remains deferred pending this review.
+Per the plan, work stops here for owner approval of the static composition proof. Real gameplay-motion validation, **Phase 4 (Atmosphere & Effects)** (rain, lightning, neon billboard reflections), and all other items in `docs/governance/DEFERRED_WORK.md` remain deferred pending that review.
 
-**Conclusion:** The Apex Storm renderer now supports a live-synchronized driving experience with stable camera follow, grounded lane changes, and dynamic speed effects. The motion proof is ready for visual review.
+**Conclusion:** The scripted autopilot demo routes exercised camera follow, road recycling, grounded lane changes, dynamic FOV, and collision response in software WebGL. This is supporting evidence only — it does not constitute gameplay-motion validation, which stays deferred until owner acceptance.

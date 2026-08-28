@@ -11,8 +11,8 @@
   },
   "dependencies": {
     "@babylonjs/core": "9.22.2",
-    "pixi-filters": "^6.1.5",
-    "pixi.js": "^8.19.0"
+    "pixi-filters": "6.1.5",
+    "pixi.js": "8.19.0"
   },
   "devDependencies": {
     "@hookform/resolvers": "^3.10.0",

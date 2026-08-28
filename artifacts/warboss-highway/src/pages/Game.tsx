@@ -121,6 +121,8 @@ export default function Game() {
   const engineRef = useRef<WebGameEngine | null>(null);
 
   const [screen, setScreen] = useState<Screen>('title');
+  const screenRef = useRef<Screen>('title');
+  screenRef.current = screen;
   const [gameOverState, setGameOverState] = useState<GameState | null>(null);
   const [isMuted, setIsMuted] = useState(getMuted());
   const [selectedCar, setSelectedCar] = useState<CarType>(Settings.getSelectedCar());
@@ -344,17 +346,18 @@ export default function Game() {
       const engine = engineRef.current;
       let frame = 0;
       const autopilot = () => {
-        if (engineRef.current !== engine || screen !== 'playing') return;
+        if (engineRef.current !== engine || screenRef.current !== 'playing') return;
         frame++;
         // Move in a gentle sine wave across lanes
         const targetX = 210 + Math.sin(frame * 0.02) * 150;
         engine.pointerMove(targetX, 720);
-        
+
         if (useApexRushDemo) {
-          // Force high speed for visual validation
-          // (Direct state mutation is invalid, just showing motion for now)
+          // Keep Rush force-armed every frame so the demo stays in its
+          // high-speed visual state for the whole capture window.
+          engine.debugForceRush(true);
         }
-        
+
         requestAnimationFrame(autopilot);
       };
       requestAnimationFrame(autopilot);

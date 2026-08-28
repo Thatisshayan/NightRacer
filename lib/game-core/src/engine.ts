@@ -616,6 +616,15 @@ export class GameEngine {
     return true;
   }
 
+  // Demo-only: forces the Rush visual state for renderer proof captures,
+  // bypassing the earned-charge gate `triggerRush` enforces. `update()`
+  // derives `speedMultiplier` from `rushTimer` each tick, so re-arming it
+  // here (rather than assigning speedMultiplier directly) keeps the two in
+  // sync without touching the readonly `getState()` snapshot.
+  public debugForceRush(active: boolean): void {
+    this.state.rushTimer = active ? 2400 : 0;
+  }
+
   // Swaps the active renderer (see `GameRenderer` above). Passing null
   // reverts to `renderFallback()` — a no-op here; the web package
   // overrides it with a Canvas2D draw path (see web-engine.ts).
