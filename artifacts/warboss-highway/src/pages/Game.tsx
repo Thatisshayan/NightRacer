@@ -99,18 +99,23 @@ function CarPreview({ carType, selected }: { carType: CarType; selected: boolean
 // ── Main Page ──────────────────────────────────────────────────────────────────
 type Screen = 'title' | 'playing' | 'gameover';
 
-// Pixi.js (WebGL) is the default renderer now that the sprite pack (Phase E
-// of the "Warboss Highway Pixi rewrite" plan) is wired in — see
-// sprites.ts/pixi-renderer.ts. `?renderer=canvas2d` opts back into the
-// procedural Canvas 2D path for QA/debug comparison or as a manual escape
-// hatch if Pixi fails to init on a given device.
-const usePixiRenderer =
-  typeof window === 'undefined' ||
-  new URLSearchParams(window.location.search).get('renderer') !== 'canvas2d';
+// Pixi.js remains the production default. `?renderer=apex` activates the
+// isolated Apex Storm proof; `?renderer=canvas2d` preserves the procedural
+// fallback. Apex is intentionally opt-in until its visual gates are approved.
+const rendererQuery =
+  typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('renderer');
+const useApexRenderer = rendererQuery === 'apex';
+const usePixiRenderer = !useApexRenderer && rendererQuery !== 'canvas2d';
+const useWorldOverlay = usePixiRenderer || useApexRenderer;
+const useApexDemo =
+  typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('demo') === 'composition';
+const useApexAutoStart =
+  typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('autostart') === '1';
 
 export default function Game() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const pixiHostRef = useRef<HTMLDivElement>(null);
+  const apexHostRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<WebGameEngine | null>(null);
 
   const [screen, setScreen] = useState<Screen>('title');
@@ -129,16 +134,10 @@ export default function Game() {
   const [personalBest, setPersonalBest] = useState(0);
   const [newRecord, setNewRecord] = useState(false);
   const [isLandscape, setIsLandscape] = useState(false);
-  // True once the Pixi renderer has actually attached. Until then, the
-  // Canvas 2D fallback (WebGameEngine.renderFallback → draw()) is what's
-  // driving the frame — its own older, procedural road/guardrail/lamp-post
-  // rendering, visibly different from the sprite-pack-driven Pixi look.
-  // Pixi loads async (dynamic import + sprite pack fetch, see startGame()
-  // below), so without this a real user saw that older rendering flash
-  // for real time before Pixi swapped in. Covered instead of just letting
-  // it show, rather than changing what renderFallback() draws (it's still
-  // the real fallback if Pixi genuinely fails to load).
-  const [pixiReady, setPixiReady] = useState(false);
+  // True once a non-Canvas overlay renderer has attached. Until then, the
+  // legacy Canvas fallback stays covered so its old road cannot flash beneath
+  // either the Pixi default or the isolated Apex Storm proof scene.
+  const [worldRendererReady, setWorldRendererReady] = useState(false);
   const prefersReducedMotion = useReducedMotion();
 
   // Landscape detection
@@ -305,7 +304,7 @@ export default function Game() {
     setGameOverState(null);
     setNewRecord(false);
     setScreen('playing');
-    setPixiReady(!usePixiRenderer);
+    setWorldRendererReady(!useWorldOverlay);
 
     engineRef.current = new WebGameEngine(
       canvasRef.current,
@@ -334,7 +333,9 @@ export default function Game() {
         dailyModifier: isDailyChallenge ? dailyModifier : { name: 'NONE', description: 'Standard rules.', speedMult: 1, spawnMult: 1, scoreMult: 1, obstacleMult: 1, scrapBonus: 0 },
       }
     );
-    engineRef.current.start();
+    // The composition route is deliberately a static visual proof. Normal
+    // Apex gameplay and every legacy renderer retain the engine RAF lifecycle.
+    if (!useApexDemo) engineRef.current.start();
 
     if (usePixiRenderer && pixiHostRef.current) {
       const engine = engineRef.current;
@@ -348,13 +349,40 @@ export default function Game() {
         // this would attach to (or leak) a renderer nothing owns anymore.
         if (unmountedRef.current || engineRef.current !== engine) { renderer.destroy(); return; }
         engine.attachRenderer(renderer);
-        setPixiReady(true);
+        setWorldRendererReady(true);
       }).catch((err) => {
         console.error('[pixi-debug] failed to attach Pixi renderer', err);
-        setPixiReady(true); // uncover the Canvas 2D fallback — it's genuinely the active renderer now
+        setWorldRendererReady(true); // uncover the Canvas 2D fallback — it's genuinely the active renderer now
+      });
+    }
+
+    if (useApexRenderer && apexHostRef.current) {
+      const engine = engineRef.current;
+      const host = apexHostRef.current;
+      host.replaceChildren();
+      import('@/lib/game/apex-storm-renderer').then(({ ApexStormRenderer }) =>
+        ApexStormRenderer.create(host, 420, 800, { demo: useApexDemo })
+      ).then((renderer) => {
+        if (unmountedRef.current || engineRef.current !== engine) { renderer.destroy(); return; }
+        engine.attachRenderer(renderer);
+        if (useApexDemo) renderer.sync(engine.getState());
+        setWorldRendererReady(true);
+      }).catch((err) => {
+        const detail = err instanceof Error ? `${err.message}\n${err.stack ?? ''}` : String(err);
+        console.error(`[apex-debug] failed to attach Apex Storm renderer: ${detail}`);
+        setWorldRendererReady(true);
       });
     }
   }, [isDailyChallenge, selectedCar, joystickEnabled]);
+
+  // Capture-only route: starts the deterministic Apex composition without a
+  // pointer action so a software-WebGL browser can produce the canonical
+  // screenshot. It is inert unless both query selection and this flag exist.
+  useEffect(() => {
+    if (!useApexAutoStart || !useApexRenderer || screen !== 'title') return;
+    const timer = window.setTimeout(startGame, 0);
+    return () => window.clearTimeout(timer);
+  }, [screen, startGame]);
 
   const handleToggleMute = () => setIsMuted(toggleMute());
 
@@ -410,15 +438,9 @@ export default function Game() {
           className="block w-full h-full object-cover touch-none"
         />
 
-        {/* Pixi (WebGL) renderer host — default renderer, opt out with
-            ?renderer=canvas2d. Sits over the Canvas 2D element and
-            is pointer-events-none so input still reaches the canvas, which
-            owns all touch/keyboard listeners regardless of active renderer.
-            Stays visible through 'gameover' too (not just 'playing') since
-            attachRenderer() clears the Canvas 2D surface underneath and the
-            engine stops calling draw() — hiding this on death would expose a
-            blank layer instead of the frozen crash frame the game-over
-            overlay is meant to fade in over. */}
+        {/* Pixi remains the production renderer and stays mounted over the
+            simulation canvas. It is deliberately separate from the Apex host
+            so the new proof can be judged and reverted independently. */}
         {usePixiRenderer && (
           <div
             ref={pixiHostRef}
@@ -426,12 +448,17 @@ export default function Game() {
             style={{ display: screen !== 'title' ? 'block' : 'none' }}
           />
         )}
+        {useApexRenderer && (
+          <div
+            ref={apexHostRef}
+            className="absolute inset-0 pointer-events-none"
+            style={{ display: screen !== 'title' ? 'block' : 'none' }}
+          />
+        )}
 
-        {/* Loading cover — masks the Canvas 2D fallback's older,
-            procedural road/guardrail/lamp-post rendering while Pixi's
-            bundle + sprite pack are still loading. See pixiReady's doc
-            comment. */}
-        {usePixiRenderer && screen === 'playing' && !pixiReady && (
+        {/* Loading cover masks the legacy Canvas fallback until either overlay
+            owns the frame. */}
+        {useWorldOverlay && screen === 'playing' && !worldRendererReady && (
           <div className="absolute inset-0 z-20 flex items-center justify-center bg-black">
             <div className="text-xs font-mono text-muted-foreground tracking-widest uppercase">Loading…</div>
           </div>
@@ -439,7 +466,7 @@ export default function Game() {
 
         {/* HUD — DOM overlay, independent of which renderer (Canvas 2D or
             Pixi) is drawing the game world underneath it. */}
-        {screen === 'playing' && engineRef.current && (
+        {screen === 'playing' && engineRef.current && !useApexDemo && (
           <GameHudOverlay engine={engineRef.current} />
         )}
 
@@ -711,16 +738,19 @@ export default function Game() {
         )}
         </AnimatePresence>
 
-        {/* Audio toggle */}
-        <button
-          onClick={handleToggleMute}
-          className="absolute top-4 right-4 z-20 p-2 bg-black/50 text-white rounded-full border border-border/50 hover:bg-black/80 transition-[background-color,transform] duration-150 active:scale-90 motion-reduce:active:scale-100"
-        >
-          {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
-        </button>
+        {/* Controls are intentionally absent from the static composition proof;
+            normal gameplay keeps the existing controls unchanged. */}
+        {!useApexDemo && (
+          <button
+            onClick={handleToggleMute}
+            className="absolute top-4 right-4 z-20 p-2 bg-black/50 text-white rounded-full border border-border/50 hover:bg-black/80 transition-[background-color,transform] duration-150 active:scale-90 motion-reduce:active:scale-100"
+          >
+            {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+          </button>
+        )}
 
         {/* Pause button */}
-        {screen === 'playing' && (
+        {screen === 'playing' && !useApexDemo && (
           <button
             onClick={togglePause}
             className="absolute top-4 left-4 z-20 p-2 bg-black/50 text-white rounded-full border border-border/50 hover:bg-black/80 transition-[background-color,transform] duration-150 active:scale-90 motion-reduce:active:scale-100"
