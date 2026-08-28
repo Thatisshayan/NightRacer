@@ -71,6 +71,8 @@ export interface ApexRoadSegment {
   wetness: number;
 }
 
+export type ApexBiome = 'highway' | 'tunnel';
+
 export interface ApexBillboardPose {
   id: string;
   x: number;
@@ -81,12 +83,20 @@ export interface ApexBillboardPose {
   color: string;
 }
 
+export interface ApexSteamVent {
+  x: number;
+  z: number;
+  intensity: number;
+}
+
 export interface ApexStormFrame {
   roadPhase: number;
   road: readonly ApexRoadSegment[];
   vehicles: readonly ApexVehiclePose[];
   lightningIntensity: number;
   billboards: readonly ApexBillboardPose[];
+  biome: ApexBiome;
+  steamVents: readonly ApexSteamVent[];
 }
 
 type RoadEntity = Pick<Player, 'x' | 'y' | 'width' | 'height'> & {
@@ -230,5 +240,14 @@ export function buildApexStormFrame(state: GameState, options?: { demo?: boolean
     { id: 'billboard-2', x: 12, z: 55, side: 1, width: 6, height: 9, color: '#00ffff' },
   ];
 
-  return { roadPhase, road, vehicles, lightningIntensity, billboards };
+  // District biome logic (alternates every 500m)
+  const biome: ApexBiome = (state.roadOffset % 1000) < 500 ? 'highway' : 'tunnel';
+
+  // Steam vents only in tunnel biome
+  const steamVents: ApexSteamVent[] = biome === 'tunnel' ? [
+    { x: -5, z: 20, intensity: 0.8 },
+    { x: 5, z: 45, intensity: 0.6 },
+  ] : [];
+
+  return { roadPhase, road, vehicles, lightningIntensity, billboards, biome, steamVents };
 }

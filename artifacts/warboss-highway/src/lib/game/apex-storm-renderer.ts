@@ -28,6 +28,7 @@ const color = (hex: string) => Color3.FromHexString(hex);
 
 interface RoadVisual {
   root: TransformNode;
+  plane: Mesh;
 }
 
 class ApexVehicleVisual {
@@ -184,7 +185,11 @@ export class ApexStormRenderer implements GameRenderer {
   private readonly flashPlane: Mesh;
   private readonly lightningLight: PointLight;
   private readonly rainSystem: ParticleSystem;
+  private readonly steamSystem: ParticleSystem;
   private readonly billboardReflections: Mesh[] = [];
+  private readonly tunnelRoot: TransformNode;
+  private readonly asphaltMaterial: StandardMaterial;
+  private readonly concreteMaterial: StandardMaterial;
   private readonly demo: boolean;
   private destroyed = false;
 
@@ -228,8 +233,27 @@ export class ApexStormRenderer implements GameRenderer {
     this.asphaltTexture = new Texture(`${import.meta.env.BASE_URL}apex/wet-asphalt-tile.jpg`, this.scene, true, false);
     this.asphaltTexture.uScale = 2.2;
     this.asphaltTexture.vScale = 6.5;
+
+    this.asphaltMaterial = new StandardMaterial('apex-asphalt-mat', this.scene);
+    this.asphaltMaterial.diffuseTexture = this.asphaltTexture;
+    this.asphaltMaterial.diffuseColor = color('#405672');
+    this.asphaltMaterial.emissiveColor = color('#071625');
+    this.asphaltMaterial.specularColor = color('#b5dbff');
+    this.asphaltMaterial.specularPower = 128;
+
+    const concreteTexture = new Texture(`${import.meta.env.BASE_URL}apex/concrete-tunnel-tile.jpg`, this.scene, true, false);
+    concreteTexture.uScale = 2.2;
+    concreteTexture.vScale = 6.5;
+    this.concreteMaterial = new StandardMaterial('apex-concrete-mat', this.scene);
+    this.concreteMaterial.diffuseTexture = concreteTexture;
+    this.concreteMaterial.diffuseColor = color('#505a66');
+    this.concreteMaterial.emissiveColor = color('#0a0f18');
+    this.concreteMaterial.specularColor = color('#8ba7c8');
+    this.concreteMaterial.specularPower = 64;
+
     this.roadVisuals = this.createRoad();
     this.createCity();
+    this.tunnelRoot = this.createTunnel();
     this.vehicleVisuals = Array.from({ length: MAX_VEHICLE_SLOTS }, (_, index) => new ApexVehicleVisual(this.scene, index));
 
     this.flashMaterial = new StandardMaterial('apex-flash', this.scene);
@@ -248,6 +272,7 @@ export class ApexStormRenderer implements GameRenderer {
     this.lightningLight.diffuse = color('#d7f5ff');
 
     this.rainSystem = this.createRain();
+    this.steamSystem = this.createSteam();
     this.createBillboards();
 
     this.engine.runRenderLoop(() => {
@@ -260,13 +285,6 @@ export class ApexStormRenderer implements GameRenderer {
   }
 
   private createRoad(): RoadVisual[] {
-    const asphalt = new StandardMaterial('apex-asphalt', this.scene);
-    asphalt.diffuseTexture = this.asphaltTexture;
-    asphalt.diffuseColor = color('#405672');
-    asphalt.emissiveColor = color('#071625');
-    asphalt.specularColor = color('#b5dbff');
-    asphalt.specularPower = 128;
-
     const rail = new StandardMaterial('apex-cyan-rail', this.scene);
     rail.diffuseColor = color('#124259');
     rail.emissiveColor = color('#0a9cbe');
@@ -285,7 +303,7 @@ export class ApexStormRenderer implements GameRenderer {
       }, this.scene);
       asphaltMesh.parent = root;
       asphaltMesh.position.y = -0.06;
-      asphaltMesh.material = asphalt;
+      asphaltMesh.material = this.asphaltMaterial;
 
       for (const side of [-1, 1]) {
         const barrier = MeshBuilder.CreateBox(`apex-rail-${index}-${side}`, { width: 0.18, height: 0.58, depth: 1 }, this.scene);
@@ -306,7 +324,7 @@ export class ApexStormRenderer implements GameRenderer {
         divider.material = rail;
       }
 
-      return { root };
+      return { root, plane: asphaltMesh };
     });
   }
 
@@ -338,6 +356,54 @@ export class ApexStormRenderer implements GameRenderer {
     system.updateSpeed = 0.016;
     system.start();
     return system;
+  }
+
+  private createSteam(): ParticleSystem {
+    const system = new ParticleSystem('apex-steam', 400, this.scene);
+    system.particleTexture = new Texture('/apex/steam-puff.png', this.scene);
+    system.minEmitBox = new Vector3(-1, 0, -1);
+    system.maxEmitBox = new Vector3(1, 0, 1);
+    system.color1 = new Color4(1, 1, 1, 0.2);
+    system.color2 = new Color4(0.8, 0.9, 1, 0.1);
+    system.minSize = 1.5;
+    system.maxSize = 3.5;
+    system.minLifeTime = 1.5;
+    system.maxLifeTime = 3.0;
+    system.emitRate = 0; // Triggered by vents
+    system.gravity = new Vector3(0, 0.5, 0);
+    system.direction1 = new Vector3(-0.2, 1, -0.2);
+    system.direction2 = new Vector3(0.2, 1, 0.2);
+    system.updateSpeed = 0.016;
+    system.start();
+    return system;
+  }
+
+  private createTunnel(): TransformNode {
+    const root = new TransformNode('apex-tunnel-root', this.scene);
+    root.setEnabled(false);
+
+    const wallMat = new StandardMaterial('apex-tunnel-wall-mat', this.scene);
+    wallMat.diffuseColor = color('#1a2a3a');
+    wallMat.emissiveColor = color('#050a15');
+
+    // Simple overhead ribs
+    for (let i = 0; i < 15; i++) {
+      const rib = MeshBuilder.CreateBox(`apex-tunnel-rib-${i}`, { width: 16, height: 0.8, depth: 1.2 }, this.scene);
+      rib.parent = root;
+      rib.position.set(0, 8, APEX_STORM_ROAD.nearZ + i * 6);
+      rib.material = wallMat;
+
+      const light = MeshBuilder.CreatePlane(`apex-tunnel-light-${i}`, { width: 4, height: 0.2 }, this.scene);
+      light.parent = rib;
+      light.position.set(0, -0.41, 0);
+      light.rotation.x = Math.PI / 2;
+      const lightMat = new StandardMaterial(`apex-tunnel-light-mat-${i}`, this.scene);
+      lightMat.emissiveColor = color('#ffaa00');
+      lightMat.disableLighting = true;
+      light.material = lightMat;
+    }
+
+    return root;
   }
 
   private createBillboards() {
@@ -413,7 +479,7 @@ export class ApexStormRenderer implements GameRenderer {
     voidPlane.material = voidMaterial;
   }
 
-  private updateRoad(road: readonly ApexRoadSegment[], roadPhase: number) {
+  private updateRoad(road: readonly ApexRoadSegment[], roadPhase: number, biome: string) {
     road.forEach((segment, index) => {
       const visual = this.roadVisuals[index];
       const dx = segment.end.x - segment.start.x;
@@ -422,14 +488,37 @@ export class ApexStormRenderer implements GameRenderer {
       visual.root.position.set((segment.start.x + segment.end.x) / 2, 0, (segment.start.z + segment.end.z) / 2);
       visual.root.rotation.y = Math.atan2(dx, dz);
       visual.root.scaling.z = length;
+
+      if (visual.plane) {
+        visual.plane.material = biome === 'tunnel' ? this.concreteMaterial : this.asphaltMaterial;
+      }
     });
     this.asphaltTexture.vOffset = -(roadPhase % 1);
+    const concreteTexture = this.concreteMaterial.diffuseTexture as Texture | null;
+    if (concreteTexture) {
+      concreteTexture.vOffset = -(roadPhase % 1);
+    }
   }
 
   sync(state: GameState, _cameraY: number, screenShake: number): void {
     if (this.destroyed) return;
     const frame = buildApexStormFrame(state, { demo: this.demo });
-    this.updateRoad(frame.road, frame.roadPhase);
+    this.updateRoad(frame.road, frame.roadPhase, frame.biome);
+
+    // Biome effects
+    if (frame.biome === 'tunnel') {
+      this.tunnelRoot.setEnabled(true);
+      this.rainSystem.stop();
+      this.steamSystem.emitRate = 40;
+      // Position steam vents
+      if (frame.steamVents.length > 0) {
+        this.steamSystem.emitter = new Vector3(frame.steamVents[0].x, 0, frame.steamVents[0].z);
+      }
+    } else {
+      this.tunnelRoot.setEnabled(false);
+      this.rainSystem.start();
+      this.steamSystem.emitRate = 0;
+    }
     const selectedCarColor = state.selectedCar === 'PHANTOM' ? '#167c9b' : '#1557a8';
 
     // Speed-based FOV for sense of speed
