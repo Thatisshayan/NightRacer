@@ -19,6 +19,13 @@ android/
 *.key
 *.mobileprovision
 
+# Higgsfield generation source images for assets/3d/ — the app only loads the
+# .glb meshes at runtime. Kept on disk locally (per request) but not
+# committed: ~119MB of 2K concept art with zero runtime purpose would bloat
+# the repo permanently. The .glb outputs themselves ARE tracked.
+assets/3d/**/concept-images/
+assets/3d/legacy-junkyard-concepts/
+
 # Metro
 .metro-health-check*
 
