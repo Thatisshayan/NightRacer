@@ -17,7 +17,7 @@ import {
   APEX_STORM_ROAD,
   buildApexStormFrame,
   type ApexRoadSegment,
-} from './apex-storm-frame';
+} from '@workspace/render-frame';
 import { ApexVehicleVisual } from './apex-vehicle-visual';
 
 const VIEWPORT_WIDTH = 420;
