@@ -71,10 +71,22 @@ export interface ApexRoadSegment {
   wetness: number;
 }
 
+export interface ApexBillboardPose {
+  id: string;
+  x: number;
+  z: number;
+  side: -1 | 1;
+  width: number;
+  height: number;
+  color: string;
+}
+
 export interface ApexStormFrame {
   roadPhase: number;
   road: readonly ApexRoadSegment[];
   vehicles: readonly ApexVehiclePose[];
+  lightningIntensity: number;
+  billboards: readonly ApexBillboardPose[];
 }
 
 type RoadEntity = Pick<Player, 'x' | 'y' | 'width' | 'height'> & {
@@ -208,5 +220,15 @@ export function buildApexStormFrame(state: GameState, options?: { demo?: boolean
     .map((entity) => vehiclePose(state, entity))
     .sort((a, b) => b.z - a.z);
 
-  return { roadPhase, road, vehicles };
+  // Deterministic lightning based on roadOffset
+  const lightningPhase = (state.roadOffset * 0.0007) % 1;
+  const lightningIntensity = lightningPhase < 0.02 ? Math.sin((lightningPhase / 0.02) * Math.PI) : 0;
+
+  // Fixed billboard anchors
+  const billboards: ApexBillboardPose[] = [
+    { id: 'billboard-1', x: -12, z: 35, side: -1, width: 8, height: 4, color: '#ff00ff' },
+    { id: 'billboard-2', x: 12, z: 55, side: 1, width: 6, height: 9, color: '#00ffff' },
+  ];
+
+  return { roadPhase, road, vehicles, lightningIntensity, billboards };
 }

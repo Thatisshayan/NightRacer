@@ -3,7 +3,9 @@ import { Scene } from '@babylonjs/core/scene';
 import { FreeCamera } from '@babylonjs/core/Cameras/freeCamera';
 import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight';
 import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight';
+import { PointLight } from '@babylonjs/core/Lights/pointLight';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector';
+import { ParticleSystem } from '@babylonjs/core/Particles/particleSystem';
 import { Color3, Color4 } from '@babylonjs/core/Maths/math.color';
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import type { Mesh } from '@babylonjs/core/Meshes/mesh';
@@ -180,6 +182,9 @@ export class ApexStormRenderer implements GameRenderer {
   private readonly asphaltTexture: Texture;
   private readonly flashMaterial: StandardMaterial;
   private readonly flashPlane: Mesh;
+  private readonly lightningLight: PointLight;
+  private readonly rainSystem: ParticleSystem;
+  private readonly billboardReflections: Mesh[] = [];
   private readonly demo: boolean;
   private destroyed = false;
 
@@ -199,6 +204,7 @@ export class ApexStormRenderer implements GameRenderer {
     });
     this.scene = new Scene(this.engine);
     this.scene.clearColor = new Color4(0.018, 0.045, 0.088, 1);
+    this.scene.ambientColor = color('#0a1520');
     this.scene.fogMode = Scene.FOGMODE_EXP2;
     this.scene.fogDensity = 0.012;
     this.scene.fogColor = color('#112941');
@@ -236,6 +242,13 @@ export class ApexStormRenderer implements GameRenderer {
     this.flashPlane.position.z = 1;
     this.flashPlane.material = this.flashMaterial;
     this.flashPlane.isPickable = false;
+
+    this.lightningLight = new PointLight('apex-lightning-light', new Vector3(0, 10, 30), this.scene);
+    this.lightningLight.intensity = 0;
+    this.lightningLight.diffuse = color('#d7f5ff');
+
+    this.rainSystem = this.createRain();
+    this.createBillboards();
 
     this.engine.runRenderLoop(() => {
       if (!this.destroyed) this.scene.render();
@@ -297,6 +310,69 @@ export class ApexStormRenderer implements GameRenderer {
     });
   }
 
+  private createRain(): ParticleSystem {
+    const system = new ParticleSystem('apex-rain', 1200, this.scene);
+    system.particleTexture = new Texture('/apex/rain-streak.png', this.scene);
+
+    const emitter = MeshBuilder.CreateBox('apex-rain-emitter', { size: 0.01 }, this.scene);
+    emitter.parent = this.camera;
+    emitter.isVisible = false;
+    system.emitter = emitter;
+
+    system.minEmitBox = new Vector3(-15, 10, -5);
+    system.maxEmitBox = new Vector3(15, 15, 40);
+    system.color1 = new Color4(0.7, 0.9, 1.0, 0.35);
+    system.color2 = new Color4(0.5, 0.8, 1.0, 0.25);
+    system.minSize = 0.05;
+    system.maxSize = 0.12;
+    system.minLifeTime = 0.4;
+    system.maxLifeTime = 0.8;
+    system.emitRate = 800;
+    system.gravity = new Vector3(0, -45, 0);
+    system.direction1 = new Vector3(0, -1, 0.1);
+    system.direction2 = new Vector3(0, -1, 0.2);
+    system.minAngularSpeed = 0;
+    system.maxAngularSpeed = 0;
+    system.minEmitPower = 1;
+    system.maxEmitPower = 2;
+    system.updateSpeed = 0.016;
+    system.start();
+    return system;
+  }
+
+  private createBillboards() {
+    const material = new StandardMaterial('apex-billboard-mat', this.scene);
+    material.diffuseTexture = new Texture('/apex/neon-billboard.png', this.scene);
+    material.emissiveColor = Color3.White();
+    material.disableLighting = true;
+
+    const reflectionMaterial = new StandardMaterial('apex-billboard-refl-mat', this.scene);
+    reflectionMaterial.diffuseTexture = material.diffuseTexture;
+    reflectionMaterial.emissiveColor = Color3.White();
+    reflectionMaterial.alpha = 0.18;
+    reflectionMaterial.disableLighting = true;
+
+    // Fixed anchors matching frame builder
+    const anchors = [
+      { x: -12, z: 35, side: -1, w: 8, h: 4 },
+      { x: 12, z: 55, side: 1, w: 6, h: 9 },
+    ];
+
+    anchors.forEach((a, i) => {
+      const billboard = MeshBuilder.CreatePlane(`apex-billboard-${i}`, { width: a.w, height: a.h }, this.scene);
+      billboard.position.set(a.x, a.h / 2 + 2, a.z);
+      billboard.rotation.y = a.side > 0 ? -Math.PI / 4 : Math.PI / 4;
+      billboard.material = material;
+
+      const reflection = MeshBuilder.CreatePlane(`apex-billboard-refl-${i}`, { width: a.w, height: a.w * 1.5 }, this.scene);
+      reflection.position.set(a.x * 0.6, 0.01, a.z);
+      reflection.rotation.x = Math.PI / 2;
+      reflection.rotation.z = a.side > 0 ? -Math.PI / 4 : Math.PI / 4;
+      reflection.material = reflectionMaterial;
+      this.billboardReflections.push(reflection);
+    });
+  }
+
   private createCity() {
     const cityMaterial = new StandardMaterial('apex-city-base', this.scene);
     cityMaterial.diffuseColor = color('#162942');
@@ -307,11 +383,6 @@ export class ApexStormRenderer implements GameRenderer {
     windowMaterial.disableLighting = true;
     windowMaterial.emissiveColor = color('#347fba');
     windowMaterial.alpha = 0.48;
-
-    const billboardMaterial = new StandardMaterial('apex-city-billboard', this.scene);
-    billboardMaterial.disableLighting = true;
-    billboardMaterial.emissiveColor = color('#9c32db');
-    billboardMaterial.alpha = 0.72;
 
     for (let index = 0; index < 22; index += 1) {
       const side = index % 2 === 0 ? -1 : 1;
@@ -330,7 +401,7 @@ export class ApexStormRenderer implements GameRenderer {
           z + 0.55,
         );
         windows.rotation.y = side > 0 ? -Math.PI / 2 : Math.PI / 2;
-        windows.material = index % 5 === 0 ? billboardMaterial : windowMaterial;
+        windows.material = windowMaterial;
       }
     }
 
@@ -364,6 +435,10 @@ export class ApexStormRenderer implements GameRenderer {
     // Speed-based FOV for sense of speed
     const speedFactor = state.speedMultiplier;
     this.camera.fov = 0.85 + (speedFactor - 1) * 0.08;
+
+    // Lightning flash
+    this.lightningLight.intensity = frame.lightningIntensity * 12;
+    this.scene.ambientColor = color('#0a1520').scale(1 + frame.lightningIntensity * 4);
 
     // Apply screen shake to camera position
     if (screenShake > 0) {

@@ -60,6 +60,7 @@ platform to `supportedArchitectures` and add a matching CI smoke job first.
 - [`audits/2026-08-28_Manus_ApexStormComposition_Audit.md`](audits/2026-08-28_Manus_ApexStormComposition_Audit.md) — opt-in web-first Apex Storm composition candidate, preserved 420×800 proof, verification evidence, and explicit visual-review/device-validation limitations.
 - [`audits/2026-08-28_Manus_ApexStormMotion_Audit.md`](audits/2026-08-28_Manus_ApexStormMotion_Audit.md) — real-time web gameplay motion integration, high-speed FOV effects, collision feedback, and verified motion stability.
 - [`audits/2026-08-28_Manus_ApexStormAssets_Audit.md`](audits/2026-08-28_Manus_ApexStormAssets_Audit.md) — high-quality cyberpunk vehicle asset integration, cinematic textures, and removal of legacy procedural artifacts.
+- [`audits/2026-08-28_Manus_ApexStormAtmosphere_Audit.md`](audits/2026-08-28_Manus_ApexStormAtmosphere_Audit.md) — cinematic environmental effects integration, including rain, lightning, and neon billboard reflections.
 - This repo is governed by `REPO_RULES.md` (branch-only, main protected, no secret commits) and `REPO_DIRECTIVE.md` (goal layer). CI gate: `bash scripts/verify.sh`. Never push to `main`; open a PR from a feature/agent branch and require Shayan approval.
 
 ## Gotchas
