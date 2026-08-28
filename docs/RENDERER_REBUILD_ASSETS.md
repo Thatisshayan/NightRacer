@@ -2,7 +2,7 @@
 
 **Owner:** Shayan  
 **Author:** Manus AI  
-**Status:** Active for the web grounding proof slice  
+**Status:** Active for the recalibrated web renderer and real-motion review slice
 **Date:** 2026-08-27
 
 ## Purpose
@@ -27,7 +27,7 @@ The committed textures are reduced to final-use web dimensions and have verified
 
 ## First-slice constraints
 
-The grounding proof slice uses only the three textures above, fixed recyclable road geometry, a stable camera specification, and a deterministic demo traffic formation. Lightning, billboards, broad rain layers, boss art, obstacles, and power-up art are excluded until the owner accepts a real 9:16 contact frame.
+The active web slice uses only the three textures above, fixed recyclable road geometry, a stable camera specification, a deterministic demo traffic formation, and normal live `GameEngine` state. Lightning, billboards, broad rain layers, boss art, obstacles, and power-up art remain excluded until high-speed/dense-traffic motion is validated.
 
 ## Asset verification checklist
 

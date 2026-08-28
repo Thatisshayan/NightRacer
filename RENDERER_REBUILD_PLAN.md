@@ -1,6 +1,6 @@
 # NightRacer Renderer Rebuild Plan
 
-**Status:** Proposal for approval before implementation  
+**Status:** In progress — scale recalibrated and enabled for real web gameplay motion; atmosphere and native adapter deferred
 **Author:** Manus AI  
 **Date:** 2026-08-27  
 **Decision:** Stop extending the present 2.5D Pixi/Skia scene. Preserve the authoritative game simulation and replace the visual presentation through a clean, proof-first renderer migration.
@@ -91,7 +91,7 @@ The replacement renderer is not “done” because the code compiles. It moves f
 
 ### Phase 0 — Freeze visual scope and retain rollback
 
-Create `renderer=legacy` and `renderer=rebuild` routing with the current renderer untouched. Do not delete Pixi, Skia, sprite, or Canvas fallback code. Add a development-only deterministic scene seed so the same player/traffic formation can be captured repeatedly. Record two baselines: the currently rejected production image and the new target image.
+Retain the prior Pixi scene at `renderer=pixi` and the original Canvas fallback at `renderer=canvas2d`. Promote the accepted rebuild path to the branch default only after the grounding proof is reviewed. Do not delete Pixi, Skia, sprite, or Canvas fallback code. Add a development-only deterministic scene seed so the same player/traffic formation can be captured repeatedly. Record a matched legacy baseline and the rebuilt target image.
 
 **Exit condition:** The legacy experience remains playable and the replacement scene can be selected without changing simulation behavior.
 
@@ -127,7 +127,7 @@ Implement the native renderer from the shared `VisualFrame`. Use fixed Skia node
 
 ### Phase 6 — Review, rollout, and retirement decision
 
-Deploy the replacement behind `renderer=rebuild`. Compare accepted screenshots and a short gameplay clip against legacy. Only after the owner approves the replacement may a separate, explicit deletion request be opened to retire legacy renderer code. Until then, legacy remains a rollback path.
+Run the replacement as the web default on its review branch while retaining `renderer=pixi` and `renderer=canvas2d` rollback routes. Compare accepted screenshots and a short gameplay clip against legacy. Only after the owner approves the replacement may a separate, explicit deletion request be opened to retire legacy renderer code.
 
 **Exit condition:** Owner accepts the live visual direction and authorizes legacy retirement separately.
 
@@ -146,8 +146,8 @@ Deploy the replacement behind `renderer=rebuild`. Compare accepted screenshots a
 
 The rebuild will not alter driving logic, tune collision difficulty, add new monetization, add paid infrastructure, delete existing renderer files, or submit another TestFlight build until the web visual gates are accepted. It will not declare parity, polish, or playability from source review alone.
 
-## Approval request
+## Approved scope and current milestone
 
-Approve this direction if you want a **real renderer replacement**, not another attempt to make the existing 2.5D patch stack look better. The first implementation deliverable will be a web-only, deterministic `?demo=grounding` scene with no rain or lightning until you approve an actual 9:16 image proving that player and traffic are anchored to the road. Only after that image passes will the cyberpunk atmosphere and mobile adapter be built.
+The owner approved the renderer-replacement direction and asked for a corrected car scale, a matched side-by-side comparison, and real web gameplay motion. The branch now contains all three: a `?renderer=rebuild&demo=grounding` static proof, a legacy-versus-rebuild capture, and a short default-route motion capture driven by real `GameEngine` state.
 
-If approved, I will start with Phase 0–1 on a new `refactor/renderer-rebuild` branch, preserving the current shipped renderer as rollback and asking for no deletion permission.
+The next work remains intentionally bounded: validate high-speed and dense-traffic behavior before adding wet atmosphere, then implement native Skia as a drawing adapter over the same visual-frame layout. The former Pixi and Canvas scenes stay available as rollback paths; no deletion or TestFlight submission is authorized by this milestone.

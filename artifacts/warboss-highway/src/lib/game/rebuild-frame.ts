@@ -2,7 +2,7 @@ import type { GameState, Vehicle } from '@workspace/game-core';
 
 export const REBUILD_VIEWPORT = { width: 420, height: 800 } as const;
 const HORIZON_Y = 142;
-const PLAYER_CONTACT_Y = 690;
+const PLAYER_DEPTH = 0.87;
 const SPAWN_ROW = -160;
 const ROAD_END_ROW = 800;
 
@@ -68,9 +68,12 @@ function spriteAspect(kind: RebuildVehicleKind): number {
 function vehiclePose(id: string, vehicle: VehicleLike, kind: RebuildVehicleKind, player = false): RebuildVehiclePose {
   const contactRow = vehicle.y + vehicle.height / 2;
   const depth = depthForRow(contactRow);
-  const visualDepth = player ? 0.9 : depth;
+  const visualDepth = player ? PLAYER_DEPTH : depth;
   const trafficWidth = clamp(14 + 70 * Math.pow(depth, 1.32) * (vehicle.width / 48), 14, 92);
-  const width = player ? clamp(190 + vehicle.width * 0.85, 210, 258) : trafficWidth;
+  // A player wider than two near-field lanes read as a foreground poster rather
+  // than a vehicle. This range keeps each selected car close to one visual lane
+  // while still preserving the width distinction authored in CAR_STATS.
+  const width = player ? clamp(94 + vehicle.width * 0.65, 118, 142) : trafficWidth;
   const height = width * spriteAspect(kind);
   const alpha = player ? 1 : clamp((depth - 0.03) / 0.18, 0, 1);
   const direction = vehicle.direction;
@@ -80,7 +83,9 @@ function vehiclePose(id: string, vehicle: VehicleLike, kind: RebuildVehicleKind,
     kind,
     direction,
     x: groundX(vehicle.x, visualDepth),
-    contactY: player ? PLAYER_CONTACT_Y : groundY(depth),
+    // Player contact must be generated from exactly the same ground-depth
+    // mapping as traffic; a fixed screen Y was the remaining scale mismatch.
+    contactY: groundY(visualDepth),
     width,
     height,
     depth: visualDepth,
@@ -97,10 +102,10 @@ function createGroundingFormation(state: GameState): RebuildVehiclePose[] {
   const width = 48;
   const height = 80;
   const formation: VehicleLike[] = [
-    { x: state.lanes[0], y: 40, width, height, direction: 'OPPOSITE' },
-    { x: state.lanes[3], y: 250, width, height, direction: 'SAME' },
-    { x: state.lanes[1], y: 470, width, height, direction: 'OPPOSITE' },
-    { x: state.lanes[2], y: 590, width, height, direction: 'SAME' },
+    { x: state.lanes[0], y: 0, width, height, direction: 'OPPOSITE' },
+    { x: state.lanes[3], y: 145, width, height, direction: 'SAME' },
+    { x: state.lanes[1], y: 285, width, height, direction: 'OPPOSITE' },
+    { x: state.lanes[2], y: 425, width, height, direction: 'SAME' },
   ];
 
   return formation

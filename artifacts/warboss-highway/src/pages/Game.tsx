@@ -99,14 +99,14 @@ function CarPreview({ carType, selected }: { carType: CarType; selected: boolean
 // ── Main Page ──────────────────────────────────────────────────────────────────
 type Screen = 'title' | 'playing' | 'gameover';
 
-// The shipped Pixi scene remains the default and `?renderer=canvas2d` remains
-// its explicit fallback. The isolated `?renderer=rebuild` path is the visual
-// replacement proof slice; it shares GameEngine but owns a separate canvas so
-// it can be judged and reverted without disturbing the shipped renderer.
+// The approved rebuild renderer is the default web scene. Both the prior Pixi
+// scene (`?renderer=pixi`) and the original Canvas 2D fallback
+// (`?renderer=canvas2d`) remain explicit rollback paths while the new camera
+// proves itself under normal gameplay motion.
 const requestedRenderer =
   typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('renderer');
-const useRebuildRenderer = requestedRenderer === 'rebuild';
-const usePixiRenderer = requestedRenderer !== 'canvas2d' && !useRebuildRenderer;
+const usePixiRenderer = requestedRenderer === 'pixi';
+const useRebuildRenderer = requestedRenderer !== 'pixi' && requestedRenderer !== 'canvas2d';
 const useOverlayRenderer = usePixiRenderer || useRebuildRenderer;
 const useGroundingDemo =
   typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('demo') === 'grounding';
