@@ -9,5 +9,10 @@
     "lib": ["es2022"],
     "types": []
   },
-  "include": ["src"]
+  "include": ["src"],
+  "references": [
+    {
+      "path": "../game-core"
+    }
+  ]
 }
