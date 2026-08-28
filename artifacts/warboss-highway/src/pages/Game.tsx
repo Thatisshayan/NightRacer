@@ -107,8 +107,10 @@ const rendererQuery =
 const useApexRenderer = rendererQuery === 'apex';
 const usePixiRenderer = !useApexRenderer && rendererQuery !== 'canvas2d';
 const useWorldOverlay = usePixiRenderer || useApexRenderer;
-const useApexDemo =
-  typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('demo') === 'composition';
+const demoQuery = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('demo') : null;
+const useApexDemo = demoQuery === 'composition';
+const useApexMotionDemo = demoQuery === 'motion';
+const useApexRushDemo = demoQuery === 'rush';
 const useApexAutoStart =
   typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('autostart') === '1';
 
@@ -336,6 +338,29 @@ export default function Game() {
     // The composition route is deliberately a static visual proof. Normal
     // Apex gameplay and every legacy renderer retain the engine RAF lifecycle.
     if (!useApexDemo) engineRef.current.start();
+
+    // Motion/Rush demo: simple autopilot to show off the curved road and grounded contact.
+    if ((useApexMotionDemo || useApexRushDemo) && engineRef.current) {
+      const engine = engineRef.current;
+      let frame = 0;
+      const autopilot = () => {
+        if (engineRef.current !== engine || screen !== 'playing') return;
+        frame++;
+        // Move in a gentle sine wave across lanes
+        const targetX = 210 + Math.sin(frame * 0.02) * 150;
+        engine.pointerMove(targetX, 720);
+        
+        if (useApexRushDemo) {
+          // Force high speed and Rush state
+          const state = engine.getState();
+          state.speedMultiplier = 3.5;
+          state.player.isRushActive = true;
+        }
+        
+        requestAnimationFrame(autopilot);
+      };
+      requestAnimationFrame(autopilot);
+    }
 
     if (usePixiRenderer && pixiHostRef.current) {
       const engine = engineRef.current;

@@ -216,6 +216,8 @@ export class ApexStormRenderer implements GameRenderer {
   private readonly roadVisuals: RoadVisual[];
   private readonly vehicleVisuals: ApexVehicleVisual[];
   private readonly asphaltTexture: Texture;
+  private readonly flashMaterial: StandardMaterial;
+  private readonly flashPlane: Mesh;
   private readonly demo: boolean;
   private destroyed = false;
 
@@ -261,6 +263,17 @@ export class ApexStormRenderer implements GameRenderer {
     this.roadVisuals = this.createRoad();
     this.createCity();
     this.vehicleVisuals = Array.from({ length: MAX_VEHICLE_SLOTS }, (_, index) => new ApexVehicleVisual(this.scene, index));
+
+    this.flashMaterial = new StandardMaterial('apex-flash', this.scene);
+    this.flashMaterial.disableLighting = true;
+    this.flashMaterial.emissiveColor = color('#ffffff');
+    this.flashMaterial.alpha = 0;
+
+    this.flashPlane = MeshBuilder.CreatePlane('apex-flash-plane', { width: 10, height: 10 }, this.scene);
+    this.flashPlane.parent = this.camera;
+    this.flashPlane.position.z = 1;
+    this.flashPlane.material = this.flashMaterial;
+    this.flashPlane.isPickable = false;
 
     this.engine.runRenderLoop(() => {
       if (!this.destroyed) this.scene.render();
@@ -380,15 +393,31 @@ export class ApexStormRenderer implements GameRenderer {
     this.asphaltTexture.vOffset = -(roadPhase % 1);
   }
 
-  sync(state: GameState): void {
+  sync(state: GameState, _cameraY: number, screenShake: number): void {
     if (this.destroyed) return;
     const frame = buildApexStormFrame(state, { demo: this.demo });
     this.updateRoad(frame.road, frame.roadPhase);
     const selectedCarColor = state.selectedCar === 'PHANTOM' ? '#167c9b' : '#1557a8';
 
+    // Speed-based FOV for sense of speed
+    const speedFactor = state.speedMultiplier;
+    this.camera.fov = 0.85 + (speedFactor - 1) * 0.08;
+
+    // Apply screen shake to camera position
+    if (screenShake > 0) {
+      const shake = screenShake * 0.05;
+      this.camera.position.x = (Math.random() - 0.5) * shake;
+      this.camera.position.y = 2.55 + (Math.random() - 0.5) * shake;
+      this.flashMaterial.alpha = Math.min(0.8, screenShake * 0.15);
+    } else {
+      this.camera.position.x = 0;
+      this.camera.position.y = 2.55;
+      this.flashMaterial.alpha = 0;
+    }
+
     this.vehicleVisuals.forEach((slot, index) => {
       const pose = frame.vehicles[index];
-      if (!pose) {
+      if (!pose || pose.alpha <= 0) {
         slot.hide();
         return;
       }
