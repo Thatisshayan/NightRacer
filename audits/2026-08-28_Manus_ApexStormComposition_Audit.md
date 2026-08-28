@@ -52,6 +52,9 @@ The preserved frame is a **candidate for owner review**, not a claim that the ow
 | Pure visual-frame invariants | `pnpm --filter @workspace/scripts test:apex-frame` | **Passed.** Confirmed deterministic output, fixed road segment count, demo formation count, depth sort, wheel-plane contact, road corridor bounds, and player shadow/reflection alignment. |
 | Script workspace type safety | `pnpm --filter @workspace/scripts run typecheck` | **Passed.** |
 | Web workspace type safety | `pnpm --filter @workspace/warboss-highway run typecheck` | **Passed.** |
+| Repository type safety | `pnpm run typecheck` | **Passed across all repository workspaces.** |
+| Required repository gate | `bash scripts/verify.sh` | **Passed.** Secret scan, documentation freshness, build/test, and directive lint passed. The local Vercel dry-run was explicitly skipped because `VERCEL_TOKEN` is unavailable in this environment. |
+| Whitespace integrity | `git diff --check` | **Passed.** |
 | Deterministic composition capture | `http://127.0.0.1:5175/?renderer=apex&demo=composition&autostart=1`, Chromium 420×800 with trusted-content SwiftShader software WebGL | **Captured.** Permanent evidence is `audits/2026-08-28_Manus_ApexStormComposition_Proof.png`. |
 | Isolated-browser attach diagnostic | `?renderer=apex&demo=composition` in the Playwright isolated Firefox environment | **Blocked by environment capability:** Babylon reported `WebGL not supported` during `Engine` creation. This confirmed an isolated-browser limitation, not a scene-construction error. |
 | Hardware/device validation | Physical iOS/Android device, hardware WebGL, GPU profiler | **Not performed.** No physical device or hardware-GPU capture was available. |

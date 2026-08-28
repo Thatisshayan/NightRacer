@@ -330,7 +330,7 @@ importers:
   artifacts/warboss-highway:
     dependencies:
       '@babylonjs/core':
-        specifier: ^9.22.2
+        specifier: 9.22.2
         version: 9.22.2
       pixi-filters:
         specifier: ^6.1.5

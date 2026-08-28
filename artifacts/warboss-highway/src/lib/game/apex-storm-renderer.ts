@@ -42,45 +42,71 @@ class ApexVehicleVisual {
   constructor(scene: Scene, index: number) {
     this.root = new TransformNode(`apex-vehicle-root-${index}`, scene);
     this.root.setEnabled(false);
-    // Root remains on the shared wheel-contact plane. The chassis assembly
-    // rises from it, while tires, shadow, and wet reflection retain ground contact.
     this.body = new TransformNode(`apex-vehicle-body-${index}`, scene);
     this.body.parent = this.root;
+    this.bodyMaterial = this.createBodyMaterial(scene, index);
+    this.lightMaterial = this.createLightMaterial(scene, index);
+    this.shadowMaterial = this.createShadowMaterial(scene, index);
+    this.reflectionMaterial = this.createReflectionMaterial(scene, index);
+    this.reflection = this.createReflection(scene, index);
+    this.shadow = this.createShadow(scene, index);
+    this.createBody(scene, index);
+    this.createWheelSet(scene, index);
+    this.createLamps(scene, index);
+  }
 
-    this.bodyMaterial = new StandardMaterial(`apex-body-${index}`, scene);
-    this.bodyMaterial.diffuseColor = color('#1b365f');
-    this.bodyMaterial.specularColor = color('#7fb8ff');
-    this.bodyMaterial.specularPower = 96;
+  private createBodyMaterial(scene: Scene, index: number) {
+    const material = new StandardMaterial(`apex-body-${index}`, scene);
+    material.diffuseColor = color('#1b365f');
+    material.specularColor = color('#7fb8ff');
+    material.specularPower = 96;
+    return material;
+  }
 
-    this.lightMaterial = new StandardMaterial(`apex-light-${index}`, scene);
-    this.lightMaterial.disableLighting = true;
-    this.lightMaterial.emissiveColor = color('#ff3f53');
+  private createLightMaterial(scene: Scene, index: number) {
+    const material = new StandardMaterial(`apex-light-${index}`, scene);
+    material.disableLighting = true;
+    material.emissiveColor = color('#ff3f53');
+    return material;
+  }
 
-    this.shadowMaterial = new StandardMaterial(`apex-shadow-${index}`, scene);
-    this.shadowMaterial.diffuseColor = Color3.Black();
-    this.shadowMaterial.alpha = 0.25;
-    this.shadowMaterial.disableLighting = true;
+  private createShadowMaterial(scene: Scene, index: number) {
+    const material = new StandardMaterial(`apex-shadow-${index}`, scene);
+    material.diffuseColor = Color3.Black();
+    material.alpha = 0.25;
+    material.disableLighting = true;
+    return material;
+  }
 
-    this.reflectionMaterial = new StandardMaterial(`apex-reflection-${index}`, scene);
-    this.reflectionMaterial.disableLighting = true;
-    this.reflectionMaterial.emissiveColor = color('#ff3f53');
-    this.reflectionMaterial.alpha = 0.2;
+  private createReflectionMaterial(scene: Scene, index: number) {
+    const material = new StandardMaterial(`apex-reflection-${index}`, scene);
+    material.disableLighting = true;
+    material.emissiveColor = color('#ff3f53');
+    material.alpha = 0.2;
+    return material;
+  }
 
-    this.reflection = MeshBuilder.CreatePlane(`apex-reflection-${index}`, { width: 0.5, height: 4.6 }, scene);
-    this.reflection.parent = this.root;
-    this.reflection.rotation.x = Math.PI / 2;
-    this.reflection.position.set(0, 0.012, -2.2);
-    this.reflection.material = this.reflectionMaterial;
+  private createReflection(scene: Scene, index: number): Mesh {
+    const reflection = MeshBuilder.CreatePlane(`apex-reflection-${index}`, { width: 0.5, height: 4.6 }, scene);
+    reflection.parent = this.root;
+    reflection.rotation.x = Math.PI / 2;
+    reflection.position.set(0, 0.012, -2.2);
+    reflection.material = this.reflectionMaterial;
+    return reflection;
+  }
 
-    this.shadow = MeshBuilder.CreateDisc(`apex-shadow-${index}`, { radius: 1, tessellation: 24 }, scene);
-    this.shadow.parent = this.root;
-    this.shadow.rotation.x = Math.PI / 2;
-    this.shadow.position.set(0, 0.018, 0);
-    this.shadow.material = this.shadowMaterial;
+  private createShadow(scene: Scene, index: number): Mesh {
+    const shadow = MeshBuilder.CreateDisc(`apex-shadow-${index}`, { radius: 1, tessellation: 24 }, scene);
+    shadow.parent = this.root;
+    shadow.rotation.x = Math.PI / 2;
+    shadow.position.set(0, 0.018, 0);
+    shadow.material = this.shadowMaterial;
+    return shadow;
+  }
 
+  private createBody(scene: Scene, index: number) {
     const chassis = MeshBuilder.CreateBox(`apex-chassis-${index}`, { width: 2.3, height: 0.42, depth: 4.5 }, scene);
     chassis.parent = this.body;
-    chassis.position.y = 0;
     chassis.material = this.bodyMaterial;
 
     const hood = MeshBuilder.CreateBox(`apex-hood-${index}`, { width: 2.08, height: 0.18, depth: 1.35 }, scene);
@@ -97,30 +123,36 @@ class ApexVehicleVisual {
     bumper.parent = this.body;
     bumper.position.set(0, 0.03, -2.22);
     bumper.material = this.bodyMaterial;
+  }
 
+  private createWheelSet(scene: Scene, index: number) {
     for (const side of [-1, 1]) {
-      for (const fore of [-1, 1]) {
-        const wheel = MeshBuilder.CreateCylinder(`apex-wheel-${index}-${side}-${fore}`, { diameter: 0.66, height: 0.28, tessellation: 12 }, scene);
-        wheel.parent = this.root;
-        wheel.rotation.z = Math.PI / 2;
-        wheel.position.set(side * 1.28, 0.31, fore * 1.42);
-        const wheelMaterial = new StandardMaterial(`apex-wheel-mat-${index}-${side}-${fore}`, scene);
-        wheelMaterial.diffuseColor = color('#0a101a');
-        wheelMaterial.specularColor = color('#8ba7c8');
-        wheelMaterial.specularPower = 80;
-        wheel.material = wheelMaterial;
-
-        const rim = MeshBuilder.CreateCylinder(`apex-rim-${index}-${side}-${fore}`, { diameter: 0.28, height: 0.292, tessellation: 12 }, scene);
-        rim.parent = this.root;
-        rim.rotation.z = Math.PI / 2;
-        rim.position.set(side * 1.28, 0.31, fore * 1.42);
-        const rimMaterial = new StandardMaterial(`apex-rim-mat-${index}-${side}-${fore}`, scene);
-        rimMaterial.diffuseColor = color('#4e6985');
-        rimMaterial.emissiveColor = color('#102338');
-        rim.material = rimMaterial;
-      }
+      for (const fore of [-1, 1]) this.createWheel(scene, index, side, fore);
     }
+  }
 
+  private createWheel(scene: Scene, index: number, side: number, fore: number) {
+    const wheel = MeshBuilder.CreateCylinder(`apex-wheel-${index}-${side}-${fore}`, { diameter: 0.66, height: 0.28, tessellation: 12 }, scene);
+    wheel.parent = this.root;
+    wheel.rotation.z = Math.PI / 2;
+    wheel.position.set(side * 1.28, 0.31, fore * 1.42);
+    const wheelMaterial = new StandardMaterial(`apex-wheel-mat-${index}-${side}-${fore}`, scene);
+    wheelMaterial.diffuseColor = color('#0a101a');
+    wheelMaterial.specularColor = color('#8ba7c8');
+    wheelMaterial.specularPower = 80;
+    wheel.material = wheelMaterial;
+
+    const rim = MeshBuilder.CreateCylinder(`apex-rim-${index}-${side}-${fore}`, { diameter: 0.28, height: 0.292, tessellation: 12 }, scene);
+    rim.parent = this.root;
+    rim.rotation.z = Math.PI / 2;
+    rim.position.set(side * 1.28, 0.31, fore * 1.42);
+    const rimMaterial = new StandardMaterial(`apex-rim-mat-${index}-${side}-${fore}`, scene);
+    rimMaterial.diffuseColor = color('#4e6985');
+    rimMaterial.emissiveColor = color('#102338');
+    rim.material = rimMaterial;
+  }
+
+  private createLamps(scene: Scene, index: number) {
     for (const side of [-1, 1]) {
       const lamp = MeshBuilder.CreateBox(`apex-lamp-${index}-${side}`, { width: 0.48, height: 0.12, depth: 0.08 }, scene);
       lamp.parent = this.body;

@@ -124,27 +124,29 @@ function laneRatio(state: GameState, x: number): number {
   return clamp(((x - left) / Math.max(1, right - left)) * 2 - 1, -1, 1);
 }
 
-function vehiclePose(state: GameState, entity: RoadEntity): ApexVehiclePose {
-  const depth = entity.kind === 'player' ? playerDepth(entity) : entityDepth(entity);
-  const z = depthToZ(depth);
-  const road = sampleApexRoad(z, state.roadOffset * 0.011);
-  const ratio = laneRatio(state, entity.x);
-  const lateral = ratio * (road.halfWidth - 1.25);
-  const x = road.x + lateral;
-  const width = clamp(1.25 + entity.width / 42, 1.55, 3.05);
-  const length = width * (entity.kind === 'player' ? 2.05 : 1.85);
-  const halfLength = length / 2;
-  const forwardX = Math.sin(road.heading);
-  const forwardZ = Math.cos(road.heading);
-  const sideX = Math.cos(road.heading);
-  const sideZ = -Math.sin(road.heading);
+function wheelContacts(x: number, z: number, heading: number, width: number, length: number): ApexWheelContact[] {
+  const forwardX = Math.sin(heading);
+  const forwardZ = Math.cos(heading);
+  const sideX = Math.cos(heading);
+  const sideZ = -Math.sin(heading);
   const wheelX = width * 0.36;
   const wheelZ = length * 0.34;
-  const toContact = (side: -1 | 1, fore: -1 | 1): ApexWheelContact => ({
+  const contact = (side: -1 | 1, fore: -1 | 1): ApexWheelContact => ({
     x: x + sideX * wheelX * side + forwardX * wheelZ * fore,
     y: 0,
     z: z + sideZ * wheelX * side + forwardZ * wheelZ * fore,
   });
+  return [contact(-1, -1), contact(1, -1), contact(-1, 1), contact(1, 1)];
+}
+
+function vehiclePose(state: GameState, entity: RoadEntity): ApexVehiclePose {
+  const depth = entity.kind === 'player' ? playerDepth(entity) : entityDepth(entity);
+  const z = depthToZ(depth);
+  const road = sampleApexRoad(z, state.roadOffset * 0.011);
+  const lateral = laneRatio(state, entity.x) * (road.halfWidth - 1.25);
+  const x = road.x + lateral;
+  const width = clamp(1.25 + entity.width / 42, 1.55, 3.05);
+  const length = width * (entity.kind === 'player' ? 2.05 : 1.85);
   const facesCamera = entity.kind === 'oncoming';
 
   return {
@@ -159,25 +161,10 @@ function vehiclePose(state: GameState, entity: RoadEntity): ApexVehiclePose {
     length,
     depth,
     alpha: entity.kind === 'player' ? 1 : clamp((depth - 0.015) / 0.13, 0, 1),
-    wheelContacts: [toContact(-1, -1), toContact(1, -1), toContact(-1, 1), toContact(1, 1)],
-    shadow: {
-      x,
-      z: z + 0.1,
-      radiusX: width * 0.58,
-      radiusZ: length * 0.42,
-      alpha: entity.kind === 'player' ? 0.3 : 0.22,
-    },
-    reflection: {
-      x,
-      z: z - length * 0.48,
-      length: length * 0.9,
-      alpha: entity.kind === 'player' ? 0.28 : 0.16,
-    },
-    lights: {
-      color: facesCamera ? '#d7f5ff' : '#ff3f53',
-      intensity: entity.kind === 'player' ? 1 : 0.72,
-      facesCamera,
-    },
+    wheelContacts: wheelContacts(x, z, road.heading, width, length),
+    shadow: { x, z: z + 0.1, radiusX: width * 0.58, radiusZ: length * 0.42, alpha: entity.kind === 'player' ? 0.3 : 0.22 },
+    reflection: { x, z: z - length * 0.48, length: length * 0.9, alpha: entity.kind === 'player' ? 0.28 : 0.16 },
+    lights: { color: facesCamera ? '#d7f5ff' : '#ff3f53', intensity: entity.kind === 'player' ? 1 : 0.72, facesCamera },
   };
 }
 
