@@ -17,6 +17,7 @@ import {
   APEX_STORM_ROAD,
   buildApexStormFrame,
   type ApexRoadSegment,
+  type ApexVehiclePose,
 } from '@workspace/render-frame';
 import { ApexVehicleVisual } from './apex-vehicle-visual';
 
@@ -54,6 +55,20 @@ export class ApexStormRenderer implements GameRenderer {
   private readonly concreteMaterial: StandardMaterial;
   private readonly demo: boolean;
   private destroyed = false;
+  // frame.vehicles is sorted by depth (farthest first) for draw order, not by
+  // identity — indexing vehicleVisuals[i] = frame.vehicles[i] directly (the
+  // prior approach) meant a pool slot's occupant silently changed whenever
+  // two entities crossed z-order, and once total tracked entities exceeded
+  // MAX_VEHICLE_SLOTS, the *nearest* entities (including, often, the player)
+  // were the ones sorted past the cutoff and dropped. Slot 0 is reserved for
+  // the player; the rest are assigned to traffic by stable id so a given
+  // vehicle keeps the same slot across frames, and overflow drops the
+  // farthest traffic instead of whatever the sort order happened to exclude.
+  private readonly trafficSlotById = new Map<string, number>();
+  private readonly freeTrafficSlots: number[] = Array.from(
+    { length: MAX_VEHICLE_SLOTS - 1 },
+    (_, i) => MAX_VEHICLE_SLOTS - 1 - i,
+  );
 
   private constructor(host: HTMLElement, width: number, height: number, options?: { demo?: boolean }) {
     this.demo = options?.demo ?? false;
@@ -439,14 +454,40 @@ export class ApexStormRenderer implements GameRenderer {
       this.flashMaterial.alpha = 0;
     }
 
-    this.vehicleVisuals.forEach((slot, index) => {
-      const pose = frame.vehicles[index];
-      if (!pose || pose.alpha <= 0) {
-        slot.hide();
-        return;
+    this.syncVehicles(frame.vehicles, selectedCarColor);
+  }
+
+  private syncVehicles(vehicles: readonly ApexVehiclePose[], selectedCarColor: string): void {
+    const player = vehicles.find((v) => v.kind === 'player');
+    if (player && player.alpha > 0) {
+      this.vehicleVisuals[0].update(player, selectedCarColor);
+    } else {
+      this.vehicleVisuals[0].hide();
+    }
+
+    const traffic = vehicles.filter((v) => v.kind !== 'player');
+    // Nearest-first: if traffic count exceeds the pool, the farthest
+    // vehicles are the ones left unassigned below, not an arbitrary subset.
+    traffic.sort((a, b) => b.depth - a.depth);
+    const present = new Set<string>();
+    for (const pose of traffic) {
+      if (pose.alpha <= 0) continue;
+      present.add(pose.id);
+      let slot = this.trafficSlotById.get(pose.id);
+      if (slot === undefined) {
+        slot = this.freeTrafficSlots.pop();
+        if (slot === undefined) continue; // pool exhausted this frame — farthest traffic skipped
+        this.trafficSlotById.set(pose.id, slot);
       }
-      slot.update(pose, selectedCarColor);
-    });
+      this.vehicleVisuals[slot].update(pose, selectedCarColor);
+    }
+    for (const [id, slot] of this.trafficSlotById) {
+      if (!present.has(id)) {
+        this.trafficSlotById.delete(id);
+        this.vehicleVisuals[slot].hide();
+        this.freeTrafficSlots.push(slot);
+      }
+    }
   }
 
   destroy(): void {

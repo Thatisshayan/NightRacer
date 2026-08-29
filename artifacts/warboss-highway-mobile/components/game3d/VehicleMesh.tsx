@@ -55,10 +55,10 @@ function useLocalGltfUri(moduleId: number): string | null {
   return uri;
 }
 
-function VehicleModel({ modelKey, visible }: { modelKey: ModelKey; visible: boolean }) {
+function VehicleModel({ modelKey }: { modelKey: ModelKey }) {
   const uri = useLocalGltfUri(MODEL_MODULES[modelKey]);
   if (!uri) return null;
-  return <LoadedGltf uri={uri} visible={visible} />;
+  return <LoadedGltf uri={uri} />;
 }
 
 // Single-image-to-3D reconstruction (SAM 3 / Meshy) has no guaranteed scale
@@ -87,20 +87,22 @@ function normalizeGroundedModel(object: Group): Group {
   return wrapper;
 }
 
-function LoadedGltf({ uri, visible }: { uri: string; visible: boolean }) {
+function LoadedGltf({ uri }: { uri: string }) {
   const gltf = useLoader(GLTFLoader, uri);
   const normalized = useMemo(() => normalizeGroundedModel(gltf.scene.clone()), [gltf]);
-  return <primitive object={normalized} visible={visible} />;
+  return <primitive object={normalized} />;
 }
 
-// One pool slot renders all 13 generated models as siblings, showing only
-// the one matching the vehicle currently occupying this slot and hiding the
-// rest — the pool itself is reused frame to frame (see R3FGameScene.tsx),
-// but *which* vehicle occupies a given slot changes as traffic
-// spawns/despawns, so the model shown per slot must be able to change too.
-// Hidden meshes are skipped by the renderer's draw call pass, so this costs
-// scene-graph traversal, not extra draw calls or (thanks to Object3D.clone()
-// sharing geometry/material by reference) extra GPU memory per slot.
+// One pool slot mounts only the single model matching the vehicle currently
+// occupying it — the pool itself is reused frame to frame (see
+// R3FGameScene.tsx), but *which* vehicle occupies a given slot changes as
+// traffic spawns/despawns, so the mounted model swaps when that changes.
+// Mounting all 13 candidates per slot (as siblings, toggling visibility) was
+// tried first and caused MAX_VEHICLE_SLOTS x 13 = 130 concurrent
+// useLoader(GLTFLoader, ...) calls the instant the scene mounted, which
+// crashed real devices. useLoader caches its parsed result per URL, so
+// re-mounting a previously-seen key is cheap, and preloadVehicleModels()
+// below still warms every model's local URI in the background.
 export const VehicleMesh = forwardRef<VehicleMeshHandle, { index: number }>(function VehicleMesh(_props, ref) {
   const group = useRef<Group>(null);
   const [activeKey, setActiveKey] = useState<ModelKey | null>(null);
@@ -132,9 +134,7 @@ export const VehicleMesh = forwardRef<VehicleMeshHandle, { index: number }>(func
 
   return (
     <group ref={group} visible={false}>
-      {MODEL_KEYS.map((key) => (
-        <VehicleModel key={key} modelKey={key} visible={key === activeKey} />
-      ))}
+      {activeKey && <VehicleModel key={activeKey} modelKey={activeKey} />}
     </group>
   );
 });

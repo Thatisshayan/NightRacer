@@ -773,6 +773,13 @@ importers:
         version: link:../game-core
 
   scripts:
+    dependencies:
+      '@workspace/game-core':
+        specifier: workspace:*
+        version: link:../lib/game-core
+      '@workspace/render-frame':
+        specifier: workspace:*
+        version: link:../lib/render-frame
     devDependencies:
       '@types/node':
         specifier: 'catalog:'

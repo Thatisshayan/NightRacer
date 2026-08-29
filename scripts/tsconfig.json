@@ -6,5 +6,12 @@
     "types": ["node"]
   },
   "include": ["src"],
+  // check-apex-storm-frame.ts imports @workspace/game-core, whose engine.ts
+  // uses browser globals (requestAnimationFrame/cancelAnimationFrame). This
+  // package's tsconfig is Node-only (no "dom" lib), so typechecking that
+  // import here fails on those globals — a real but separate cross-package
+  // typing mismatch, not something this fix should paper over by adding a
+  // DOM lib to a Node script package. The script itself is fixed and runs
+  // correctly (`pnpm test:apex-frame`); only its typecheck stays excluded.
   "exclude": ["src/check-apex-storm-frame.ts"]
 }

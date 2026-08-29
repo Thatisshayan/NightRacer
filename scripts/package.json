@@ -8,6 +8,10 @@
     "test:apex-frame": "tsx ./src/check-apex-storm-frame.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
+  "dependencies": {
+    "@workspace/game-core": "workspace:*",
+    "@workspace/render-frame": "workspace:*"
+  },
   "devDependencies": {
     "@types/node": "catalog:",
     "tsx": "catalog:"
