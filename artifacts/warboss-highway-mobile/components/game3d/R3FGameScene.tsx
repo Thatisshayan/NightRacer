@@ -1,7 +1,7 @@
 import { Canvas, useFrame } from '@react-three/fiber';
 import { Environment } from '@react-three/drei';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
-import { useEffect, useMemo, useRef } from 'react';
+import { Suspense, useEffect, useMemo, useRef } from 'react';
 import type { NativeGameEngine } from '../game/native-engine';
 import { useApexNativeRenderer } from './r3f-renderer';
 import { RoadSegments, type RoadMeshHandle } from './RoadMesh';
@@ -35,7 +35,15 @@ function SceneContent({ engine }: { engine: NativeGameEngine }) {
   });
 
   return (
-    <>
+    // useLoader (used by VehicleMesh's GLTF loading) throws its loading
+    // promise for the nearest Suspense boundary to catch — that's how R3F's
+    // suspense-based loaders work. Without one here, the thrown promise
+    // bubbles up as an uncaught error, which the app's root ErrorBoundary
+    // then shows as "something went wrong, please reload" the instant a
+    // vehicle model starts loading. fallback={null} means nothing renders
+    // for the (very brief, local-asset) load instead of a spinner — road
+    // and lighting are already visible from outside this boundary.
+    <Suspense fallback={null}>
       <hemisphereLight args={['#5779a9', '#0b1728', 0.95]} />
       <directionalLight position={[-3.5, 10, 3.5]} intensity={1.35} color="#b8dcff" castShadow />
       <fog attach="fog" args={['#112941', 20, 140]} />
@@ -54,7 +62,7 @@ function SceneContent({ engine }: { engine: NativeGameEngine }) {
         <VehicleMesh key={i} index={i} ref={(h) => { vehicleHandles.current[i] = h; }} />
       ))}
       <Atmosphere frameRef={latestFrame} />
-    </>
+    </Suspense>
   );
 }
 
