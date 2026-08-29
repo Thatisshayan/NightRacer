@@ -3,6 +3,7 @@ import { StyleSheet, View } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
 import { getDailyModifier, type CarType, type GameState } from '@workspace/game-core';
 import { GameCanvas, GAME_WIDTH, GAME_HEIGHT } from '@/components/game/GameCanvas';
+import { R3FGameScene } from '@/components/game3d/R3FGameScene';
 import { HudOverlay } from '@/components/game/HudOverlay';
 import { TitleScreen } from '@/components/game/TitleScreen';
 import { GameOverScreen } from '@/components/game/GameOverScreen';
@@ -13,6 +14,14 @@ import { Settings } from '@/lib/settings';
 import { NativeAudio, getMutedState, toggleMuted } from '@/lib/native-audio';
 
 type Screen = 'title' | 'playing' | 'gameover';
+
+// Opt-in-only native 3D renderer candidate (React Three Fiber) — see
+// docs/superpowers/plans/2026-08-28-r3f-native-3d-renderer.md. Dev-build
+// only, gated on an explicit env var, exactly like the web app's Apex Storm
+// composition route: nobody sees this by default, and it never replaces
+// GameCanvas as the shipping renderer until there's an owner-approved audit.
+// Set with `EXPO_PUBLIC_RENDERER=3d npx expo run:ios`.
+const useNative3DRenderer = __DEV__ && process.env.EXPO_PUBLIC_RENDERER === '3d';
 
 interface GameOverInfo {
   state: GameState;
@@ -168,7 +177,7 @@ export default function TabOneScreen() {
               border reads as an instrument viewport, matches the grimdark
               accent used elsewhere (HUD skulls, buttons). */}
           <View style={[styles.gameFrame, { width: GAME_WIDTH * scale, height: GAME_HEIGHT * scale }]}>
-            {engine && <GameCanvas engine={engine} scale={scale} />}
+            {engine && (useNative3DRenderer ? <R3FGameScene engine={engine} /> : <GameCanvas engine={engine} scale={scale} />)}
             {engine && (
               <HudOverlay
                 engine={engine}

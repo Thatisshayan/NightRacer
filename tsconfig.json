@@ -14,6 +14,9 @@
     },
     {
       "path": "./lib/game-core"
+    },
+    {
+      "path": "./lib/render-frame"
     }
   ]
 }

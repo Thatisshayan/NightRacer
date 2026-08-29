@@ -98,6 +98,12 @@ overrides:
   # drizzle-kit uses esbuild internally on an older version that's vulnerable, this overrides it
   "@esbuild-kit/esm-loader": "npm:tsx@^4.21.0"
   esbuild: "0.27.3"
+  # expo-three -> @expo/browser-polyfill -> fbemitter -> fbjs -> isomorphic-fetch
+  # pulls in node-fetch@1.7.3, vulnerable to CVE-2022-0235. fbjs's own fetch
+  # polyfill path isn't reachable in this app (expo-three only uses
+  # @expo/browser-polyfill for Canvas/WebGL shims, not its fetch fallback),
+  # but pin isomorphic-fetch's node-fetch to a patched version regardless.
+  "isomorphic-fetch>node-fetch": "^2.6.7"
 
 allowBuilds:
   esbuild: true

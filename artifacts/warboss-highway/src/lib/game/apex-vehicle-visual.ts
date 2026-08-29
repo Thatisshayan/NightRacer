@@ -5,7 +5,7 @@ import type { Mesh } from '@babylonjs/core/Meshes/mesh';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture';
-import type { ApexVehiclePose } from './apex-storm-frame';
+import type { ApexVehiclePose } from '@workspace/render-frame';
 
 const color = (hex: string) => Color3.FromHexString(hex);
 
