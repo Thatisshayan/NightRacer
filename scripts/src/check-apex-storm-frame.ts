@@ -1,5 +1,5 @@
 import type { GameState } from '@workspace/game-core';
-import { APEX_STORM_ROAD, buildApexStormFrame, sampleApexRoad } from '../../artifacts/warboss-highway/src/lib/game/apex-storm-frame.ts';
+import { APEX_STORM_ROAD, buildApexStormFrame, sampleApexRoad } from '@workspace/render-frame';
 
 const assert = (condition: unknown, message: string): asserts condition => {
   if (!condition) throw new Error(`Apex Storm frame check failed: ${message}`);
