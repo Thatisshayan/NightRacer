@@ -15,14 +15,6 @@ import { NativeAudio, getMutedState, toggleMuted } from '@/lib/native-audio';
 
 type Screen = 'title' | 'playing' | 'gameover';
 
-// Opt-in-only native 3D renderer candidate (React Three Fiber) — see
-// docs/superpowers/plans/2026-08-28-r3f-native-3d-renderer.md. Dev-build
-// only, gated on an explicit env var, exactly like the web app's Apex Storm
-// composition route: nobody sees this by default, and it never replaces
-// GameCanvas as the shipping renderer until there's an owner-approved audit.
-// Set with `EXPO_PUBLIC_RENDERER=3d npx expo run:ios`.
-const useNative3DRenderer = __DEV__ && process.env.EXPO_PUBLIC_RENDERER === '3d';
-
 interface GameOverInfo {
   state: GameState;
   isNewRecord: boolean;
@@ -45,6 +37,15 @@ export default function TabOneScreen() {
   const [muted, setMuted] = useState(() => getMutedState());
   const [showTutorial, setShowTutorial] = useState(false);
   const [streak, setStreak] = useState(0);
+  // Opt-in native 3D renderer candidate (React Three Fiber) — see
+  // docs/superpowers/plans/2026-08-28-r3f-native-3d-renderer.md. Persisted
+  // via Settings and toggled by a hidden long-press on the title screen
+  // (TitleScreen.tsx) rather than a build-time env var: __DEV__ is always
+  // false in a Release/TestFlight archive, so a build-time-only gate has no
+  // way to be reached on an already-installed device. Re-read whenever the
+  // title screen is shown (see the title-screen effect below) so toggling
+  // it takes effect on the very next run without needing an app restart.
+  const [use3DRenderer, setUse3DRenderer] = useState(() => Settings.getNative3DRenderer());
   // The simulation always runs at a fixed 420x800 logical resolution (see
   // GAME_WIDTH/GAME_HEIGHT), but the actual usable screen area varies with
   // device size and safe-area/tab-bar insets. Without scaling to fit, a
@@ -145,6 +146,7 @@ export default function TabOneScreen() {
     if (screen === 'title') {
       NativeAudio.play('menu', true);
       setStreak(Settings.getStreak().count);
+      setUse3DRenderer(Settings.getNative3DRenderer());
       if (!Settings.getTutorialSeen()) setShowTutorial(true);
     }
   }, [screen]);
@@ -177,7 +179,7 @@ export default function TabOneScreen() {
               border reads as an instrument viewport, matches the grimdark
               accent used elsewhere (HUD skulls, buttons). */}
           <View style={[styles.gameFrame, { width: GAME_WIDTH * scale, height: GAME_HEIGHT * scale }]}>
-            {engine && (useNative3DRenderer ? <R3FGameScene engine={engine} /> : <GameCanvas engine={engine} scale={scale} />)}
+            {engine && (use3DRenderer ? <R3FGameScene engine={engine} /> : <GameCanvas engine={engine} scale={scale} />)}
             {engine && (
               <HudOverlay
                 engine={engine}
