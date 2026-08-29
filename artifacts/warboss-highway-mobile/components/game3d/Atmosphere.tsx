@@ -13,11 +13,15 @@ const RAIN_COUNT = 800;
 function RainField({ frameRef }: { frameRef: MutableRefObject<ApexStormFrame | null> }) {
   const points = useRef<Points>(null);
   const positions = useMemo(() => {
+    // Deterministic (not Math.random) spread across the rain volume — this
+    // is cosmetic initial placement, not a security-sensitive value, but a
+    // fixed hash-based spread keeps repeated captures/screenshots
+    // reproducible and satisfies the weak-RNG lint rule.
     const arr = new Float32Array(RAIN_COUNT * 3);
     for (let i = 0; i < RAIN_COUNT; i += 1) {
-      arr[i * 3] = (Math.random() - 0.5) * 30;
-      arr[i * 3 + 1] = Math.random() * 15 + 2;
-      arr[i * 3 + 2] = Math.random() * 60 - 10;
+      arr[i * 3] = Math.sin(i * 12.9898) * 30 * 0.5;
+      arr[i * 3 + 1] = (Math.sin(i * 78.233) * 0.5 + 0.5) * 15 + 2;
+      arr[i * 3 + 2] = (Math.sin(i * 39.425) * 0.5 + 0.5) * 60 - 10;
     }
     return arr;
   }, []);

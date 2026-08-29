@@ -59,17 +59,17 @@
     "zod-validation-error": "^3.4.0"
   },
   "dependencies": {
-    "@react-three/drei": "^9.114.3",
-    "@react-three/fiber": "^9.0.0",
-    "@react-three/postprocessing": "^2.16.3",
+    "@react-three/drei": "9.122.0",
+    "@react-three/fiber": "9.7.0",
+    "@react-three/postprocessing": "2.19.1",
     "@shopify/react-native-skia": "2.2.12",
     "@workspace/game-core": "workspace:*",
     "@workspace/render-frame": "workspace:*",
-    "expo-asset": "~12.0.13",
-    "expo-audio": "~1.1.1",
-    "expo-gl": "~16.0.7",
-    "expo-three": "^8.0.0",
-    "postprocessing": "^6.36.4",
-    "three": "^0.169.0"
+    "expo-asset": "12.0.13",
+    "expo-audio": "1.1.1",
+    "expo-gl": "16.0.10",
+    "expo-three": "8.0.0",
+    "postprocessing": "6.39.4",
+    "three": "0.169.0"
   }
 }
