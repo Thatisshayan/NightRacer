@@ -23,7 +23,7 @@ const getKey = (key: string) => `${STORAGE_PREFIX}${key}`;
 const cache = new Map<string, string>();
 
 const CAR_TYPES = Object.keys(CAR_STATS) as CarType[];
-const FIXED_KEYS = ['muted', 'selected_car', 'daily_challenge', 'tutorial_seen', 'scrap', 'streak', 'last_play'];
+const FIXED_KEYS = ['muted', 'selected_car', 'daily_challenge', 'tutorial_seen', 'scrap', 'streak', 'last_play', 'native_3d_renderer'];
 const ALL_KEYS = [
   ...FIXED_KEYS,
   ...CAR_TYPES.map((car) => `upgrades_${car}`),
@@ -88,6 +88,19 @@ export const Settings = {
   },
   setTutorialSeen(seen: boolean): void {
     setItem('tutorial_seen', String(seen));
+  },
+
+  // Persisted, runtime toggle for the opt-in native 3D renderer (see
+  // components/game3d/) — reachable via a hidden long-press on the title
+  // screen (see TitleScreen.tsx), not a build-time env var. __DEV__ is
+  // always false in a Release/TestFlight archive, so a build-time-only
+  // gate is unreachable outside a local dev build; this is what actually
+  // lets it be inspected on a real TestFlight install.
+  getNative3DRenderer(): boolean {
+    return getItem('native_3d_renderer') === 'true';
+  },
+  setNative3DRenderer(enabled: boolean): void {
+    setItem('native_3d_renderer', String(enabled));
   },
 
   getUpgrades(car: CarType): { speed: number; armor: number; handling: number } {
