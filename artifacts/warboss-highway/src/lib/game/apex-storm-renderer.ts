@@ -17,6 +17,7 @@ import {
   APEX_STORM_ROAD,
   buildApexStormFrame,
   type ApexRoadSegment,
+  type ApexVehiclePose,
 } from '@workspace/render-frame';
 import { ApexVehicleVisual } from './apex-vehicle-visual';
 
@@ -453,14 +454,18 @@ export class ApexStormRenderer implements GameRenderer {
       this.flashMaterial.alpha = 0;
     }
 
-    const player = frame.vehicles.find((v) => v.kind === 'player');
+    this.syncVehicles(frame.vehicles, selectedCarColor);
+  }
+
+  private syncVehicles(vehicles: readonly ApexVehiclePose[], selectedCarColor: string): void {
+    const player = vehicles.find((v) => v.kind === 'player');
     if (player && player.alpha > 0) {
       this.vehicleVisuals[0].update(player, selectedCarColor);
     } else {
       this.vehicleVisuals[0].hide();
     }
 
-    const traffic = frame.vehicles.filter((v) => v.kind !== 'player');
+    const traffic = vehicles.filter((v) => v.kind !== 'player');
     // Nearest-first: if traffic count exceeds the pool, the farthest
     // vehicles are the ones left unassigned below, not an arbitrary subset.
     traffic.sort((a, b) => b.depth - a.depth);
