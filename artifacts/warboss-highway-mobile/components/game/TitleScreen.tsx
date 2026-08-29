@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
-import { Alert, Image as RNImage, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import * as Haptics from 'expo-haptics';
+import { Image as RNImage, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Canvas, Image } from '@shopify/react-native-skia';
 import { CAR_STATS, type CarType } from '@workspace/game-core';
 import { usePlayerCarImages } from './sprites';
@@ -73,20 +72,6 @@ export function TitleScreen({
 
   const carImage = carImages[selectedCar];
 
-  // Hidden switch for the opt-in native 3D renderer (components/game3d/).
-  // A build-time env var can't be flipped inside an already-installed
-  // TestFlight/production build — __DEV__ is always false there — so this
-  // long-press is the only way to actually turn it on/off on a real
-  // device without shipping a separate build. Not advertised in any UI;
-  // long-pressing the title is obscure enough that it won't be found by
-  // testers who aren't told about it.
-  const toggleNative3DRenderer = () => {
-    const next = !Settings.getNative3DRenderer();
-    Settings.setNative3DRenderer(next);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-    Alert.alert('Renderer', next ? '3D renderer ON — restart a run to see it.' : '3D renderer OFF (back to default).');
-  };
-
   return (
     <View style={styles.screen}>
       {/* Skyline parallax backdrop — these two assets sat in the project
@@ -99,10 +84,8 @@ export function TitleScreen({
       <RNImage source={require('../../assets/sprites/skyline_layer1.png')} style={styles.skylineLayer1} resizeMode="cover" />
       <RNImage source={require('../../assets/sprites/skyline_layer2.png')} style={styles.skylineLayer2} resizeMode="cover" />
       <ScrollView contentContainerStyle={styles.root}>
-      <Pressable onLongPress={toggleNative3DRenderer} delayLongPress={1500}>
-        <Text style={styles.titleLine1}>WARBOSS</Text>
-        <Text style={styles.titleLine2}>HIGHWAY</Text>
-      </Pressable>
+      <Text style={styles.titleLine1}>WARBOSS</Text>
+      <Text style={styles.titleLine2}>HIGHWAY</Text>
 
       <Text style={styles.sectionLabel}>Select Vehicle</Text>
       <View style={styles.carouselRow}>
