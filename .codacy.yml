@@ -1,0 +1,6 @@
+---
+# _archive/ folders hold retired code kept for reference rather than
+# deleted (see artifacts/warboss-highway-mobile/_archive/legacy-2d-game) —
+# not part of any live build, so not worth linting as if it were.
+exclude_paths:
+  - "**/_archive/**"
