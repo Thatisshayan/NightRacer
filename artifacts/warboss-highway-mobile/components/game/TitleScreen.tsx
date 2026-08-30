@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Image as RNImage, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Canvas, Image } from '@shopify/react-native-skia';
+import { LinearGradient } from 'expo-linear-gradient';
 import { CAR_STATS, type CarType } from '@workspace/game-core';
 import { usePlayerCarImages } from './sprites';
 import { Settings } from '@/lib/settings';
@@ -83,6 +84,16 @@ export function TitleScreen({
           of depth without real parallax scrolling. */}
       <RNImage source={require('../../assets/sprites/skyline_layer1.png')} style={styles.skylineLayer1} resizeMode="cover" />
       <RNImage source={require('../../assets/sprites/skyline_layer2.png')} style={styles.skylineLayer2} resizeMode="cover" />
+      {/* The skyline images have a hard top edge and the scrollable content
+          above rarely fills the screen, so without this the boundary reads
+          as a stark seam cutting the screen in two rather than a backdrop
+          peeking up from below. Fades the same black as the screen
+          background down to transparent over the skyline's own top edge. */}
+      <LinearGradient
+        colors={['#000000', 'rgba(0,0,0,0)']}
+        style={styles.skylineFade}
+        pointerEvents="none"
+      />
       <ScrollView contentContainerStyle={styles.root}>
       <Text style={styles.titleLine1}>WARBOSS</Text>
       <Text style={styles.titleLine2}>HIGHWAY</Text>
@@ -187,6 +198,9 @@ const styles = StyleSheet.create({
   // is drawn on top of it, shorter and slightly brighter for depth.
   skylineLayer1: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 220, opacity: 0.55 },
   skylineLayer2: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 150, opacity: 0.8 },
+  // Straddles skylineLayer1's top edge (the taller of the two) so the
+  // backdrop fades in instead of cutting on abruptly.
+  skylineFade: { position: 'absolute', left: 0, right: 0, bottom: 220, height: 90 },
   // Was opaque black — now transparent so the skyline backdrop shows
   // through behind the scrollable content.
   root: { flexGrow: 1, alignItems: 'center', backgroundColor: 'transparent', padding: 16, gap: 10 },
