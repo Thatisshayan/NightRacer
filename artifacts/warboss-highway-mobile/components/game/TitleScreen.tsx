@@ -1,9 +1,8 @@
 import React, { useState } from 'react';
 import { Image as RNImage, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { Canvas, Image } from '@shopify/react-native-skia';
 import { LinearGradient } from 'expo-linear-gradient';
 import { CAR_STATS, type CarType } from '@workspace/game-core';
-import { usePlayerCarImages } from './sprites';
+import { CarPreview3D } from '@/components/game3d/CarPreview3D';
 import { Settings } from '@/lib/settings';
 
 const CAR_TYPES = Object.keys(CAR_STATS) as CarType[];
@@ -21,10 +20,10 @@ const UPGRADE_ICON: Record<'speed' | 'armor' | 'handling', string> = {
 // Native port of the web app's title/car-select screen (see
 // artifacts/warboss-highway/src/pages/Game.tsx's title JSX) — car
 // carousel, personal best, daily challenge toggle, garage/upgrades,
-// start button. Deliberately simplified vs. the web version: no bobbing
-// car-preview animation (static Skia image instead of the web's animated
-// Canvas2D CarPreview) and no virtual-joystick toggle (native input is
-// always drag-to-steer — see GameCanvas.tsx).
+// start button. The car card is a live spinning render of the actual GLB
+// (CarPreview3D, same model the in-game renderer draws), not a static 2D
+// image. No virtual-joystick toggle (native input is always drag-to-steer
+// — see GameCanvas.tsx).
 export function TitleScreen({
   selectedCar,
   onSelectCar,
@@ -42,7 +41,6 @@ export function TitleScreen({
   streak: number;
   onStart: () => void;
 }) {
-  const carImages = usePlayerCarImages();
   const stats = CAR_STATS[selectedCar];
   const [scrap, setScrap] = useState(Settings.getScrap());
   const [upgrades, setUpgrades] = useState(Settings.getUpgrades(selectedCar));
@@ -70,8 +68,6 @@ export function TitleScreen({
     setUpgrades(next);
     setScrap(Settings.getScrap());
   };
-
-  const carImage = carImages[selectedCar];
 
   return (
     <View style={styles.screen}>
@@ -105,22 +101,13 @@ export function TitleScreen({
         </Pressable>
 
         <View style={styles.carCard}>
-          {carImage && (
-            <Canvas style={{ width: PREVIEW_SIZE, height: PREVIEW_SIZE }}>
-              {/* stats.width/height are the in-game top-down hitbox
-                  dimensions, not this square 3/4-view preview render — fill
-                  the card with "contain" instead of stretching a square
-                  image into a tall narrow rectangle. */}
-              <Image
-                image={carImage}
-                x={0}
-                y={0}
-                width={PREVIEW_SIZE}
-                height={PREVIEW_SIZE}
-                fit="contain"
-              />
-            </Canvas>
-          )}
+          {/* key={selectedCar} remounts the canvas on car change instead of
+              swapping the model under a live GLTFLoader — cheap here since
+              expo-asset/useLoader both cache the resolved GLB per key, and
+              it resets the turntable spin to the same starting angle every
+              time a car is selected instead of carrying over whatever
+              rotation the previous car had reached. */}
+          <CarPreview3D key={selectedCar} carType={selectedCar} size={PREVIEW_SIZE} />
           <Text style={styles.carLabel}>{stats.label}</Text>
           <Text style={styles.carDesc}>{stats.desc}</Text>
           <Text style={styles.carStats}>{stats.stats}</Text>

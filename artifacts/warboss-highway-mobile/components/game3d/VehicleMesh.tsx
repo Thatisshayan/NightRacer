@@ -30,7 +30,7 @@ const MODEL_MODULES = {
   BOSS: require('../../assets/3d/apex/boss.glb'),
 } as const satisfies Record<CarType | Exclude<ApexVehicleModelType, 'PLAYER'>, unknown>;
 
-type ModelKey = keyof typeof MODEL_MODULES;
+export type ModelKey = keyof typeof MODEL_MODULES;
 const MODEL_KEYS = Object.keys(MODEL_MODULES) as ModelKey[];
 
 // expo-gl's GL context can't fetch() a Metro `require()` id directly the way
@@ -55,7 +55,10 @@ function useLocalGltfUri(moduleId: number): string | null {
   return uri;
 }
 
-function VehicleModel({ modelKey }: { modelKey: ModelKey }) {
+// Exported for standalone previews (e.g. the title screen's spinning car
+// card) that want a loaded, grounded/normalized model without the pose-pool
+// machinery below — just "load and show this one vehicle".
+export function VehicleModel({ modelKey }: { modelKey: ModelKey }) {
   const uri = useLocalGltfUri(MODEL_MODULES[modelKey]);
   if (!uri) return null;
   return <LoadedGltf uri={uri} />;
