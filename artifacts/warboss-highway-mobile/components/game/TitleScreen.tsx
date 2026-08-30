@@ -107,13 +107,17 @@ export function TitleScreen({
         <View style={styles.carCard}>
           {carImage && (
             <Canvas style={{ width: PREVIEW_SIZE, height: PREVIEW_SIZE }}>
+              {/* stats.width/height are the in-game top-down hitbox
+                  dimensions, not this square 3/4-view preview render — fill
+                  the card with "contain" instead of stretching a square
+                  image into a tall narrow rectangle. */}
               <Image
                 image={carImage}
-                x={(PREVIEW_SIZE - stats.width) / 2}
-                y={(PREVIEW_SIZE - stats.height) / 2}
-                width={stats.width}
-                height={stats.height}
-                fit="fill"
+                x={0}
+                y={0}
+                width={PREVIEW_SIZE}
+                height={PREVIEW_SIZE}
+                fit="contain"
               />
             </Canvas>
           )}

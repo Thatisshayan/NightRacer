@@ -15,6 +15,12 @@
     ".expo/types/**/*.ts",
     "expo-env.d.ts"
   ],
+  // _archive holds retired code (the pre-3D-renderer 2D game) kept for
+  // reference rather than deleted — not part of the live app, so not
+  // part of the build or typecheck.
+  "exclude": [
+    "_archive"
+  ],
   "references": [
     {
       "path": "../../lib/api-client-react"

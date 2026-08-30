@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
 import { getDailyModifier, type CarType, type GameState } from '@workspace/game-core';
-import { GAME_WIDTH, GAME_HEIGHT } from '@/components/game/GameCanvas';
+import { GAME_WIDTH, GAME_HEIGHT } from '@/components/game/gameDimensions';
 import { R3FGameScene } from '@/components/game3d/R3FGameScene';
 import { HudOverlay } from '@/components/game/HudOverlay';
 import { TitleScreen } from '@/components/game/TitleScreen';

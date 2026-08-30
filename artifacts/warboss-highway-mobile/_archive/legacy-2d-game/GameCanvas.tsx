@@ -1,3 +1,14 @@
+// Archived (2026-08-30): this was the original 2D react-native-skia
+// renderer for gameplay itself. PR #38 made the native 3D renderer
+// (R3FGameScene, see components/game3d/) the unconditional default and
+// nothing has mounted this component since — app/(tabs)/index.tsx only
+// ever renders R3FGameScene now. Kept here rather than deleted in case
+// the 3D renderer ever needs a fallback path; excluded from the
+// package's tsconfig.json so it's not part of the live build or
+// typecheck. Its sibling sprites.ts in this folder is a frozen,
+// self-contained copy of the full legacy sprite-pack loader (the live
+// components/game/sprites.ts now only serves the title screen's 5
+// player-car preview images, pointed at newer art).
 import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import {
   BlendColor,
@@ -20,7 +31,7 @@ import {
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { runOnJS, useDerivedValue, useSharedValue } from 'react-native-reanimated';
 import { CAR_STATS, type GameRenderer, type GameState, type Obstacle, type Particle, type PowerUpItem, type Vehicle } from '@workspace/game-core';
-import type { NativeGameEngine } from './native-engine';
+import type { NativeGameEngine } from '../../components/game/native-engine';
 import { useSpriteImages, vehicleImage } from './sprites';
 
 // Matches the web app's internal game resolution (see
