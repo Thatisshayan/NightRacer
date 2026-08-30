@@ -1,3 +1,10 @@
+// Archived alongside GameCanvas.tsx (see that file's header comment) — a
+// frozen, self-contained copy of the full legacy sprite-pack loader that
+// GameCanvas.tsx depended on. The live components/game/sprites.ts now
+// exports only usePlayerCarImages(), pointed at newer art, for the title
+// screen's car-select carousel; everything else here (the full in-game 2D
+// sprite set: enemy variants, powerups, road tile, etc.) has no live caller
+// once the 3D renderer replaced GameCanvas as the default game.
 import { useMemo } from 'react';
 import { AlphaType, ColorType, Skia, useImage, type SkImage } from '@shopify/react-native-skia';
 import type { CarType, PowerUpType } from '@workspace/game-core';
@@ -54,19 +61,15 @@ export interface SpriteImages {
   powerups: Record<PowerUpType, SkImage | null>;
 }
 
-// Standalone (doesn't pull in the full enemy/powerup sprite set) — used by
-// the title screen's car-select carousel, which only ever needs these 5.
-// Apex-cyberpunk renders (512x512, downsized from the 2048x2048 originals
-// in assets/3d/apex/concept-images/ — those doubled as the source photos
-// for the 3D vehicle reconstruction, but sat unused as 2D art until now)
-// replace the old olive-drab sprite pack for this preview.
-export function usePlayerCarImages(): Record<CarType, SkImage | null> {
+// Frozen copy of the pre-Apex-reskin player car sprites — the live
+// components/game/sprites.ts now serves newer art for the same 5 keys.
+function usePlayerCarImages(): Record<CarType, SkImage | null> {
   return {
-    RATTLETRAP: useImage(require('../../assets/sprites/apex-cards/rattletrap.png')),
-    WAR_RUNNER: useImage(require('../../assets/sprites/apex-cards/war_runner.png')),
-    DEATHSLED: useImage(require('../../assets/sprites/apex-cards/deathsled.png')),
-    SCRAPQUEEN: useImage(require('../../assets/sprites/apex-cards/scrapqueen.png')),
-    PHANTOM: useImage(require('../../assets/sprites/apex-cards/phantom.png')),
+    RATTLETRAP: useImage(require('../../assets/sprites/rattletrap.png')),
+    WAR_RUNNER: useImage(require('../../assets/sprites/war_runner.png')),
+    DEATHSLED: useImage(require('../../assets/sprites/deathsled.png')),
+    SCRAPQUEEN: useImage(require('../../assets/sprites/scrapqueen.png')),
+    PHANTOM: useImage(require('../../assets/sprites/phantom.png')),
   };
 }
 
