@@ -14,7 +14,6 @@ import { TutorialOverlay } from '@/components/game/TutorialOverlay';
 import { useNativeGameEngine } from '@/components/game/useGameEngine';
 import { Settings } from '@/lib/settings';
 import { NativeAudio, getMutedState, toggleMuted } from '@/lib/native-audio';
-import type { NativeGameEngine } from '@/components/game/native-engine';
 
 type Screen = 'title' | 'playing' | 'gameover';
 
@@ -123,30 +122,41 @@ export default function TabOneScreen() {
   // renderer replaced GameCanvas as the default game, leaving the R3F
   // screen with no touch input at all. Pan callbacks run as worklets on the
   // UI thread; calls into the engine (plain JS, JS thread) go through
-  // runOnJS. GestureDetector's view is sized to the on-screen (scaled)
+  // runOnJS. handlePointerDown/Move/Up are plain (non-worklet) functions
+  // that close over `engine` normally — engine must NOT be passed as a
+  // runOnJS argument (only x/y, plain numbers, cross that boundary):
+  // runOnJS has to clone every argument into a Reanimated "shareable"
+  // value, and NativeGameEngine (audio refs, closures, internal state)
+  // isn't cloneable. Passing it as an arg threw inside the worklet on a
+  // real device — an unhandled worklet exception is fatal (SIGABRT), not
+  // just a caught JS error, which crashed the whole app on the first drag.
+  // GestureDetector's view is sized to the on-screen (scaled)
   // R3FGameScene, so its local x/y are display-space — divide by `scale` to
   // land back in the 420x800 logical space GameEngine expects.
-  const pan = useMemo(() => {
-    function pointerDown(engineRef: NativeGameEngine, x: number, y: number) {
-      engineRef.pointerDown(x, y);
-    }
-    function pointerMove(engineRef: NativeGameEngine, x: number, y: number) {
-      engineRef.pointerMove(x, y);
-    }
-    function pointerUp(engineRef: NativeGameEngine) {
-      engineRef.pointerUp();
-    }
-    return Gesture.Pan()
-      .onBegin((e) => {
-        if (engine) runOnJS(pointerDown)(engine, e.x / scale, e.y / scale);
-      })
-      .onUpdate((e) => {
-        if (engine) runOnJS(pointerMove)(engine, e.x / scale, e.y / scale);
-      })
-      .onEnd(() => {
-        if (engine) runOnJS(pointerUp)(engine);
-      });
-  }, [engine, scale]);
+  function handlePointerDown(x: number, y: number) {
+    engine?.pointerDown(x, y);
+  }
+  function handlePointerMove(x: number, y: number) {
+    engine?.pointerMove(x, y);
+  }
+  function handlePointerUp() {
+    engine?.pointerUp();
+  }
+  const pan = useMemo(
+    () =>
+      Gesture.Pan()
+        .onBegin((e) => {
+          runOnJS(handlePointerDown)(e.x / scale, e.y / scale);
+        })
+        .onUpdate((e) => {
+          runOnJS(handlePointerMove)(e.x / scale, e.y / scale);
+        })
+        .onEnd(() => {
+          runOnJS(handlePointerUp)();
+        }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [engine, scale]
+  );
 
   const startGame = useCallback(() => {
     NativeAudio.stop('menu');
