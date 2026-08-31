@@ -1,11 +1,19 @@
 import { Canvas, useFrame } from '@react-three/fiber';
+import { PerspectiveCamera } from '@react-three/drei';
 import { Suspense, useEffect, useRef } from 'react';
+import type { MeshBasicMaterial, PerspectiveCamera as ThreePerspectiveCamera } from 'three';
 import type { NativeGameEngine } from '../game/native-engine';
 import { useApexNativeRenderer } from './r3f-renderer';
 import { RoadSegments, type RoadMeshHandle } from './RoadMesh';
 import { VehicleMesh, preloadVehicleModels, type VehicleMeshHandle } from './VehicleMesh';
 import { Atmosphere } from './Atmosphere';
 import { PostFX } from './PostFX';
+
+// Base chase-cam position — see the module doc comment below for why this
+// must exactly match apex-storm-renderer.ts's FreeCamera seat.
+const BASE_CAMERA_X = 0;
+const BASE_CAMERA_Y = 2.55;
+const BASE_CAMERA_Z = -14.5;
 
 // Matches apex-storm-renderer.ts's MAX_VEHICLE_SLOTS — a fixed pool of
 // reusable meshes, hidden/shown per frame rather than created/destroyed.
@@ -14,9 +22,11 @@ const MAX_VEHICLE_SLOTS = 10;
 const MAX_TRAFFIC_SLOTS = MAX_VEHICLE_SLOTS - 1;
 
 function SceneContent({ engine }: { engine: NativeGameEngine }) {
-  const { latestFrame } = useApexNativeRenderer(engine);
+  const { latestFrame, latestScreenShake } = useApexNativeRenderer(engine);
   const roadHandle = useRef<RoadMeshHandle | null>(null);
   const vehicleHandles = useRef<(VehicleMeshHandle | null)[]>([]);
+  const cameraHandle = useRef<ThreePerspectiveCamera | null>(null);
+  const flashMaterial = useRef<MeshBasicMaterial | null>(null);
   // frame.vehicles is sorted by depth (farthest first) for draw order, not by
   // identity — indexing vehicleHandles[i] = frame.vehicles[i] directly (the
   // prior approach) meant a pool slot's occupant silently changed whenever
@@ -70,6 +80,31 @@ function SceneContent({ engine }: { engine: NativeGameEngine }) {
         free.push(slot);
       }
     }
+
+    // Camera shake + crash flash on collision — engine.ts sets screenShake
+    // to 300 on a hit and decays it over time (see handleCrash()). The web
+    // renderers (apex-storm-renderer.ts, pixi-renderer.ts) both surface this
+    // as camera jitter + a flash; this renderer computed latestScreenShake
+    // every sync() but never read it back, so hits on the native 3D
+    // renderer had zero screen feedback. Formula matches
+    // apex-storm-renderer.ts's sync() exactly, same deterministic
+    // high-frequency noise (not Math.random) so the two renderers shake in
+    // lockstep for the same input.
+    const screenShake = latestScreenShake.current;
+    const camera = cameraHandle.current;
+    if (camera) {
+      if (screenShake > 0) {
+        const shake = screenShake * 0.05;
+        const now = performance.now();
+        camera.position.x = BASE_CAMERA_X + Math.sin(now * 0.083) * shake * 0.5;
+        camera.position.y = BASE_CAMERA_Y + Math.sin(now * 0.071 + 1.7) * shake * 0.5;
+        if (flashMaterial.current) flashMaterial.current.opacity = Math.min(0.8, screenShake * 0.15);
+      } else {
+        camera.position.x = BASE_CAMERA_X;
+        camera.position.y = BASE_CAMERA_Y;
+        if (flashMaterial.current) flashMaterial.current.opacity = 0;
+      }
+    }
   });
 
   return (
@@ -82,6 +117,36 @@ function SceneContent({ engine }: { engine: NativeGameEngine }) {
     // for the (very brief, local-asset) load instead of a spinner — road
     // and lighting are already visible from outside this boundary.
     <Suspense fallback={null}>
+      {/* Deliberately shallow rear chase — mirrors apex-storm-renderer.ts's
+          FreeCamera position/target exactly, so the two renderers read as
+          the same world from the same seat, not two different games.
+          Defined here (not via <Canvas camera={...}>) so the shake logic
+          above can drive its position, and so the crash-flash plane below
+          can ride along as its child instead of needing separate
+          screen-space plumbing. */}
+      <PerspectiveCamera
+        makeDefault
+        ref={cameraHandle}
+        position={[BASE_CAMERA_X, BASE_CAMERA_Y, BASE_CAMERA_Z]}
+        fov={47}
+      >
+        {/* Crash flash: a screen-filling quad pinned just past the near
+            clip plane, moving with the camera. Opacity is driven from
+            screenShake above (0 outside a hit); depthTest/depthWrite off
+            so it always reads as an overlay, never gets occluded or
+            occludes the scene behind it. */}
+        <mesh position={[0, 0, -0.2]}>
+          <planeGeometry args={[2, 2]} />
+          <meshBasicMaterial
+            ref={flashMaterial}
+            color="#ff1a1a"
+            transparent
+            opacity={0}
+            depthTest={false}
+            depthWrite={false}
+          />
+        </mesh>
+      </PerspectiveCamera>
       <hemisphereLight args={['#5779a9', '#0b1728', 0.95]} />
       <directionalLight position={[-3.5, 10, 3.5]} intensity={1.35} color="#b8dcff" castShadow />
       <fog attach="fog" args={['#112941', 20, 140]} />
@@ -94,16 +159,9 @@ function SceneContent({ engine }: { engine: NativeGameEngine }) {
   );
 }
 
-// Deliberately shallow rear chase — mirrors apex-storm-renderer.ts's
-// FreeCamera position/target exactly, so the two renderers read as the same
-// world from the same seat, not two different games.
 export function R3FGameScene({ engine }: { engine: NativeGameEngine }) {
   return (
-    <Canvas
-      camera={{ position: [0, 2.55, -14.5], fov: 47 }}
-      gl={{ antialias: true }}
-      shadows
-    >
+    <Canvas gl={{ antialias: true }} shadows>
       <SceneContent engine={engine} />
       <PostFX />
     </Canvas>

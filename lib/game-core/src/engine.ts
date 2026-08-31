@@ -124,6 +124,11 @@ export interface Player extends GameObject {
 }
 
 export interface Vehicle extends GameObject {
+  // Assigned once at spawn (GameEngine.nextVehicleId) and never recomputed —
+  // renderer adapters (e.g. render-frame's toRoadEntity) key pooled
+  // resources off this, so it must stay stable across a vehicle's whole
+  // lifetime even as x/y/lane change every frame.
+  id: string;
   type: VehicleType;
   color: string;
   speed: number;
@@ -351,6 +356,9 @@ export class GameEngine {
   // Set by a keyboard press or a platform HUD control, then consumed inside
   // update() so a Rush starts on a deterministic simulation frame.
   private rushRequested = false;
+  // Monotonic source for Vehicle.id — never reused, so a despawned vehicle's
+  // old id can never collide with a later spawn's.
+  private vehicleIdCounter = 0;
 
   // dims are logical simulation pixels (not a canvas/element) — each
   // platform adapter maps its own rendering surface onto this space (see
@@ -1148,6 +1156,7 @@ export class GameEngine {
     const fromBehind = direction === 'SAME' && this.spawnsFromBehind(spec, currentSpeed);
 
     state.vehicles.push({
+      id: `vehicle-${++this.vehicleIdCounter}`,
       type: spec.type,
       x,
       y: fromBehind ? this.height + 100 : -100,
@@ -1209,6 +1218,7 @@ export class GameEngine {
     const centerX = (state.lanes[1] + state.lanes[2]) / 2;
 
     state.vehicles.push({
+      id: `vehicle-${++this.vehicleIdCounter}`,
       type: 'BOSS',
       x: centerX,
       y: -160,
