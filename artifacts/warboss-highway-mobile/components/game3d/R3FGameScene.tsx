@@ -1,7 +1,6 @@
-import { Canvas, useFrame } from '@react-three/fiber';
-import { PerspectiveCamera } from '@react-three/drei';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { Suspense, useEffect, useRef } from 'react';
-import type { MeshBasicMaterial, PerspectiveCamera as ThreePerspectiveCamera } from 'three';
+import type { Mesh, MeshBasicMaterial } from 'three';
 import type { NativeGameEngine } from '../game/native-engine';
 import { useApexNativeRenderer } from './r3f-renderer';
 import { RoadSegments, type RoadMeshHandle } from './RoadMesh';
@@ -25,8 +24,32 @@ function SceneContent({ engine }: { engine: NativeGameEngine }) {
   const { latestFrame, latestScreenShake } = useApexNativeRenderer(engine);
   const roadHandle = useRef<RoadMeshHandle | null>(null);
   const vehicleHandles = useRef<(VehicleMeshHandle | null)[]>([]);
-  const cameraHandle = useRef<ThreePerspectiveCamera | null>(null);
+  // The Canvas's own default camera (set via the `camera` prop below) — read
+  // through useThree rather than defined as JSX so it lives entirely outside
+  // <Suspense>. A camera defined as Suspense's child gets unmounted along
+  // with everything else whenever a not-yet-seen vehicle model suspends
+  // mid-game (routine — a new traffic type's first appearance always
+  // suspends once), which briefly left the scene with no active camera at
+  // all: a fully black frame, sometimes for the rest of the run. That
+  // regression (and the repeated full-tree unmount/remount thrashing it
+  // caused) is the likely cause of a crash seen right after this feature
+  // shipped.
+  const { camera } = useThree();
+  const flashMesh = useRef<Mesh>(null);
   const flashMaterial = useRef<MeshBasicMaterial | null>(null);
+
+  // Rides along with the camera without needing to declare the camera
+  // itself as JSX: reparenting an already-mounted Object3D onto the camera
+  // is a one-time imperative operation, so this plane only needs to exist
+  // outside Suspense once — it never needs to re-run when Suspense flickers.
+  useEffect(() => {
+    const mesh = flashMesh.current;
+    if (!mesh) return;
+    camera.add(mesh);
+    return () => {
+      camera.remove(mesh);
+    };
+  }, [camera]);
   // frame.vehicles is sorted by depth (farthest first) for draw order, not by
   // identity — indexing vehicleHandles[i] = frame.vehicles[i] directly (the
   // prior approach) meant a pool slot's occupant silently changed whenever
@@ -91,77 +114,75 @@ function SceneContent({ engine }: { engine: NativeGameEngine }) {
     // high-frequency noise (not Math.random) so the two renderers shake in
     // lockstep for the same input.
     const screenShake = latestScreenShake.current;
-    const camera = cameraHandle.current;
-    if (camera) {
-      if (screenShake > 0) {
-        const shake = screenShake * 0.05;
-        const now = performance.now();
-        camera.position.x = BASE_CAMERA_X + Math.sin(now * 0.083) * shake * 0.5;
-        camera.position.y = BASE_CAMERA_Y + Math.sin(now * 0.071 + 1.7) * shake * 0.5;
-        if (flashMaterial.current) flashMaterial.current.opacity = Math.min(0.8, screenShake * 0.15);
-      } else {
-        camera.position.x = BASE_CAMERA_X;
-        camera.position.y = BASE_CAMERA_Y;
-        if (flashMaterial.current) flashMaterial.current.opacity = 0;
-      }
+    if (screenShake > 0) {
+      const shake = screenShake * 0.05;
+      const now = performance.now();
+      camera.position.x = BASE_CAMERA_X + Math.sin(now * 0.083) * shake * 0.5;
+      camera.position.y = BASE_CAMERA_Y + Math.sin(now * 0.071 + 1.7) * shake * 0.5;
+      if (flashMaterial.current) flashMaterial.current.opacity = Math.min(0.8, screenShake * 0.15);
+    } else {
+      camera.position.x = BASE_CAMERA_X;
+      camera.position.y = BASE_CAMERA_Y;
+      if (flashMaterial.current) flashMaterial.current.opacity = 0;
     }
   });
 
   return (
-    // useLoader (used by VehicleMesh's GLTF loading) throws its loading
-    // promise for the nearest Suspense boundary to catch — that's how R3F's
-    // suspense-based loaders work. Without one here, the thrown promise
-    // bubbles up as an uncaught error, which the app's root ErrorBoundary
-    // then shows as "something went wrong, please reload" the instant a
-    // vehicle model starts loading. fallback={null} means nothing renders
-    // for the (very brief, local-asset) load instead of a spinner — road
-    // and lighting are already visible from outside this boundary.
-    <Suspense fallback={null}>
-      {/* Deliberately shallow rear chase — mirrors apex-storm-renderer.ts's
-          FreeCamera position/target exactly, so the two renderers read as
-          the same world from the same seat, not two different games.
-          Defined here (not via <Canvas camera={...}>) so the shake logic
-          above can drive its position, and so the crash-flash plane below
-          can ride along as its child instead of needing separate
-          screen-space plumbing. */}
-      <PerspectiveCamera
-        makeDefault
-        ref={cameraHandle}
-        position={[BASE_CAMERA_X, BASE_CAMERA_Y, BASE_CAMERA_Z]}
-        fov={47}
-      >
-        {/* Crash flash: a screen-filling quad pinned just past the near
-            clip plane, moving with the camera. Opacity is driven from
-            screenShake above (0 outside a hit); depthTest/depthWrite off
-            so it always reads as an overlay, never gets occluded or
-            occludes the scene behind it. */}
-        <mesh position={[0, 0, -0.2]}>
-          <planeGeometry args={[2, 2]} />
-          <meshBasicMaterial
-            ref={flashMaterial}
-            color="#ff1a1a"
-            transparent
-            opacity={0}
-            depthTest={false}
-            depthWrite={false}
-          />
-        </mesh>
-      </PerspectiveCamera>
+    <>
+      {/* Crash flash: a screen-filling quad reparented onto the camera above
+          (see the useEffect above) so it rides along without needing to be
+          declared as the camera's JSX child. Lives outside <Suspense> —
+          transparent/opacity-0 by default, never touches any async asset,
+          so it never needs to survive a Suspense fallback the way the
+          camera itself does. */}
+      <mesh ref={flashMesh} position={[0, 0, -0.2]}>
+        <planeGeometry args={[2, 2]} />
+        <meshBasicMaterial
+          ref={flashMaterial}
+          color="#ff1a1a"
+          transparent
+          opacity={0}
+          depthTest={false}
+          depthWrite={false}
+        />
+      </mesh>
       <hemisphereLight args={['#5779a9', '#0b1728', 0.95]} />
       <directionalLight position={[-3.5, 10, 3.5]} intensity={1.35} color="#b8dcff" castShadow />
       <fog attach="fog" args={['#112941', 20, 140]} />
+      {/* RoadSegments loads no async asset (plain box geometry/materials),
+          so it never needs to sit inside a Suspense boundary at all. */}
       <RoadSegments handleRef={roadHandle} />
+      {/* useLoader (used by VehicleMesh's GLTF loading) throws its loading
+          promise for the nearest Suspense boundary to catch — that's how
+          R3F's suspense-based loaders work. Without one here, the thrown
+          promise bubbles up as an uncaught error, which the app's root
+          ErrorBoundary then shows as "something went wrong, please reload"
+          the instant a vehicle model starts loading. fallback={null} means
+          nothing renders for the (very brief, local-asset) load instead of
+          a spinner. Each slot gets its OWN Suspense boundary (not one
+          shared boundary around the whole pool): a slot's model loading for
+          the first time — routine mid-game, whenever a not-yet-seen
+          vehicle type first appears — should only blank that one slot, not
+          every other already-loaded vehicle on screen. The camera itself
+          must NOT be a descendant of any of these: see the useThree comment
+          above for why that previously caused a fully black frame. */}
       {Array.from({ length: MAX_VEHICLE_SLOTS }, (_, i) => (
-        <VehicleMesh key={i} index={i} ref={(h) => { vehicleHandles.current[i] = h; }} />
+        <Suspense key={i} fallback={null}>
+          <VehicleMesh index={i} ref={(h) => { vehicleHandles.current[i] = h; }} />
+        </Suspense>
       ))}
       <Atmosphere frameRef={latestFrame} />
-    </Suspense>
+    </>
   );
 }
 
 export function R3FGameScene({ engine }: { engine: NativeGameEngine }) {
   return (
-    <Canvas gl={{ antialias: true }} shadows>
+    <Canvas
+      camera={{ position: [BASE_CAMERA_X, BASE_CAMERA_Y, BASE_CAMERA_Z], fov: 47 }}
+      gl={{ antialias: true }}
+      shadows
+    >
       <SceneContent engine={engine} />
       <PostFX />
     </Canvas>
