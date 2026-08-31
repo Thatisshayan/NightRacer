@@ -749,9 +749,9 @@ export class GameEngine {
       const handling = 1 + this.upgrades.handling * 0.08;
       const targetVx = len > 0 ? (dx / len) * 5.1 * handling : 0;
       const steeringResponse = Math.min(1, 0.38 * frameScale);
-      state.player.vx += (targetVx - state.player.vx) * steeringResponse;
-      if (Math.abs(targetVx) < 0.01) state.player.vx *= Math.pow(0.72, frameScale);
-      state.player.x += state.player.vx * frameScale;
+       state.player.vx += (targetVx - state.player.vx) * steeringResponse;
+       if (Math.abs(targetVx) < 0.01) state.player.vx *= 0.72 ** frameScale;
+       state.player.x += state.player.vx * frameScale;
       if (len > 0) {
         const verticalSpeed = 3.2 * handling * frameScale;
         state.player.y += (dy / len) * verticalSpeed;
@@ -1063,7 +1063,12 @@ export class GameEngine {
     const pattern = this.activePattern;
     const beat = pattern.beats[this.patternBeat];
     for (const lane of beat) {
-      this.spawnVehicleInLane(currentSpeed, this.patternMirrored ? 3 - lane : lane);
+      let mirroredLane = this.patternMirrored ? 3 - lane : lane;
+      if (mirroredLane < 0 || mirroredLane > 3) {
+        console.warn(`Invalid lane index ${mirroredLane} in traffic pattern ${pattern.id}, beat ${this.patternBeat}. Clamping to 0-3.`);
+        mirroredLane = Math.max(0, Math.min(3, mirroredLane));
+      }
+      this.spawnVehicleInLane(currentSpeed, mirroredLane);
     }
     this.patternBeat++;
 
@@ -1287,12 +1292,13 @@ export class GameEngine {
 
   private createParticles(x: number, y: number, color: string, count: number) {
     for (let i = 0; i < count; i++) {
+      const life = 500 + this.rng() * 500;
       this.state.particles.push({
         x, y,
         // Use the seeded rng (not Math.random) for daily-challenge determinism.
         vx: (this.rng() - 0.5) * 10,
         vy: (this.rng() - 0.5) * 10,
-        life: 500 + this.rng() * 500,
+        life: Math.min(life, 1000),
         maxLife: 1000,
         color,
         size: 2 + this.rng() * 4,
@@ -1306,7 +1312,7 @@ export class GameEngine {
     if (!state.wasHit) this.grantAchievement('untouchable');
     if (state.lives >= 3) this.grantAchievement('survivor');
     this.audio.play('gameover');
-    this.audio.stop('gameplay');
+    if (this.audio.stop) this.audio.stop('gameplay');
     this.onGameOver(state);
   }
 }

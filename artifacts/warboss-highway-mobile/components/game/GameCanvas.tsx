@@ -849,7 +849,7 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
     engine.attachRenderer(renderer);
     return () => engine.attachRenderer(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [engine, images]);
+  }, [engine, images, scale]);
 
   // Mirrors the web renderer's drag-to-steer (handleTouchStart/Move/End
   // in web-engine.ts) via GameEngine's DOM-agnostic pointerDown/Move/Up —
