@@ -1,4 +1,4 @@
-import { Suspense, useRef } from 'react';
+import { Suspense, useEffect, useRef } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import type { Group } from 'three';
 import type { CarType } from '@workspace/game-core';
@@ -10,6 +10,11 @@ import { VehicleModel, type ModelKey } from './VehicleMesh';
 // second, separate piece of 2D art that could visually drift from it.
 function Spinner({ modelKey }: { modelKey: ModelKey }) {
   const group = useRef<Group>(null);
+  // Resets the visible spin to the same starting angle on every car change,
+  // without needing to remount the whole <Canvas> (see CarPreview3D below).
+  useEffect(() => {
+    if (group.current) group.current.rotation.y = 0;
+  }, [modelKey]);
   useFrame((_, delta) => {
     if (group.current) group.current.rotation.y += delta * 0.5;
   });

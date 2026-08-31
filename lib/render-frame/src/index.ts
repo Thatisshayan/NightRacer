@@ -200,7 +200,12 @@ function vehiclePose(state: GameState, entity: RoadEntity): ApexVehiclePose {
 
 function toRoadEntity(vehicle: Vehicle): RoadEntity {
   return {
-    id: `vehicle-${vehicle.lane}-${vehicle.variant}-${vehicle.x.toFixed(1)}-${vehicle.y.toFixed(1)}`,
+    // Must be the vehicle's own stable spawn id, not derived from its
+    // position — R3FGameScene.tsx assigns each id a pool slot for the whole
+    // time it's on screen, so a position-derived id (which changes every
+    // frame as the vehicle moves) made every vehicle look "new" each tick,
+    // thrashing pool slots and forcing constant GLTF remounts.
+    id: vehicle.id,
     x: vehicle.x,
     y: vehicle.y,
     width: vehicle.width,

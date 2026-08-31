@@ -101,13 +101,17 @@ export function TitleScreen({
         </Pressable>
 
         <View style={styles.carCard}>
-          {/* key={selectedCar} remounts the canvas on car change instead of
-              swapping the model under a live GLTFLoader — cheap here since
-              expo-asset/useLoader both cache the resolved GLB per key, and
-              it resets the turntable spin to the same starting angle every
-              time a car is selected instead of carrying over whatever
-              rotation the previous car had reached. */}
-          <CarPreview3D key={selectedCar} carType={selectedCar} size={PREVIEW_SIZE} />
+          {/* No key={selectedCar} here: that used to remount the whole
+              <Canvas> (a fresh GL context) on every carousel tap. Cycling
+              through cars quickly enough could exhaust iOS's limited
+              EAGLContext pool before the old one finished tearing down —
+              the same class of GL-churn crash this app has already hit
+              multiple times (see the GLTFLoader/Suspense crash fixes in
+              git history). CarPreview3D's Canvas now stays mounted for the
+              screen's lifetime; only the model inside swaps, which
+              expo-asset/useLoader already cache per key, so switching cars
+              is still cheap. */}
+          <CarPreview3D carType={selectedCar} size={PREVIEW_SIZE} />
           <Text style={styles.carLabel}>{stats.label}</Text>
           <Text style={styles.carDesc}>{stats.desc}</Text>
           <Text style={styles.carStats}>{stats.stats}</Text>
