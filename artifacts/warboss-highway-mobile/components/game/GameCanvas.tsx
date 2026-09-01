@@ -1,4 +1,4 @@
-import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import {
   BlendColor,
   BlurMask,
@@ -18,7 +18,7 @@ import {
   type SkImage,
 } from '@shopify/react-native-skia';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import { runOnJS, useDerivedValue, useSharedValue } from 'react-native-reanimated';
+import { runOnJS, useDerivedValue, useSharedValue, type SharedValue } from 'react-native-reanimated';
 import { CAR_STATS, type GameRenderer, type GameState, type Obstacle, type Particle, type PowerUpItem, type Vehicle } from '@workspace/game-core';
 import type { NativeGameEngine } from './native-engine';
 import { useSpriteImages, vehicleImage } from './sprites';
@@ -26,7 +26,9 @@ import { useSpriteImages, vehicleImage } from './sprites';
 // Matches the web app's internal game resolution (see
 // artifacts/warboss-highway/src/pages/Game.tsx's canvas width/height) so
 // GameEngine's lane math produces the same layout on both platforms.
-// Computed dynamically based on scale to support different aspect ratios
+// NOTE: These are intentionally fixed values to maintain consistency with the
+// shared game-core simulation and web renderer. Dynamic computation based on
+// device size would break lane math and collision logic that assume 420x800.
 export const GAME_WIDTH = 420;
 export const GAME_HEIGHT = 800;
 // Was 80 — real playtesting called the asphalt texture too subtle/hard to
@@ -223,7 +225,7 @@ const NATIVE_BILLBOARDS: NativeBillboardGeometry[] = ([
   return { color, panelX, panelY, panelW, panelH, reflectionX: reflection.x, reflectionY: reflection.y, reflectionW, reflectionH };
 });
 
-function NativeLightning({ opacity }: { opacity: NumberSharedValue }) {
+function NativeLightning({ opacity }: { opacity: SharedValue<number> }) {
   return (
     <Group opacity={opacity}>
       <Rect x={0} y={0} width={GAME_WIDTH} height={HORIZON_Y + 34} color="#eaf7ff" opacity={0.12} />
@@ -234,7 +236,7 @@ function NativeLightning({ opacity }: { opacity: NumberSharedValue }) {
   );
 }
 
-function NativeBillboardReflections({ opacities }: { opacities: [NumberSharedValue, NumberSharedValue, NumberSharedValue] }) {
+function NativeBillboardReflections({ opacities }: { opacities: [SharedValue<number>, SharedValue<number>, SharedValue<number>] }) {
   return (
     <>
       {NATIVE_BILLBOARDS.map((board, index) => (
@@ -512,7 +514,7 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
   const billboardOpacity0 = useSharedValue(0.48);
   const billboardOpacity1 = useSharedValue(0.48);
   const billboardOpacity2 = useSharedValue(0.48);
-  const billboardOpacities: [NumberSharedValue, NumberSharedValue, NumberSharedValue] = [
+  const billboardOpacities: [SharedValue<number>, SharedValue<number>, SharedValue<number>] = [
     billboardOpacity0,
     billboardOpacity1,
     billboardOpacity2,

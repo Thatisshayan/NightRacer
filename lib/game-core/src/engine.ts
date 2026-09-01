@@ -218,6 +218,12 @@ const BOSS_INTERVAL_MS = 60000;
 const COMBO_DECAY_MS = 3000;
 export const POP_DURATION_MS = 220;
 const NEAR_MISS_EXTRA_PX = 22;
+// Camera and rendering constants
+const CAMERA_MAX_FACTOR = 0.18;
+const HORIZON_Y = 130;
+const SCREEN_SHAKE_DURATION = 300;
+const INVULN_TIMER_ARMOR = 1500;
+const INVULN_TIMER_DEFAULT = 2000;
 
 // Traffic spawns on a bounded cooldown (min/max ms, scaled down as speed/
 // distance ramp up) instead of a flat per-frame probability. A flat
@@ -780,7 +786,7 @@ export class GameEngine {
 
     // Camera follow — car drifts within the frame for a bigger sense of speed
     const targetCameraY = (state.player.y - this.initialPlayerY) * 0.65;
-    const cameraMax = this.height * 0.18;
+    const cameraMax = this.height * CAMERA_MAX_FACTOR;
     const clampedTarget = Math.max(-cameraMax, Math.min(cameraMax, targetCameraY));
     this.cameraY += (clampedTarget - this.cameraY) * 0.12 * frameScale;
 
@@ -1227,7 +1233,7 @@ export class GameEngine {
     state.vehicles.push({
       type: 'BOSS',
       x: centerX,
-      y: -160,
+      y: -HORIZON_Y,
       width: laneWidth * 1.85,
       height: 120,
       color: '#1a0a00',
@@ -1258,13 +1264,13 @@ export class GameEngine {
     // deterministic — initDailyRNG() reseeds this for reproducible days.
     if (this.upgrades.armor > 0 && this.rng() < this.upgrades.armor * 0.1) {
       this.state.player.isInvulnerable = true;
-      this.state.player.invulnTimer = 1500;
+      this.state.player.invulnTimer = INVULN_TIMER_ARMOR;
       this.createParticles(this.state.player.x, this.state.player.y, '#ffaa00', 10);
       this.haptics?.(60);
       return;
     }
     this.audio.play('crash');
-    this.state.screenShake = this.reducedMotion ? 0 : 300;
+    this.state.screenShake = this.reducedMotion ? 0 : SCREEN_SHAKE_DURATION;
     this.state.combo = 0;
     this.state.comboTimer = 0;
     this.state.rushTimer = 0;
@@ -1278,7 +1284,7 @@ export class GameEngine {
       this.gameOver();
     } else {
       this.state.player.isInvulnerable = true;
-      this.state.player.invulnTimer = 2000;
+      this.state.player.invulnTimer = INVULN_TIMER_DEFAULT;
     }
   }
 

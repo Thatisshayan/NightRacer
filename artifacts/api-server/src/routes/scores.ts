@@ -2,7 +2,7 @@ import { Router, type IRouter } from "express";
 import { rateLimit } from "express-rate-limit";
 import { db } from "@workspace/db";
 import { scoresTable } from "@workspace/db";
-import { desc, sql, gte, lt, gt } from "drizzle-orm";
+import { desc, sql, gte, lt, gt, and, eq } from "drizzle-orm";
 import {
   SubmitScoreBody,
   GetLeaderboardQueryParams,
@@ -27,13 +27,14 @@ router.get("/scores", async (req, res) => {
   try {
     const query = GetLeaderboardQueryParams.parse({ limit: req.query.limit ?? 20 });
     const limit = Math.min(query.limit ?? 20, 100);
+    const offset = Math.max(0, Number(req.query.offset ?? 0));
     const period = (req.query.period as string | undefined) ?? "all";
 
     let baseQuery = db.select().from(scoresTable).orderBy(desc(scoresTable.score));
 
     if (period === "daily") {
       const startOfDay = new Date();
-      startOfDay.setHours(0, 0, 0, 0);
+      startOfDay.setUTCHours(0, 0, 0, 0);
       baseQuery = db
         .select()
         .from(scoresTable)
@@ -41,8 +42,8 @@ router.get("/scores", async (req, res) => {
         .orderBy(desc(scoresTable.score)) as typeof baseQuery;
     } else if (period === "weekly") {
       const startOfWeek = new Date();
-      startOfWeek.setDate(startOfWeek.getDate() - 7);
-      startOfWeek.setHours(0, 0, 0, 0);
+      startOfWeek.setUTCDate(startOfWeek.getUTCDate() - 7);
+      startOfWeek.setUTCHours(0, 0, 0, 0);
       baseQuery = db
         .select()
         .from(scoresTable)
@@ -50,7 +51,7 @@ router.get("/scores", async (req, res) => {
         .orderBy(desc(scoresTable.score)) as typeof baseQuery;
     }
 
-    const rows = await baseQuery.limit(limit);
+    const rows = await baseQuery.limit(limit).offset(offset);
 
     const leaderboard = rows.map((row, index) => ({
       id: row.id,
@@ -60,14 +61,14 @@ router.get("/scores", async (req, res) => {
       distanceTraveled: row.distanceTraveled,
       car: row.car,
       dailyMode: row.dailyMode,
-      rank: index + 1,
+      rank: offset + index + 1,
       createdAt: row.createdAt.toISOString(),
     }));
 
     res.json(leaderboard);
   } catch (err) {
     req.log.error({ err }, "Failed to fetch leaderboard");
-    res.status(500).json({ error: "Failed to fetch leaderboard" });
+    res.status(500).json({ error: "Failed to fetch leaderboard", code: "SERVER_ERROR" });
   }
 });
 
@@ -83,19 +84,41 @@ router.post("/scores", scoreLimiter, async (req, res) => {
       body.distanceTraveled > 100_000
     ) {
       req.log.warn({ body }, "Score rejected: invalid distanceTraveled");
-      res.status(400).json({ error: "distanceTraveled must be a positive finite number <= 100,000" });
+      res.status(400).json({ error: "distanceTraveled must be a positive finite number <= 100,000", code: "INVALID_INPUT" });
       return;
     }
 
     // Explicitly check for negative score
     if (body.score < 0) {
       req.log.warn({ body }, "Score rejected: negative score");
-      res.status(400).json({ error: "Score cannot be negative" });
+      res.status(400).json({ error: "Score cannot be negative", code: "INVALID_INPUT" });
       return;
     }
 
     // Sanitize playerName to remove HTML tags and control characters
     const sanitizedPlayerName = body.playerName.replace(/[<>"'&]/g, "");
+
+    // Validate car field against allowed values
+    const ALLOWED_CARS = ["RATTLETRAP", "WAR_RUNNER", "DEATHSLED", "SCRAPQUEEN", "PHANTOM"];
+    if (body.car && !ALLOWED_CARS.includes(body.car)) {
+      req.log.warn({ body }, "Score rejected: invalid car type");
+      res.status(400).json({ error: "Invalid car type", code: "INVALID_INPUT" });
+      return;
+    }
+
+    // Check for duplicate scores (same player, score, and dailyMode)
+    const existingScore = await db.query.scoresTable.findFirst({
+      where: and(
+        eq(scoresTable.playerName, sanitizedPlayerName),
+        eq(scoresTable.score, body.score),
+        eq(scoresTable.dailyMode, body.dailyMode)
+      ),
+    });
+    if (existingScore) {
+      req.log.warn({ body }, "Score rejected: duplicate entry");
+      res.status(409).json({ error: "Duplicate score", code: "DUPLICATE_SCORE" });
+      return;
+    }
 
     // Server-side plausibility check
     const maxAllowed = Math.min(
@@ -104,7 +127,7 @@ router.post("/scores", scoreLimiter, async (req, res) => {
     );
     if (body.score > maxAllowed) {
       req.log.warn({ body }, "Score rejected: implausible value");
-      res.status(400).json({ error: "Score value is implausible" });
+      res.status(400).json({ error: "Score value is implausible", code: "INVALID_INPUT" });
       return;
     }
 
@@ -130,22 +153,25 @@ router.post("/scores", scoreLimiter, async (req, res) => {
 
       const rank = Number(rankResult[0]?.count ?? 0) + 1;
 
-      res.status(201).json({
-        id: inserted.id,
-        playerName: inserted.playerName,
-        score: inserted.score,
-        powerupsUsed: inserted.powerupsUsed,
-        distanceTraveled: inserted.distanceTraveled,
-        car: inserted.car,
-        dailyMode: inserted.dailyMode,
-        rank,
-        createdAt: inserted.createdAt.toISOString(),
-      });
-    });
-  } catch (err) {
-    req.log.error({ err }, "Failed to submit score");
-    res.status(400).json({ error: "Invalid score submission" });
-  }
+       // Log successful submission
+       req.log.info({ score: inserted.score, player: inserted.playerName }, "Score submitted successfully");
+
+       res.status(201).json({
+         id: inserted.id,
+         playerName: inserted.playerName,
+         score: inserted.score,
+         powerupsUsed: inserted.powerupsUsed,
+         distanceTraveled: inserted.distanceTraveled,
+         car: inserted.car,
+         dailyMode: inserted.dailyMode,
+         rank,
+         createdAt: inserted.createdAt.toISOString(),
+       });
+     });
+   } catch (err) {
+     req.log.error({ err }, "Failed to submit score");
+     res.status(500).json({ error: "Failed to submit score", code: "SERVER_ERROR" });
+   }
 });
 
 // GET /scores/stats — global game stats

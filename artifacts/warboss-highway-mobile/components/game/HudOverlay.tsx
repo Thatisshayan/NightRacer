@@ -82,15 +82,15 @@ export function HudOverlay({
 
   return (
     <ErrorBoundary>
-      <View style={styles.root} pointerEvents="box-none">
-      {/* Top HUD bar */}
-      <View style={styles.topBar} pointerEvents="box-none">
-        <Pressable onPress={onPause} style={styles.pauseButton} hitSlop={8}>
-          <Text style={styles.pauseIcon}>❙❙</Text>
-        </Pressable>
-        <Pressable onPress={onToggleMute} style={styles.muteButton} hitSlop={8}>
-          <Text style={styles.muteIcon}>{muted ? '🔇' : '🔊'}</Text>
-        </Pressable>
+       <View style={styles.root} pointerEvents="box-none">
+       {/* Top HUD bar */}
+       <View style={styles.topBar} pointerEvents="box-none">
+         <Pressable onPress={onPause} style={styles.pauseButton} hitSlop={8} testID="pause-button">
+           <Text style={styles.pauseIcon}>❙❙</Text>
+         </Pressable>
+         <Pressable onPress={onToggleMute} style={styles.muteButton} hitSlop={8} testID="mute-button">
+           <Text style={styles.muteIcon}>{muted ? '🔇' : '🔊'}</Text>
+         </Pressable>
         <Text
           style={[
             styles.score,
@@ -119,21 +119,22 @@ export function HudOverlay({
         {state.player.oilSlicked && <Text style={styles.oilWarning}>⚠ SLIPPING</Text>}
       </View>
 
-      {/* Earned Rush control. Its wide target keeps the burst usable one-handed
-          on a phone while keyboard users can still use Space on the web build. */}
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Activate Rush when charged"
-        onPress={() => engine.triggerRush()}
-        disabled={!rushReady}
-        style={[
-          styles.rushControl,
-          {
-            borderColor: state.rushTimer > 0 ? '#df4bff' : rushReady ? '#27d9ff' : 'rgba(130,149,170,0.55)',
-            opacity: rushReady || state.rushTimer > 0 ? 1 : 0.68,
-          },
-        ]}
-      >
+       {/* Earned Rush control. Its wide target keeps the burst usable one-handed
+           on a phone while keyboard users can still use Space on the web build. */}
+       <Pressable
+         accessibilityRole="button"
+         accessibilityLabel="Activate Rush when charged"
+         onPress={() => engine.triggerRush()}
+         disabled={!rushReady}
+         style={[
+           styles.rushControl,
+           {
+             borderColor: state.rushTimer > 0 ? '#df4bff' : rushReady ? '#27d9ff' : 'rgba(130,149,170,0.55)',
+             opacity: rushReady || state.rushTimer > 0 ? 1 : 0.68,
+           },
+         ]}
+         testID="rush-button"
+       >
         <View
           style={[
             styles.rushFill,
