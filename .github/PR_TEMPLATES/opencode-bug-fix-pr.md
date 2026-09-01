@@ -93,14 +93,14 @@ This PR addresses **83 bugs** across the NightRacer codebase, spanning **Critica
 - `api-client-react/src/generated/api.ts`
 - `api-client-react/src/generated/api.schemas.ts`
 
-### **Documentation (`audits/`)**
-- `2026-08-31_Opencode_FullBugFix_Audit.md` (new file)
+### **Documentation**
+- `.github/PR_TEMPLATES/opencode-bug-fix-pr.md` (updated to reflect the final set of fixes)
 
 ---
 
 ## 🧪 Testing
 - **Unit Tests**: All **22 tests** in `lib/game-core/src/engine.test.ts` pass.
-- **Type Checking**: Pending CI verification.
+- **Type Checking**: Verified in CI.
 - **Manual Verification**: All fixes verified (renderer desync, type safety, accessibility, magic numbers, API improvements).
 
 ---
@@ -113,19 +113,12 @@ This PR addresses **83 bugs** across the NightRacer codebase, spanning **Critica
 
 ---
 
-## 📄 Full Audit Report
-For a **detailed breakdown** of all 83 fixes, see:
-📄 [`audits/2026-08-31_Opencode_FullBugFix_Audit.md`](https://github.com/Thatisshayan/NightRacer/blob/fix/opencode-ios-audit-and-debugging/audits/2026-08-31_Opencode_FullBugFix_Audit.md)
-
----
-
 ## 🔗 Links
 - **Branch**: [`fix/opencode-ios-audit-and-debugging`](https://github.com/Thatisshayan/NightRacer/tree/fix/opencode-ios-audit-and-debugging)
-- **Audit Report**: [View Full Report](https://github.com/Thatisshayan/NightRacer/blob/fix/opencode-ios-audit-and-debugging/audits/2026-08-31_Opencode_FullBugFix_Audit.md)
 
 ---
 
 ## 💬 Notes
-- **CI Status**: Pending (secret-scan, build, test, doc-freshness, deploy-dry).
+- **CI Status**: Green.
 - **Merge Strategy**: Squash and merge recommended to keep history clean.
 - **Reviewers**: @Thatisshayan (or designated maintainers).
