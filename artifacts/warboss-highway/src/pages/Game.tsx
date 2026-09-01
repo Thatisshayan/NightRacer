@@ -54,6 +54,10 @@ const AUTOPILOT_Y_POSITION = 720;
 // Renderer Constants
 const CANVAS_WIDTH = 420;
 const CANVAS_HEIGHT = 800;
+const PIXI_RENDERER_WIDTH = 420;
+const PIXI_RENDERER_HEIGHT = 800;
+const APEX_RENDERER_WIDTH = 420;
+const APEX_RENDERER_HEIGHT = 800;
 
 // ── Personal Best ──────────────────────────────────────────────────────────────
 const getPB = (car: CarType): number =>
