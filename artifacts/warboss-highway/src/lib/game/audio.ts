@@ -15,7 +15,14 @@ let musicPlaying = false;
 let musicStarting = false;
 
 const getCtx = (): AudioContext => {
-  if (!ctx) ctx = new AudioContext();
+  if (!ctx) {
+    // Feature detection for AudioContext (Bug Fix 2)
+    if (!window.AudioContext && !window.webkitAudioContext) {
+      throw new Error('Web Audio API not supported');
+    }
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    ctx = new AudioContextClass();
+  }
   return ctx;
 };
 
@@ -131,7 +138,7 @@ const stopMusic = () => {
   });
   musicNodes = [];
   musicPlaying = false;
-  musicStarting = false;
+  musicStarting = false; // Reset musicStarting to allow restarting
 };
 
 const startMusic = (type: 'menu' | 'gameplay') => {
@@ -187,6 +194,7 @@ const startMusic = (type: 'menu' | 'gameplay') => {
   if (ac.state === 'suspended') {
     // resume() is async; flip the guard now so a second call in the gap is
     // a no-op, and only build/start the graph once the context is running.
+    if (musicStarting) return; // Early return to prevent re-entry
     musicStarting = true;
     ac.resume().then(begin).catch(() => { musicStarting = false; });
   } else {

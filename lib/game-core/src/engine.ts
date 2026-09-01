@@ -223,6 +223,17 @@ const BOSS_INTERVAL_MS = 60000;
 const COMBO_DECAY_MS = 3000;
 export const POP_DURATION_MS = 220;
 const NEAR_MISS_EXTRA_PX = 22;
+// Camera and rendering constants
+/** Maximum camera offset factor (0.18 = 18% of screen height). */
+const CAMERA_MAX_FACTOR = 0.18;
+/** Y-coordinate of the horizon line (used for perspective effects). */
+const HORIZON_Y = 130;
+/** Duration of screen shake effect in milliseconds. */
+const SCREEN_SHAKE_DURATION = 300;
+/** Invulnerability timer duration for armor power-up (ms). */
+const INVULN_TIMER_ARMOR = 1500;
+/** Default invulnerability timer duration (ms). */
+const INVULN_TIMER_DEFAULT = 2000;
 
 // Traffic spawns on a bounded cooldown (min/max ms, scaled down as speed/
 // distance ramp up) instead of a flat per-frame probability. A flat
@@ -396,7 +407,7 @@ export class GameEngine {
     this.audio = options?.audio ?? NOOP_AUDIO;
     this.haptics = options?.haptics;
     this.reducedMotion = options?.reducedMotion ?? false;
-    this.rng = options?.random ?? Math.random;
+    this.rng = options?.random ?? this.createSeededRNG();
 
     if (this.isDailyChallenge) {
       this.initDailyRNG();
@@ -457,16 +468,21 @@ export class GameEngine {
     this.init();
   }
 
-  private initDailyRNG() {
-    const d = new Date();
-    let s = d.getUTCFullYear() * 10000 + (d.getUTCMonth() + 1) * 100 + d.getUTCDate();
-    this.rng = () => {
+  private createSeededRNG(seed: number = 0x12345678): () => number {
+    let s = seed;
+    return () => {
       s |= 0;
       s = (s + 0x6D2B79F5) | 0;
       let t = Math.imul(s ^ (s >>> 15), 1 | s);
       t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
       return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     };
+  }
+
+  private initDailyRNG() {
+    const d = new Date();
+    let s = d.getUTCFullYear() * 10000 + (d.getUTCMonth() + 1) * 100 + d.getUTCDate();
+    this.rng = this.createSeededRNG(s);
   }
 
   private init() {
@@ -571,9 +587,11 @@ export class GameEngine {
   }
 
   private clampPlayerPosition() {
+    /** Margin from the road edge to clamp player position (prevents going off-screen). */
+    const ROAD_MARGIN = 18;
     const player = this.state.player;
-    const roadLeft = 18 + player.width / 2;
-    const roadRight = this.width - 18 - player.width / 2;
+    const roadLeft = ROAD_MARGIN + player.width / 2;
+    const roadRight = this.width - ROAD_MARGIN - player.width / 2;
     player.x = Math.max(roadLeft, Math.min(roadRight, player.x));
     player.y = Math.max(player.height / 2 + 10, Math.min(this.height - 60, player.y));
   }
@@ -671,11 +689,15 @@ export class GameEngine {
   };
 
   private getSpeedLevel(distance: number) {
-    return Math.min(5, 1 + Math.floor(distance / 1000 / 15));
+    const SPEED_LEVEL_DISTANCE = 15000;
+    const MAX_SPEED_LEVEL = 5;
+    return Math.min(MAX_SPEED_LEVEL, 1 + Math.floor(distance / SPEED_LEVEL_DISTANCE));
   }
 
   private getSpeedMultiplier(distance: number) {
-    return Math.min(3, 1 + (this.getSpeedLevel(distance) - 1) * 0.5);
+    const SPEED_MULTIPLIER_PER_LEVEL = 0.5;
+    const MAX_SPEED_MULTIPLIER = 3;
+    return Math.min(MAX_SPEED_MULTIPLIER, 1 + (this.getSpeedLevel(distance) - 1) * SPEED_MULTIPLIER_PER_LEVEL);
   }
 
   private update(dt: number) {
@@ -747,7 +769,7 @@ export class GameEngine {
     state.score += (currentSpeed / 10) * scoreMult * comboBonus * this.dailyModifier.scoreMult;
 
     // Road scroll
-    state.roadOffset = (state.roadOffset + currentSpeed * 1.5) % 80;
+    state.roadOffset = (state.roadOffset + currentSpeed * 1.5 * frameScale) % 80;
 
     // Player movement. Lateral steering now has a small, deterministic
     // velocity curve: responsive enough for a dodge game, but with visible
@@ -757,9 +779,9 @@ export class GameEngine {
       const handling = 1 + this.upgrades.handling * 0.08;
       const targetVx = len > 0 ? (dx / len) * 5.1 * handling : 0;
       const steeringResponse = Math.min(1, 0.38 * frameScale);
-      state.player.vx += (targetVx - state.player.vx) * steeringResponse;
-      if (Math.abs(targetVx) < 0.01) state.player.vx *= Math.pow(0.72, frameScale);
-      state.player.x += state.player.vx * frameScale;
+       state.player.vx += (targetVx - state.player.vx) * steeringResponse;
+       if (Math.abs(targetVx) < 0.01) state.player.vx *= 0.72 ** frameScale;
+       state.player.x += state.player.vx * frameScale;
       if (len > 0) {
         const verticalSpeed = 3.2 * handling * frameScale;
         state.player.y += (dy / len) * verticalSpeed;
@@ -770,17 +792,17 @@ export class GameEngine {
       // Slight drift when oiled, with a matching visual bank that signals the
       // loss of control without relying on color alone.
       const slip = Math.sin(state.distance * 0.08) * 2;
-      state.player.x += slip;
-      state.player.vx = slip;
+       state.player.x += slip * frameScale;
+       state.player.vx = slip * frameScale;
       state.driveTilt = Math.max(-1, Math.min(1, slip / 2));
       this.clampPlayerPosition();
     }
 
     // Camera follow — car drifts within the frame for a bigger sense of speed
     const targetCameraY = (state.player.y - this.initialPlayerY) * 0.65;
-    const cameraMax = this.height * 0.18;
+    const cameraMax = this.height * CAMERA_MAX_FACTOR;
     const clampedTarget = Math.max(-cameraMax, Math.min(cameraMax, targetCameraY));
-    this.cameraY += (clampedTarget - this.cameraY) * 0.12;
+    this.cameraY += (clampedTarget - this.cameraY) * 0.12 * frameScale;
 
     // Timers
     if (state.activePowerUp) {
@@ -807,13 +829,13 @@ export class GameEngine {
       if (state.comboTimer <= 0) state.combo = 0;
     }
 
-    // Boss warning countdown
-    if (state.bossWarning > 0) {
-      state.bossWarning -= dt;
-      if (state.bossWarning <= 0 && !state.bossActive) {
-        this.spawnBoss(currentSpeed);
-      }
-    }
+     // Boss warning countdown
+     if (state.bossWarning > 0) {
+       state.bossWarning -= dt;
+       if (state.bossWarning <= 0 && !state.bossActive) {
+         if (!state.vehicles.some(v => v.type === 'BOSS')) this.spawnBoss(currentSpeed);
+       }
+     }
 
     // Boss interval timer
     if (!state.bossActive && state.bossWarning <= 0) {
@@ -979,7 +1001,7 @@ export class GameEngine {
     for (let i = state.particles.length - 1; i >= 0; i--) {
       const p = state.particles[i];
       p.x += p.vx * frameScale;
-      p.y += (p.vy + currentSpeed * 0.2) * frameScale;
+      p.y += (p.vy + currentSpeed * 0.2 * frameScale) * frameScale;
       p.life -= dt;
       if (p.life <= 0) state.particles.splice(i, 1);
     }
@@ -1071,7 +1093,12 @@ export class GameEngine {
     const pattern = this.activePattern;
     const beat = pattern.beats[this.patternBeat];
     for (const lane of beat) {
-      this.spawnVehicleInLane(currentSpeed, this.patternMirrored ? 3 - lane : lane);
+      let mirroredLane = this.patternMirrored ? 3 - lane : lane;
+      if (mirroredLane < 0 || mirroredLane > 3) {
+        console.warn(`Invalid lane index ${mirroredLane} in traffic pattern ${pattern.id}, beat ${this.patternBeat}. Clamping to 0-3.`);
+        mirroredLane = Math.max(0, Math.min(3, mirroredLane));
+      }
+      this.spawnVehicleInLane(currentSpeed, mirroredLane);
     }
     this.patternBeat++;
 
@@ -1084,13 +1111,13 @@ export class GameEngine {
     }
   }
 
-  private spawnVehicle(currentSpeed: number, excludeLane?: number): number | undefined {
-    const spec = this.rollVehicleSpec(currentSpeed);
-    const spot = this.findSafeSpawnX(spec.width, excludeLane);
-    if (!spot) return undefined;
-    this.pushVehicle(spec, spot.lane, spot.x, currentSpeed);
-    return spot.lane;
-  }
+   private spawnVehicle(currentSpeed: number, excludeLane?: number): number | undefined {
+     const spec = this.rollVehicleSpec(currentSpeed);
+     const spot = this.findSafeSpawnX(spec.width, excludeLane);
+     if (!spot) return undefined;
+     this.pushVehicle(spec, spot.lane, spot.x, currentSpeed);
+     return spot.lane;
+   }
 
   // Pattern-driven spawn: the lane is dictated by the beat, not sampled. If
   // that lane is occupied the beat simply drops the car rather than sliding it
@@ -1207,9 +1234,10 @@ export class GameEngine {
     }
   }
 
-  private spawnBoss(currentSpeed: number) {
-    const state = this.state;
-    state.bossActive = true;
+   private spawnBoss(currentSpeed: number) {
+     const state = this.state;
+     if (state.vehicles.some(v => v.type === 'BOSS')) return;
+     state.bossActive = true;
     const laneWidth = this.width / 4;
     // Centers on the direction divide (between lanes 1 and 2) so it spans
     // across both directions' lanes — a full-road blocker, matching its
@@ -1221,7 +1249,7 @@ export class GameEngine {
       id: `vehicle-${++this.vehicleIdCounter}`,
       type: 'BOSS',
       x: centerX,
-      y: -160,
+      y: -HORIZON_Y,
       width: laneWidth * 1.85,
       height: 120,
       color: '#1a0a00',
@@ -1252,13 +1280,13 @@ export class GameEngine {
     // deterministic — initDailyRNG() reseeds this for reproducible days.
     if (this.upgrades.armor > 0 && this.rng() < this.upgrades.armor * 0.1) {
       this.state.player.isInvulnerable = true;
-      this.state.player.invulnTimer = 1500;
+      this.state.player.invulnTimer = INVULN_TIMER_ARMOR;
       this.createParticles(this.state.player.x, this.state.player.y, '#ffaa00', 10);
       this.haptics?.(60);
       return;
     }
     this.audio.play('crash');
-    this.state.screenShake = this.reducedMotion ? 0 : 300;
+    this.state.screenShake = this.reducedMotion ? 0 : SCREEN_SHAKE_DURATION;
     this.state.combo = 0;
     this.state.comboTimer = 0;
     this.state.rushTimer = 0;
@@ -1272,7 +1300,7 @@ export class GameEngine {
       this.gameOver();
     } else {
       this.state.player.isInvulnerable = true;
-      this.state.player.invulnTimer = 2000;
+      this.state.player.invulnTimer = INVULN_TIMER_DEFAULT;
     }
   }
 
@@ -1295,20 +1323,24 @@ export class GameEngine {
     }
   }
 
-  private createParticles(x: number, y: number, color: string, count: number) {
-    for (let i = 0; i < count; i++) {
-      this.state.particles.push({
-        x, y,
-        // Use the seeded rng (not Math.random) for daily-challenge determinism.
-        vx: (this.rng() - 0.5) * 10,
-        vy: (this.rng() - 0.5) * 10,
-        life: 500 + this.rng() * 500,
-        maxLife: 1000,
-        color,
-        size: 2 + this.rng() * 4,
-      });
-    }
-  }
+   private createParticles(x: number, y: number, color: string, count: number) {
+     const PARTICLE_VELOCITY_RANGE = 10;
+     const PARTICLE_SIZE_MIN = 2;
+     const PARTICLE_SIZE_RANGE = 4;
+     for (let i = 0; i < count; i++) {
+       const life = 500 + this.rng() * 500;
+       this.state.particles.push({
+         x, y,
+         // Use the seeded rng (not Math.random) for daily-challenge determinism.
+         vx: (this.rng() - 0.5) * PARTICLE_VELOCITY_RANGE,
+         vy: (this.rng() - 0.5) * PARTICLE_VELOCITY_RANGE,
+         life: Math.min(life, 1000),
+         maxLife: 1000,
+         color,
+         size: PARTICLE_SIZE_MIN + this.rng() * PARTICLE_SIZE_RANGE,
+       });
+     }
+   }
 
   private gameOver() {
     const state = this.state;
@@ -1316,7 +1348,7 @@ export class GameEngine {
     if (!state.wasHit) this.grantAchievement('untouchable');
     if (state.lives >= 3) this.grantAchievement('survivor');
     this.audio.play('gameover');
-    this.audio.stop('gameplay');
+    if (this.audio.stop) this.audio.stop('gameplay');
     this.onGameOver(state);
   }
 }

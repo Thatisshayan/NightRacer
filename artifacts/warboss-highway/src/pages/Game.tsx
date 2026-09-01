@@ -12,6 +12,49 @@ import { Button } from '@/components/ui/button';
 // Enter/move curve from the ui-animation skill's easing defaults.
 const ENTER_EASE = [0.22, 1, 0.36, 1] as const;
 
+// ── Constants ────────────────────────────────────────────────────────────────────
+
+// Car Preview Constants
+const CAR_PREVIEW_CANVAS_WIDTH = 80;
+const CAR_PREVIEW_CANVAS_HEIGHT = 100;
+const CAR_PREVIEW_TRANSLATE_X = 40;
+const CAR_PREVIEW_TRANSLATE_Y = 50;
+const CAR_PREVIEW_BOUNCE_AMPLITUDE_SELECTED = 3;
+const CAR_PREVIEW_BOUNCE_AMPLITUDE_DEFAULT = 1;
+const CAR_PREVIEW_BOUNCE_SPEED = 2;
+
+// Title Road Animation Constants
+const TITLE_ROAD_SCROLL_SPEED = 180; // pixels per second
+const TITLE_ROAD_PATTERN_LENGTH = 60; // pixels for lane marking repeat
+const TITLE_ROAD_BG_COLOR = '#111';
+const TITLE_ROAD_SURFACE_COLOR = '#1a1a1a';
+const TITLE_ROAD_LANE_MARKING_COLOR = 'rgba(255,255,255,0.15)';
+const TITLE_ROAD_LANE_DASH_PATTERN = [30, 30] as const;
+const TITLE_ROAD_LANE_POSITION_LEFT = 0.367; // percentage of width
+const TITLE_ROAD_LANE_POSITION_RIGHT = 0.633; // percentage of width
+const TITLE_ROAD_EDGE_COLOR = 'rgba(220,38,38,0.3)';
+const TITLE_ROAD_EDGE_POSITION_LEFT = 0.1; // percentage of width
+const TITLE_ROAD_EDGE_POSITION_RIGHT = 0.9; // percentage of width
+const TITLE_ROAD_CAR_Y_POSITION = 0.72; // percentage of height
+const TITLE_ROAD_CAR_SHADOW_BLUR = 20;
+const TITLE_ROAD_CAR_SCALE = 1.4;
+const TITLE_ROAD_VIGNETTE_INNER_RADIUS = 0.2; // percentage of height
+const TITLE_ROAD_VIGNETTE_OUTER_RADIUS = 0.75; // percentage of height
+const TITLE_ROAD_VIGNETTE_COLOR_INNER = 'transparent';
+const TITLE_ROAD_VIGNETTE_COLOR_OUTER = 'rgba(0,0,0,0.6)';
+
+// Gameplay Constants
+const SCRAP_DIVISOR_FOR_EARNED_SCRAP = 100;
+const TUTORIAL_DELAY_MS = 1100;
+const AUTOPILOT_BASE_X = 210;
+const AUTOPILOT_AMPLITUDE = 150;
+const AUTOPILOT_SPEED = 0.02;
+const AUTOPILOT_Y_POSITION = 720;
+
+// Renderer Constants
+const CANVAS_WIDTH = 420;
+const CANVAS_HEIGHT = 800;
+
 // ── Personal Best ──────────────────────────────────────────────────────────────
 const getPB = (car: CarType): number =>
   parseInt(localStorage.getItem(`warboss_pb_${car}`) || '0', 10);
@@ -60,9 +103,9 @@ function CarPreview({ carType, selected }: { carType: CarType; selected: boolean
         : false;
 
     const render = (bobY: number) => {
-      ctx.clearRect(0, 0, 80, 100);
+      ctx.clearRect(0, 0, CAR_PREVIEW_CANVAS_WIDTH, CAR_PREVIEW_CANVAS_HEIGHT);
       ctx.save();
-      ctx.translate(40, 50 + bobY);
+      ctx.translate(CAR_PREVIEW_TRANSLATE_X, CAR_PREVIEW_TRANSLATE_Y + bobY);
       drawVehicle(ctx, carType, stats.width, stats.height, stats.color);
       ctx.restore();
     };
@@ -78,8 +121,8 @@ function CarPreview({ carType, selected }: { carType: CarType; selected: boolean
     const start = performance.now();
     const loop = (now: number) => {
       const t = (now - start) / 1000;
-      const amplitude = selected ? 3 : 1;
-      render(Math.sin(t * 2) * amplitude);
+      const amplitude = selected ? CAR_PREVIEW_BOUNCE_AMPLITUDE_SELECTED : CAR_PREVIEW_BOUNCE_AMPLITUDE_DEFAULT;
+      render(Math.sin(t * CAR_PREVIEW_BOUNCE_SPEED) * amplitude);
       rafId = requestAnimationFrame(loop);
     };
     rafId = requestAnimationFrame(loop);
@@ -89,8 +132,8 @@ function CarPreview({ carType, selected }: { carType: CarType; selected: boolean
   return (
     <canvas
       ref={ref}
-      width={80}
-      height={100}
+      width={CAR_PREVIEW_CANVAS_WIDTH}
+      height={CAR_PREVIEW_CANVAS_HEIGHT}
       className={`w-full h-20 object-contain transition-all ${selected ? 'opacity-100' : 'opacity-60'}`}
     />
   );
@@ -183,27 +226,26 @@ export default function Game() {
     let roadY = 0;
     let rafId = 0;
     let lastTs = 0;
-    const PIXELS_PER_SECOND = 180;
 
     const draw = (ts: number) => {
       const dt = lastTs ? (ts - lastTs) / 1000 : 0;
       lastTs = ts;
-      roadY = (roadY + dt * PIXELS_PER_SECOND) % 60;
+      roadY = (roadY + dt * TITLE_ROAD_SCROLL_SPEED) % TITLE_ROAD_PATTERN_LENGTH;
 
       // Dark road
-      ctx.fillStyle = '#111';
+      ctx.fillStyle = TITLE_ROAD_BG_COLOR;
       ctx.fillRect(0, 0, W, H);
 
       // Road surface
-      ctx.fillStyle = '#1a1a1a';
-      ctx.fillRect(W * 0.1, 0, W * 0.8, H);
+      ctx.fillStyle = TITLE_ROAD_SURFACE_COLOR;
+      ctx.fillRect(W * TITLE_ROAD_EDGE_POSITION_LEFT, 0, W * 0.8, H);
 
       // Lane markings
-      ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+      ctx.strokeStyle = TITLE_ROAD_LANE_MARKING_COLOR;
       ctx.lineWidth = 2;
-      ctx.setLineDash([30, 30]);
+      ctx.setLineDash(TITLE_ROAD_LANE_DASH_PATTERN);
       ctx.lineDashOffset = -roadY;
-      for (const lx of [W * 0.367, W * 0.633]) {
+      for (const lx of [W * TITLE_ROAD_LANE_POSITION_LEFT, W * TITLE_ROAD_LANE_POSITION_RIGHT]) {
         ctx.beginPath();
         ctx.moveTo(lx, 0);
         ctx.lineTo(lx, H);
@@ -212,30 +254,33 @@ export default function Game() {
       ctx.setLineDash([]);
 
       // Road edges
-      ctx.strokeStyle = 'rgba(220,38,38,0.3)';
+      ctx.strokeStyle = TITLE_ROAD_EDGE_COLOR;
       ctx.lineWidth = 3;
       ctx.beginPath();
-      ctx.moveTo(W * 0.1, 0); ctx.lineTo(W * 0.1, H);
-      ctx.moveTo(W * 0.9, 0); ctx.lineTo(W * 0.9, H);
+      ctx.moveTo(W * TITLE_ROAD_EDGE_POSITION_LEFT, 0); ctx.lineTo(W * TITLE_ROAD_EDGE_POSITION_LEFT, H);
+      ctx.moveTo(W * TITLE_ROAD_EDGE_POSITION_RIGHT, 0); ctx.lineTo(W * TITLE_ROAD_EDGE_POSITION_RIGHT, H);
       ctx.stroke();
 
       // Player car silhouette in center lane
       const car = CAR_STATS[selectedCar];
       const cx = W / 2;
-      const cy = H * 0.72;
+      const cy = H * TITLE_ROAD_CAR_Y_POSITION;
       // Glow
       ctx.shadowColor = car.color;
-      ctx.shadowBlur = 20;
+      ctx.shadowBlur = TITLE_ROAD_CAR_SHADOW_BLUR;
       ctx.save();
       ctx.translate(cx, cy);
-      drawVehicle(ctx, selectedCar, car.width * 1.4, car.height * 1.4, car.color);
+      drawVehicle(ctx, selectedCar, car.width * TITLE_ROAD_CAR_SCALE, car.height * TITLE_ROAD_CAR_SCALE, car.color);
       ctx.restore();
       ctx.shadowBlur = 0;
 
       // Vignette
-      const vig = ctx.createRadialGradient(W/2, H/2, H*0.2, W/2, H/2, H*0.75);
-      vig.addColorStop(0, 'transparent');
-      vig.addColorStop(1, 'rgba(0,0,0,0.6)');
+      const vig = ctx.createRadialGradient(
+        W/2, H/2, H * TITLE_ROAD_VIGNETTE_INNER_RADIUS,
+        W/2, H/2, H * TITLE_ROAD_VIGNETTE_OUTER_RADIUS
+      );
+      vig.addColorStop(0, TITLE_ROAD_VIGNETTE_COLOR_INNER);
+      vig.addColorStop(1, TITLE_ROAD_VIGNETTE_COLOR_OUTER);
       ctx.fillStyle = vig;
       ctx.fillRect(0, 0, W, H);
 
@@ -273,7 +318,7 @@ export default function Game() {
     if (screen !== 'title' || Settings.getTutorialSeen()) return;
     // Let the title screen render and settle first — opening the modal on the
     // same frame hides the game's identity behind a wall of instructions.
-    const timer = window.setTimeout(() => setShowTutorial(true), 1100);
+    const timer = window.setTimeout(() => setShowTutorial(true), TUTORIAL_DELAY_MS);
     return () => window.clearTimeout(timer);
   }, [screen]);
 
@@ -314,7 +359,7 @@ export default function Game() {
       canvasRef.current,
       (state) => {
         const isNew = updatePB(selectedCar, state.score);
-        const earned = Math.floor(state.score / 100) + (isDailyChallenge ? Math.floor(state.score * dailyModifier.scrapBonus) : 0);
+        const earned = Math.floor(state.score / SCRAP_DIVISOR_FOR_EARNED_SCRAP) + (isDailyChallenge ? Math.floor(state.score * dailyModifier.scrapBonus) : 0);
         Settings.addScrap(earned);
         setScrap(Settings.getScrap());
         setScrapEarned(earned);
@@ -341,16 +386,16 @@ export default function Game() {
     // Apex gameplay and every legacy renderer retain the engine RAF lifecycle.
     if (!useApexDemo) engineRef.current.start();
 
-    // Motion/Rush demo: simple autopilot to show off the curved road and grounded contact.
-    if ((useApexMotionDemo || useApexRushDemo) && engineRef.current) {
-      const engine = engineRef.current;
-      let frame = 0;
-      const autopilot = () => {
-        if (engineRef.current !== engine || screenRef.current !== 'playing') return;
-        frame++;
-        // Move in a gentle sine wave across lanes
-        const targetX = 210 + Math.sin(frame * 0.02) * 150;
-        engine.pointerMove(targetX, 720);
+      // Motion/Rush demo: simple autopilot to show off the curved road and grounded contact.
+      if ((useApexMotionDemo || useApexRushDemo) && engineRef.current) {
+        const engine = engineRef.current;
+        let frame = 0;
+        const autopilot = () => {
+          if (engineRef.current !== engine || screenRef.current !== 'playing') return;
+          frame++;
+          // Move in a gentle sine wave across lanes
+          const targetX = AUTOPILOT_BASE_X + Math.sin(frame * AUTOPILOT_SPEED) * AUTOPILOT_AMPLITUDE;
+          engine.pointerMove(targetX, AUTOPILOT_Y_POSITION);
 
         if (useApexRushDemo) {
           // Keep Rush force-armed every frame so the demo stays in its
@@ -368,7 +413,7 @@ export default function Game() {
       const host = pixiHostRef.current;
       host.innerHTML = '';
       import('@/lib/game/pixi-renderer').then(({ PixiRenderer }) =>
-        PixiRenderer.create(host, 420, 800)
+        PixiRenderer.create(host, PIXI_RENDERER_WIDTH, PIXI_RENDERER_HEIGHT)
       ).then((renderer) => {
         // Bail if the engine was torn down (restart) or the component
         // unmounted while the Pixi bundle/app was still loading — otherwise
@@ -387,7 +432,7 @@ export default function Game() {
       const host = apexHostRef.current;
       host.replaceChildren();
       import('@/lib/game/apex-storm-renderer').then(({ ApexStormRenderer }) =>
-        ApexStormRenderer.create(host, 420, 800, { demo: useApexDemo })
+        ApexStormRenderer.create(host, APEX_RENDERER_WIDTH, APEX_RENDERER_HEIGHT, { demo: useApexDemo })
       ).then((renderer) => {
         if (unmountedRef.current || engineRef.current !== engine) { renderer.destroy(); return; }
         engine.attachRenderer(renderer);
@@ -454,15 +499,15 @@ export default function Game() {
           elsewhere (HUD skulls, buttons), on top of the pre-existing glow
           shadow. */}
       <div className="relative w-full max-w-[420px] h-full shadow-[0_0_52px_rgba(39,217,255,0.18)] border border-[#27d9ff]/55 bg-[#050816]">
-        {/* Game canvas — always mounted (and always visible) so the engine can
-            attach, and so the crash frame stays painted underneath the
-            game-over overlay as it fades in instead of hard-cutting to black. */}
-        <canvas
-          ref={canvasRef}
-          width={420}
-          height={800}
-          className="block w-full h-full object-cover touch-none"
-        />
+         {/* Game canvas — always mounted (and always visible) so the engine can
+             attach, and so the crash frame stays painted underneath the
+             game-over overlay as it fades in instead of hard-cutting to black. */}
+         <canvas
+           ref={canvasRef}
+           width={CANVAS_WIDTH}
+           height={CANVAS_HEIGHT}
+           className="block w-full h-full object-cover touch-none"
+         />
 
         {/* Pixi remains the production renderer and stays mounted over the
             simulation canvas. It is deliberately separate from the Apex host

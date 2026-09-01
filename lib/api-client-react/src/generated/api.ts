@@ -153,14 +153,16 @@ export const getGetLeaderboardUrl = (params?: GetLeaderboardParams,) => {
  */
 export const getLeaderboard = async (params?: GetLeaderboardParams, options?: RequestInit): Promise<Score[]> => {
 
-  return customFetch<Score[]>(getGetLeaderboardUrl(params),
+  const result = await customFetch<Score[] | null>(getGetLeaderboardUrl(params),
   {
     ...options,
     method: 'GET'
 
 
   }
-);}
+);
+  return result ?? [];
+}
 
 
 
@@ -269,24 +271,32 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-  return  { mutationFn, ...mutationOptions }}
+  return  { mutationFn, retry: 3, retryDelay: 1000, ...mutationOptions }}
 
     export type SubmitScoreMutationResult = NonNullable<Awaited<ReturnType<typeof submitScore>>>
     export type SubmitScoreMutationBody = BodyType<ScoreInput>
-    export type SubmitScoreMutationError = ErrorType<void>
+    export type SubmitScoreMutationError = ErrorType<unknown>
 
     /**
  * @summary Submit a new score
  */
 export const useSubmitScore = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof submitScore>>, TError,{data: BodyType<ScoreInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
- ): UseMutationResult<
+): UseMutationResult<
         Awaited<ReturnType<typeof submitScore>>,
         TError,
         {data: BodyType<ScoreInput>},
         TContext
       > => {
-      return useMutation(getSubmitScoreMutationOptions(options));
+      return useMutation(getSubmitScoreMutationOptions({
+        ...options,
+        mutation: {
+          ...options?.mutation,
+          onError: (error) => {
+            console.error("Failed to submit score:", error);
+          },
+        },
+      }));
     }
 
 export const getGetGameStatsUrl = () => {
