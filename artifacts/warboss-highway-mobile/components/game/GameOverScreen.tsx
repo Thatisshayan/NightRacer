@@ -123,10 +123,10 @@ export function GameOverScreen({
         )}
 
         <View style={styles.actionsRow}>
-          <Pressable style={styles.actionButton} onPress={onRestart} accessibilityLabel="Play Again">
+          <Pressable style={styles.actionButton} onPress={onRestart} accessibilityLabel="Play Again" accessibilityHint="Restarts the game from the beginning">
             <Text style={styles.actionButtonText}>PLAY AGAIN</Text>
           </Pressable>
-          <Pressable style={styles.actionButton} onPress={onMenu} accessibilityLabel="Main Menu">
+          <Pressable style={styles.actionButton} onPress={onMenu} accessibilityLabel="Main Menu" accessibilityHint="Returns to the main menu">
             <Text style={styles.actionButtonText}>MAIN MENU</Text>
           </Pressable>
         </View>

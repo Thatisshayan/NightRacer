@@ -219,10 +219,15 @@ const COMBO_DECAY_MS = 3000;
 export const POP_DURATION_MS = 220;
 const NEAR_MISS_EXTRA_PX = 22;
 // Camera and rendering constants
+/** Maximum camera offset factor (0.18 = 18% of screen height). */
 const CAMERA_MAX_FACTOR = 0.18;
+/** Y-coordinate of the horizon line (used for perspective effects). */
 const HORIZON_Y = 130;
+/** Duration of screen shake effect in milliseconds. */
 const SCREEN_SHAKE_DURATION = 300;
+/** Invulnerability timer duration for armor power-up (ms). */
 const INVULN_TIMER_ARMOR = 1500;
+/** Default invulnerability timer duration (ms). */
 const INVULN_TIMER_DEFAULT = 2000;
 
 // Traffic spawns on a bounded cooldown (min/max ms, scaled down as speed/
@@ -574,6 +579,7 @@ export class GameEngine {
   }
 
   private clampPlayerPosition() {
+    /** Margin from the road edge to clamp player position (prevents going off-screen). */
     const ROAD_MARGIN = 18;
     const player = this.state.player;
     const roadLeft = ROAD_MARGIN + player.width / 2;

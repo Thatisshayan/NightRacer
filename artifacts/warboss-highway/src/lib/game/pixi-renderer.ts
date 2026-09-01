@@ -57,6 +57,139 @@ const NEON = {
 // dimensions in engine.ts itself and narrowing lanes from 3 to 4 — real
 // hitbox and rendered size now match again, no separate multiplier needed.
 
+// === Road Rendering Constants ===
+// Transverse asphalt seams
+const SEAM_THICKNESS_BASE = 2.2;
+const SEAM_ALPHA = 0.5;
+const SEAM_COLOR = 0x1c2740;
+
+// Depth shading
+const SHADE_BAND_COUNT = 18;
+const SHADE_ALPHA_MAX = 0.3;
+
+// Tower dimensions for city void
+const TOWER_WIDTH_BASE = 18;
+const TOWER_WIDTH_VARIANT = 7;
+const TOWER_HEIGHT_BASE = 42;
+const TOWER_HEIGHT_VARIANT = 16;
+const TOWER_Y_OFFSET_BASE = 0.75;
+const TOWER_Y_OFFSET_VARIANT = 0.22;
+const TOWER_CORNER_RADIUS_MIN = 1;
+const TOWER_WINDOW_WIDTH_RATIO = 0.16;
+const TOWER_WINDOW_HEIGHT_RATIO = 0.08;
+const TOWER_WINDOW_ALPHA = 0.25;
+
+// Deck structure
+const OUTER_RAIL_OFFSET_TOP = 7;
+const OUTER_RAIL_OFFSET_BOTTOM = 11;
+const RAIL_STROKE_WIDTH_BASE = 4.5;
+const RAIL_STROKE_WIDTH_MIN = 1.1;
+const RAIL_COLOR_CORE = 0x111d30;
+const RAIL_ALPHA_CORE = 0.98;
+const RAIL_STROKE_WIDTH_EDGE = 2.3;
+const RAIL_COLOR_EDGE = NEON.cyan;
+const RAIL_ALPHA_EDGE = 0.75;
+const RAIL_STROKE_WIDTH_OUTER = 1.4;
+const RAIL_COLOR_OUTER = NEON.magenta;
+const RAIL_ALPHA_OUTER = 0.32;
+
+// Deck posts
+const POST_HEIGHT_BASE = 34;
+const POST_WIDTH_BASE = 4.5;
+const BRACE_OFFSET_BASE = 20;
+const POST_COLOR = 0x172742;
+const POST_ALPHA = 0.96;
+const BRACE_STROKE_WIDTH_BASE = 1.6;
+const BRACE_COLOR = 0x27415f;
+const BRACE_ALPHA = 0.85;
+const LAMP_COLOR = NEON.amber;
+const LAMP_ALPHA = 0.82;
+
+// Lane markings
+const LANE_MARKING_STROKE_WIDTH_BASE = 2.4;
+const LANE_MARKING_COLOR = NEON.cyan;
+const LANE_MARKING_ALPHA = 0.3;
+const CENTER_LINE_STROKE_WIDTH_BASE = 2.6;
+const CENTER_LINE_COLOR = NEON.amber;
+const CENTER_LINE_ALPHA = 0.72;
+
+// Shoulders
+const SHOULDER_EDGE_STROKE_WIDTH_BASE = 2.4;
+const SHOULDER_EDGE_COLOR = NEON.cyan;
+const SHOULDER_EDGE_ALPHA = 0.5;
+const SHOULDER_OUTER_STROKE_WIDTH_BASE = 1.6;
+const SHOULDER_OUTER_COLOR = NEON.magenta;
+const SHOULDER_OUTER_ALPHA = 0.22;
+
+// === Vehicle Rendering Constants ===
+const VEHICLE_ALPHA_THRESHOLD = 0.02;
+const VEHICLE_OPPOSITE_ROTATION = Math.PI;
+
+// === Player Rendering Constants ===
+const PLAYER_INVULNERABILITY_FLICKER_INTERVAL = 100;
+const PLAYER_INVULNERABILITY_ALPHA_LOW = 0.4;
+const PLAYER_INVULNERABILITY_ALPHA_HIGH = 1;
+const PLAYER_OIL_SLICK_TINT = 0x99aaff;
+const PLAYER_ROTATION_FACTOR_NORMAL = 0.14;
+const PLAYER_ROTATION_FACTOR_RUSH = 0.035;
+const PLAYER_GLOW_COLOR_RUSH = NEON.magenta;
+const PLAYER_GLOW_COLOR_NORMAL = NEON.cyan;
+const PLAYER_GLOW_STRENGTH_BASE = 0.3;
+const PLAYER_GLOW_STRENGTH_SPEED_FACTOR = 0.12;
+const PLAYER_GLOW_STRENGTH_RUSH_BONUS = 0.2;
+const PLAYER_SHADOW_ELLIPSE_WIDTH_RATIO = 0.48;
+const PLAYER_SHADOW_ELLIPSE_HEIGHT_RATIO = 0.09;
+const PLAYER_SHADOW_ELLIPSE_ALPHA = 0.58;
+const PLAYER_UNDERGLOW_ELLIPSE_WIDTH_RATIO = 0.74;
+const PLAYER_UNDERGLOW_ELLIPSE_HEIGHT_RATIO = 0.28;
+const PLAYER_UNDERGLOW_ELLIPSE_ALPHA_FACTOR = 0.2;
+const PLAYER_UNDERGLOW_ELLIPSE_ALPHA_FACTOR_STRONG = 0.36;
+const PLAYER_EXHAUST_Y_OFFSET = 4;
+const PLAYER_EXHAUST_WIDTH_RATIO = 0.5;
+const PLAYER_EXHAUST_HEIGHT_BASE = 14;
+const PLAYER_EXHAUST_HEIGHT_SPEED_FACTOR = 10;
+const PLAYER_EXHAUST_ALPHA_BASE = 0.35;
+const PLAYER_EXHAUST_ALPHA_SPEED_FACTOR = 0.15;
+
+// === Shield Constants ===
+const SHIELD_RADIUS_MULTIPLIER = 0.75;
+const SHIELD_PULSE_AMPLITUDE = 0.06;
+const SHIELD_PULSE_FREQUENCY = 150;
+const SHIELD_STROKE_WIDTH = 3;
+const SHIELD_COLOR = 0x00ffff;
+const SHIELD_ALPHA = 0.9;
+
+// === Crash Flash Constants ===
+const CRASH_FLASH_SCALE_BASE = 0.7;
+const CRASH_FLASH_SCALE_RANGE = 0.9;
+const CRASH_FLASH_SIZE_MULTIPLIER = 1.8;
+
+// === Vehicle Light Constants ===
+const VEHICLE_LIGHT_ALPHA_THRESHOLD = 0.02;
+const VEHICLE_LIGHT_Y_OFFSET_RATIO = 0.34;
+const VEHICLE_LIGHT_SPREAD_RATIO = 0.24;
+const VEHICLE_LIGHT_RADIUS_RATIO = 0.17;
+const VEHICLE_LIGHT_RADIUS_MIN = 1.5;
+const VEHICLE_LIGHT_HALO_WIDTH_RATIO = 0.62;
+const VEHICLE_LIGHT_HALO_HEIGHT_RATIO = 0.58;
+const VEHICLE_LIGHT_HALO_ALPHA = 0.075;
+const VEHICLE_LIGHT_HALO_INNER_WIDTH_RATIO = 0.52;
+const VEHICLE_LIGHT_HALO_INNER_HEIGHT_RATIO = 0.5;
+const VEHICLE_LIGHT_SHADOW_WIDTH_RATIO = 0.44;
+const VEHICLE_LIGHT_SHADOW_HEIGHT_RATIO = 0.09;
+const VEHICLE_LIGHT_SHADOW_ALPHA = 0.54;
+const VEHICLE_LIGHT_CONE_LENGTH_RATIO = 1.15;
+const VEHICLE_LIGHT_CONE_HALF_WIDTH_RATIO = 0.62;
+const VEHICLE_LIGHT_CONE_ALPHA = 0.16;
+const VEHICLE_LIGHT_CONE_INNER_ALPHA = 0.2;
+const VEHICLE_LIGHT_TAILLIGHT_WIDTH_RATIO = 0.68;
+const VEHICLE_LIGHT_TAILLIGHT_HEIGHT_RATIO = 0.5;
+const VEHICLE_LIGHT_TAILLIGHT_ALPHA = 0.5;
+const VEHICLE_LIGHT_TAILLIGHT_WASH_WIDTH_RATIO = 0.6;
+const VEHICLE_LIGHT_TAILLIGHT_WASH_HEIGHT_RATIO = 0.3;
+const VEHICLE_LIGHT_TAILLIGHT_WASH_ALPHA = 0.12;
+const VEHICLE_LIGHT_CORE_ALPHA = 0.95;
+
 // Visual fix (2026-08-02), ported from the mobile Skia renderer
 // (GameCanvas.tsx's ROAD_BOOST/VEHICLE_BOOST) after a real-device playtest
 // showed the road reading as near-flat black and traffic blending into it.
@@ -487,22 +620,22 @@ export class PixiRenderer implements GameRenderer {
     this.worldContainer.y = (shakeAmp > 0 ? (Math.random() - 0.5) * shakeAmp : 0) - cameraY;
   }
 
-  private syncCrashFlash(state: GameState, screenShake: number) {
-    // Framerate-independent crash flash (Bug Fix 1)
-    if (screenShake > this.prevScreenShake) this.explosionUntil = this.totalTime + EXPLOSION_FLASH_MS;
-    this.prevScreenShake = screenShake;
-    const remaining = this.explosionUntil - this.totalTime;
-    this.explosionSprite.visible = remaining > 0;
-    if (remaining <= 0) return;
-    const progress = 1 - remaining / EXPLOSION_FLASH_MS;
-    const scale = 0.7 + progress * 0.9;
-    const burst = this.groundedPlacement(state.player.x, state.player.y, state.player.width, state.player.height, 1);
-    this.explosionSprite.x = burst.x;
-    this.explosionSprite.y = burst.y;
-    this.explosionSprite.width = state.player.width * 1.8 * scale;
-    this.explosionSprite.height = state.player.height * 1.8 * scale;
-    this.explosionSprite.alpha = 1 - progress;
-  }
+   private syncCrashFlash(state: GameState, screenShake: number) {
+     // Framerate-independent crash flash (Bug Fix 1)
+     if (screenShake > this.prevScreenShake) this.explosionUntil = this.totalTime + EXPLOSION_FLASH_MS;
+     this.prevScreenShake = screenShake;
+     const remaining = this.explosionUntil - this.totalTime;
+     this.explosionSprite.visible = remaining > 0;
+     if (remaining <= 0) return;
+     const progress = 1 - remaining / EXPLOSION_FLASH_MS;
+     const scale = CRASH_FLASH_SCALE_BASE + progress * CRASH_FLASH_SCALE_RANGE;
+     const burst = this.groundedPlacement(state.player.x, state.player.y, state.player.width, state.player.height, 1);
+     this.explosionSprite.x = burst.x;
+     this.explosionSprite.y = burst.y;
+     this.explosionSprite.width = state.player.width * CRASH_FLASH_SIZE_MULTIPLIER * scale;
+     this.explosionSprite.height = state.player.height * CRASH_FLASH_SIZE_MULTIPLIER * scale;
+     this.explosionSprite.alpha = CRASH_FLASH_ALPHA_BASE - progress;
+   }
 
   // Rebuilds the projected road, markings, shoulders and lamps each frame.
   // Perspective makes this necessary: unlike the old orthographic build, every
@@ -567,29 +700,29 @@ export class PixiRenderer implements GameRenderer {
       g.poly([deckTop, horizonY, screenEdge, horizonY, screenEdge, horizonY + H * 0.38, deckBottom, horizonY + H * 0.18])
         .fill({ color: NEON.cyan, alpha: 0.025 });
 
-      for (let i = 0; i < VOID_BAND_COUNT; i++) {
-        const worldY = i * DECK_POST_PERIOD + (state.roadOffset * 0.18) % DECK_POST_PERIOD - DECK_POST_PERIOD;
-        if (worldY < 0 || worldY > H) continue;
-        const scale = proj.scaleAt(worldY);
-        const y = proj.screenY(worldY);
-        const roadHalfWidth = proj.halfWidthAt(worldY);
-        const inner = cx + side * (roadHalfWidth + SHOULDER_WIDTH * scale);
-        const towerWidth = (18 + (i % 3) * 7) * scale;
-        const towerHeight = (42 + (i % 4) * 16) * scale;
-        const towerX = side < 0 ? inner - towerWidth * 2.25 : inner + towerWidth * 1.25;
-        const towerY = y - towerHeight * (0.75 + (i % 2) * 0.22);
+       for (let i = 0; i < VOID_BAND_COUNT; i++) {
+         const worldY = i * DECK_POST_PERIOD + (state.roadOffset * 0.18) % DECK_POST_PERIOD - DECK_POST_PERIOD;
+         if (worldY < 0 || worldY > H) continue;
+         const scale = proj.scaleAt(worldY);
+         const y = proj.screenY(worldY);
+         const roadHalfWidth = proj.halfWidthAt(worldY);
+         const inner = cx + side * (roadHalfWidth + SHOULDER_WIDTH * scale);
+         const towerWidth = (TOWER_WIDTH_BASE + (i % 3) * TOWER_WIDTH_VARIANT) * scale;
+         const towerHeight = (TOWER_HEIGHT_BASE + (i % 4) * TOWER_HEIGHT_VARIANT) * scale;
+         const towerX = side < 0 ? inner - towerWidth * 2.25 : inner + towerWidth * 1.25;
+         const towerY = y - towerHeight * (TOWER_Y_OFFSET_BASE + (i % 2) * TOWER_Y_OFFSET_VARIANT);
 
-        // Broken industrial silhouettes: deliberately sparse at the horizon
-        // and more pronounced in the foreground, matching the reference's
-        // city abyss while leaving traffic silhouette contrast intact.
-        g.roundRect(towerX, towerY, towerWidth, towerHeight, Math.max(1, scale * 2))
-          .fill({ color: i % 2 === 0 ? 0x07101d : 0x0a1321, alpha: 0.72 });
-        if (i % 2 === 0) {
-          const windowY = towerY + towerHeight * 0.33;
-          g.rect(towerX + towerWidth * 0.28, windowY, towerWidth * 0.16, Math.max(0.8, towerHeight * 0.08))
-            .fill({ color: NEON.cyan, alpha: 0.25 * scale });
-        }
-      }
+         // Broken industrial silhouettes: deliberately sparse at the horizon
+         // and more pronounced in the foreground, matching the reference's
+         // city abyss while leaving traffic silhouette contrast intact.
+         g.roundRect(towerX, towerY, towerWidth, towerHeight, Math.max(TOWER_CORNER_RADIUS_MIN, scale * 2))
+           .fill({ color: i % 2 === 0 ? 0x07101d : 0x0a1321, alpha: 0.72 });
+         if (i % 2 === 0) {
+           const windowY = towerY + towerHeight * 0.33;
+           g.rect(towerX + towerWidth * 0.28, windowY, towerWidth * TOWER_WINDOW_WIDTH_RATIO, Math.max(0.8, towerHeight * TOWER_WINDOW_HEIGHT_RATIO))
+             .fill({ color: NEON.cyan, alpha: TOWER_WINDOW_ALPHA * scale });
+         }
+       }
     }
   }
 
@@ -602,47 +735,47 @@ export class PixiRenderer implements GameRenderer {
     const g = this.deckStructureLayer;
     g.clear();
 
-    const shoulderTop = SHOULDER_WIDTH * sHorizon;
-    const shoulderBottom = SHOULDER_WIDTH * sBottom;
-    for (const side of [-1, 1]) {
-      const roadTop = cx + side * hwTop;
-      const roadBottom = cx + side * hwBottom;
-      const railTop = roadTop + side * shoulderTop;
-      const railBottom = roadBottom + side * shoulderBottom;
-      const outerTop = railTop + side * Math.max(2, 7 * sHorizon);
-      const outerBottom = railBottom + side * Math.max(5, 11 * sBottom);
+     const shoulderTop = SHOULDER_WIDTH * sHorizon;
+     const shoulderBottom = SHOULDER_WIDTH * sBottom;
+     for (const side of [-1, 1]) {
+       const roadTop = cx + side * hwTop;
+       const roadBottom = cx + side * hwBottom;
+       const railTop = roadTop + side * shoulderTop;
+       const railBottom = roadBottom + side * shoulderBottom;
+       const outerTop = railTop + side * Math.max(2, OUTER_RAIL_OFFSET_TOP * sHorizon);
+       const outerBottom = railBottom + side * Math.max(5, OUTER_RAIL_OFFSET_BOTTOM * sBottom);
 
-      // A layered rail silhouette: dark metal core, bright cyan road edge,
-      // then a muted outer lip. This retains the reference's neon separation
-      // without an expensive glow filter.
-      g.moveTo(railTop, horizonY).lineTo(railBottom, H)
-        .stroke({ width: Math.max(1.1, 4.5 * sBottom), color: 0x111d30, alpha: 0.98 });
-      g.moveTo(roadTop, horizonY).lineTo(roadBottom, H)
-        .stroke({ width: Math.max(0.8, 2.3 * sBottom), color: NEON.cyan, alpha: 0.75 });
-      g.moveTo(outerTop, horizonY).lineTo(outerBottom, H)
-        .stroke({ width: Math.max(0.6, 1.4 * sBottom), color: NEON.magenta, alpha: 0.32 });
+       // A layered rail silhouette: dark metal core, bright cyan road edge,
+       // then a muted outer lip. This retains the reference's neon separation
+       // without an expensive glow filter.
+       g.moveTo(railTop, horizonY).lineTo(railBottom, H)
+         .stroke({ width: Math.max(RAIL_STROKE_WIDTH_MIN, RAIL_STROKE_WIDTH_BASE * sBottom), color: RAIL_COLOR_CORE, alpha: RAIL_ALPHA_CORE });
+       g.moveTo(roadTop, horizonY).lineTo(roadBottom, H)
+         .stroke({ width: Math.max(0.8, RAIL_STROKE_WIDTH_EDGE * sBottom), color: RAIL_COLOR_EDGE, alpha: RAIL_ALPHA_EDGE });
+       g.moveTo(outerTop, horizonY).lineTo(outerBottom, H)
+         .stroke({ width: Math.max(0.6, RAIL_STROKE_WIDTH_OUTER * sBottom), color: RAIL_COLOR_OUTER, alpha: RAIL_ALPHA_OUTER });
 
-      for (let i = 0; i < 10; i++) {
-        const worldY = i * DECK_POST_PERIOD + state.roadOffset % DECK_POST_PERIOD - DECK_POST_PERIOD;
-        if (worldY < 0 || worldY > H) continue;
-        const scale = proj.scaleAt(worldY);
-        const y = proj.screenY(worldY);
-        const railX = cx + side * (proj.halfWidthAt(worldY) + SHOULDER_WIDTH * scale);
-        const postHeight = Math.max(4, 34 * scale);
-        const postWidth = Math.max(1, 4.5 * scale);
-        const braceOut = side * Math.max(4, 20 * scale);
+       for (let i = 0; i < 10; i++) {
+         const worldY = i * DECK_POST_PERIOD + state.roadOffset % DECK_POST_PERIOD - DECK_POST_PERIOD;
+         if (worldY < 0 || worldY > H) continue;
+         const scale = proj.scaleAt(worldY);
+         const y = proj.screenY(worldY);
+         const railX = cx + side * (proj.halfWidthAt(worldY) + SHOULDER_WIDTH * scale);
+         const postHeight = Math.max(4, POST_HEIGHT_BASE * scale);
+         const postWidth = Math.max(1, POST_WIDTH_BASE * scale);
+         const braceOut = side * Math.max(4, BRACE_OFFSET_BASE * scale);
 
-        // Uprights and one diagonal brace establish scale at a low command
-        // count. Their screen-space sizes are depth-scaled, so nearer bridge
-        // structure visibly passes the player faster than far structure.
-        g.rect(railX - postWidth / 2, y - postHeight, postWidth, postHeight)
-          .fill({ color: 0x172742, alpha: 0.96 });
-        g.moveTo(railX, y - postHeight * 0.78).lineTo(railX + braceOut, y)
-          .stroke({ width: Math.max(0.7, 1.6 * scale), color: 0x27415f, alpha: 0.85 });
-        g.circle(railX, y - postHeight * 0.86, Math.max(0.9, 3.4 * scale))
-          .fill({ color: NEON.amber, alpha: 0.82 });
-      }
-    }
+         // Uprights and one diagonal brace establish scale at a low command
+         // count. Their screen-space sizes are depth-scaled, so nearer bridge
+         // structure visibly passes the player faster than far structure.
+         g.rect(railX - postWidth / 2, y - postHeight, postWidth, postHeight)
+           .fill({ color: POST_COLOR, alpha: POST_ALPHA });
+         g.moveTo(railX, y - postHeight * 0.78).lineTo(railX + braceOut, y)
+           .stroke({ width: Math.max(0.7, BRACE_STROKE_WIDTH_BASE * scale), color: BRACE_COLOR, alpha: BRACE_ALPHA });
+         g.circle(railX, y - postHeight * 0.86, Math.max(0.9, 3.4 * scale))
+           .fill({ color: LAMP_COLOR, alpha: LAMP_ALPHA });
+       }
+     }
   }
 
   // Depth shading, transverse seams, and lane markings on the road surface.
@@ -651,63 +784,62 @@ export class PixiRenderer implements GameRenderer {
     const { width: W, height: H, horizonY, centerX: cx } = proj;
     const g = this.roadLayer;
 
-    // Depth shading: the surface darkens and desaturates toward the vanishing
-    // point, which is most of what sells distance on a flat-coloured road.
-    const shadeBands = 18;
-    for (let i = 0; i < shadeBands; i++) {
-      const t0 = i / shadeBands;
-      const t1 = (i + 1) / shadeBands;
-      const y0 = horizonY + (H - horizonY) * t0;
-      const y1 = horizonY + (H - horizonY) * t1;
-      const hw0 = hwTop + (hwBottom - hwTop) * t0;
-      const hw1 = hwTop + (hwBottom - hwTop) * t1;
-      // Kept mild deliberately: depth shading that reads nicely in a still
-      // frame is exactly what pushed measured road luminance below the
-      // readability floor when it was stronger.
-      const alpha = 0.3 * (1 - t0) * (1 - t0);
-      g.poly([cx - hw0, y0, cx + hw0, y0, cx + hw1, y1, cx - hw1, y1])
-        .fill({ color: NEON.midnight, alpha });
-    }
+   // Depth shading: the surface darkens and desaturates toward the vanishing
+   // point, which is most of what sells distance on a flat-coloured road.
+   for (let i = 0; i < SHADE_BAND_COUNT; i++) {
+     const t0 = i / SHADE_BAND_COUNT;
+     const t1 = (i + 1) / SHADE_BAND_COUNT;
+     const y0 = horizonY + (H - horizonY) * t0;
+     const y1 = horizonY + (H - horizonY) * t1;
+     const hw0 = hwTop + (hwBottom - hwTop) * t0;
+     const hw1 = hwTop + (hwBottom - hwTop) * t1;
+     // Kept mild deliberately: depth shading that reads nicely in a still
+     // frame is exactly what pushed measured road luminance below the
+     // readability floor when it was stronger.
+     const alpha = SHADE_ALPHA_MAX * (1 - t0) * (1 - t0);
+     g.poly([cx - hw0, y0, cx + hw0, y0, cx + hw1, y1, cx - hw1, y1])
+       .fill({ color: NEON.midnight, alpha });
+   }
 
-    // Transverse asphalt seams. Rendered as depth-spaced bands rather than a
-    // tiled texture: at speed these are the strongest motion cue on the
-    // surface, and in perspective they compress toward the horizon on their
-    // own, which is exactly the "ground rushing past" read the flat tile
-    // could never produce.
-    const seamPhase = state.roadOffset % ROAD_SEAM_PERIOD;
-    for (let k = 0; k < 26; k++) {
-      const worldY = k * ROAD_SEAM_PERIOD + seamPhase - ROAD_SEAM_PERIOD;
-      if (worldY < 0 || worldY > H) continue;
-      const y = proj.screenY(worldY);
-      const hw = proj.halfWidthAt(worldY);
-      const thickness = Math.max(0.6, 2.2 * proj.scaleAt(worldY));
-      g.rect(cx - hw, y, hw * 2, thickness).fill({ color: 0x1c2740, alpha: 0.5 });
-    }
+   // Transverse asphalt seams. Rendered as depth-spaced bands rather than a
+   // tiled texture: at speed these are the strongest motion cue on the
+   // surface, and in perspective they compress toward the horizon on their
+   // own, which is exactly the "ground rushing past" read the flat tile
+   // could never produce.
+   const seamPhase = state.roadOffset % ROAD_SEAM_PERIOD;
+   for (let k = 0; k < 26; k++) {
+     const worldY = k * ROAD_SEAM_PERIOD + seamPhase - ROAD_SEAM_PERIOD;
+     if (worldY < 0 || worldY > H) continue;
+     const y = proj.screenY(worldY);
+     const hw = proj.halfWidthAt(worldY);
+     const thickness = Math.max(0.6, SEAM_THICKNESS_BASE * proj.scaleAt(worldY));
+     g.rect(cx - hw, y, hw * 2, thickness).fill({ color: SEAM_COLOR, alpha: SEAM_ALPHA });
+   }
 
-    // Lane markings — engine.ts's 4-lane math (`this.width / 4`). Lanes 0-1
-    // are oncoming and 2-3 same-direction, so the 1|2 boundary is the
-    // direction divide and stays a solid double-amber centre line like a real
-    // two-way road. The other two are dashed and now converge on the
-    // vanishing point.
-    const laneWidth = W / 4;
-    const dashPhase = state.roadOffset % LANE_DASH_PERIOD;
-    for (const divX of [laneWidth, laneWidth * 3]) {
-      for (let k = 0; k < 34; k++) {
-        const wy0 = k * LANE_DASH_PERIOD + dashPhase - LANE_DASH_PERIOD;
-        const wy1 = wy0 + LANE_DASH_LEN;
-        if (wy1 < 0 || wy0 > H) continue;
-        const a = proj.project(divX, Math.max(0, wy0));
-        const b = proj.project(divX, Math.min(H, wy1));
-        g.moveTo(a.x, a.y).lineTo(b.x, b.y)
-          .stroke({ width: Math.max(0.7, 2.4 * b.scale), color: NEON.cyan, alpha: 0.3 });
-      }
-    }
-    for (const offset of [-3, 3]) {
-      const a = proj.project(centerLineX(W) + offset, 0);
-      const b = proj.project(centerLineX(W) + offset, H);
-      g.moveTo(a.x, a.y).lineTo(b.x, b.y)
-        .stroke({ width: Math.max(0.8, 2.6 * b.scale), color: NEON.amber, alpha: 0.72 });
-    }
+   // Lane markings — engine.ts's 4-lane math (`this.width / 4`). Lanes 0-1
+   // are oncoming and 2-3 same-direction, so the 1|2 boundary is the
+   // direction divide and stays a solid double-amber centre line like a real
+   // two-way road. The other two are dashed and now converge on the
+   // vanishing point.
+   const laneWidth = W / 4;
+   const dashPhase = state.roadOffset % LANE_DASH_PERIOD;
+   for (const divX of [laneWidth, laneWidth * 3]) {
+     for (let k = 0; k < 34; k++) {
+       const wy0 = k * LANE_DASH_PERIOD + dashPhase - LANE_DASH_PERIOD;
+       const wy1 = wy0 + LANE_DASH_LEN;
+       if (wy1 < 0 || wy0 > H) continue;
+       const a = proj.project(divX, Math.max(0, wy0));
+       const b = proj.project(divX, Math.min(H, wy1));
+       g.moveTo(a.x, a.y).lineTo(b.x, b.y)
+         .stroke({ width: Math.max(0.7, LANE_MARKING_STROKE_WIDTH_BASE * b.scale), color: LANE_MARKING_COLOR, alpha: LANE_MARKING_ALPHA });
+     }
+   }
+   for (const offset of [-3, 3]) {
+     const a = proj.project(centerLineX(W) + offset, 0);
+     const b = proj.project(centerLineX(W) + offset, H);
+     g.moveTo(a.x, a.y).lineTo(b.x, b.y)
+       .stroke({ width: Math.max(0.8, CENTER_LINE_STROKE_WIDTH_BASE * b.scale), color: CENTER_LINE_COLOR, alpha: CENTER_LINE_ALPHA });
+   }
   }
 
   // Shoulders + guardrails as converging bands, with a neon edge light so
@@ -716,22 +848,22 @@ export class PixiRenderer implements GameRenderer {
     const proj = this.projection;
     const { horizonY, height: H, centerX: cx } = proj;
     const g = this.roadLayer;
-    // Shoulder width shrinks with depth like everything else.
-    const shoulderTop = SHOULDER_WIDTH * sHorizon;
-    const shoulderBottom = SHOULDER_WIDTH * sBottom;
+   // Shoulder width shrinks with depth like everything else.
+   const shoulderTop = SHOULDER_WIDTH * sHorizon;
+   const shoulderBottom = SHOULDER_WIDTH * sBottom;
 
-    for (const side of [-1, 1]) {
-      const inTop = cx + side * hwTop;
-      const inBot = cx + side * hwBottom;
-      const outTop = inTop + side * shoulderTop;
-      const outBot = inBot + side * shoulderBottom;
-      g.poly([inTop, horizonY, outTop, horizonY, outBot, H, inBot, H])
-        .fill({ color: 0x0d1524 });
-      g.moveTo(inTop, horizonY).lineTo(inBot, H)
-        .stroke({ width: Math.max(0.8, 2.4 * sBottom), color: NEON.cyan, alpha: 0.5 });
-      g.moveTo(outTop, horizonY).lineTo(outBot, H)
-        .stroke({ width: Math.max(0.6, 1.6 * sBottom), color: NEON.magenta, alpha: 0.22 });
-    }
+   for (const side of [-1, 1]) {
+     const inTop = cx + side * hwTop;
+     const inBot = cx + side * hwBottom;
+     const outTop = inTop + side * shoulderTop;
+     const outBot = inBot + side * shoulderBottom;
+     g.poly([inTop, horizonY, outTop, horizonY, outBot, H, inBot, H])
+       .fill({ color: 0x0d1524 });
+     g.moveTo(inTop, horizonY).lineTo(inBot, H)
+       .stroke({ width: Math.max(0.8, SHOULDER_EDGE_STROKE_WIDTH_BASE * sBottom), color: SHOULDER_EDGE_COLOR, alpha: SHOULDER_EDGE_ALPHA });
+     g.moveTo(outTop, horizonY).lineTo(outBot, H)
+       .stroke({ width: Math.max(0.6, SHOULDER_OUTER_STROKE_WIDTH_BASE * sBottom), color: SHOULDER_OUTER_COLOR, alpha: SHOULDER_OUTER_ALPHA });
+   }
   }
 
   // Horizon haze — hides the hard trapezoid apex and reads as distance fog.
@@ -750,38 +882,38 @@ export class PixiRenderer implements GameRenderer {
   // Street lamps, depth-placed. Each post also throws a light pool onto the
   // road, which gives the surface periodic bright patches — a second speed cue
   // independent of the lane dashes.
-  private drawLamps(state: GameState) {
-    const proj = this.projection;
-    const g = this.lampLayer;
-    g.clear();
-    const H = proj.height;
-    const phase = state.roadOffset % LAMP_SPAN;
-    for (let k = 0; k < 14; k++) {
-      const worldY = k * LAMP_SPAN + phase - LAMP_SPAN;
-      if (worldY < 0 || worldY > H) continue;
-      const lampIndex = Math.floor(worldY / LAMP_SPAN);
-      const side = lampIndex % 2 === 0 ? 1 : -1;
-      const scale = proj.scaleAt(worldY);
-      const baseY = proj.screenY(worldY);
-      const edgeX = proj.centerX + side * proj.halfWidthAt(worldY);
-      const baseX = edgeX + side * SHOULDER_WIDTH * scale * 0.6;
-      const postH = LAMP_HEIGHT * scale;
-      const headX = baseX - side * LAMP_WIDTH * scale * 0.55;
-      const headY = baseY - postH;
+   private drawLamps(state: GameState) {
+     const proj = this.projection;
+     const g = this.lampLayer;
+     g.clear();
+     const H = proj.height;
+     const phase = state.roadOffset % LAMP_SPAN;
+     for (let k = 0; k < 14; k++) {
+       const worldY = k * LAMP_SPAN + phase - LAMP_SPAN;
+       if (worldY < 0 || worldY > H) continue;
+       const lampIndex = Math.floor(worldY / LAMP_SPAN);
+       const side = lampIndex % 2 === 0 ? 1 : -1;
+       const scale = proj.scaleAt(worldY);
+       const baseY = proj.screenY(worldY);
+       const edgeX = proj.centerX + side * proj.halfWidthAt(worldY);
+       const baseX = edgeX + side * SHOULDER_WIDTH * scale * 0.6;
+       const postH = LAMP_HEIGHT * scale;
+       const headX = baseX - side * LAMP_WIDTH * scale * 0.55;
+       const headY = baseY - postH;
 
-      // Light pool on the tarmac, drawn first so the post sits on top of it.
-      g.ellipse(edgeX, baseY, LAMP_WIDTH * scale * 2.6, LAMP_HEIGHT * scale * 0.5)
-        .fill({ color: NEON.amber, alpha: 0.09 });
-      g.moveTo(baseX, baseY)
-        .lineTo(baseX, headY)
-        .lineTo(headX, headY)
-        .stroke({ width: Math.max(0.8, 3 * scale), color: 0x2a3550, alpha: 0.9 });
-      g.circle(headX, headY, Math.max(1.2, 4.5 * scale))
-        .fill({ color: NEON.amber, alpha: 0.95 });
-      g.circle(headX, headY, Math.max(2.5, 11 * scale))
-        .fill({ color: NEON.amber, alpha: 0.16 });
-    }
-  }
+       // Light pool on the tarmac, drawn first so the post sits on top of it.
+       g.ellipse(edgeX, baseY, LAMP_WIDTH * scale * 2.6, LAMP_HEIGHT * scale * 0.5)
+         .fill({ color: NEON.amber, alpha: 0.09 });
+       g.moveTo(baseX, baseY)
+         .lineTo(baseX, headY)
+         .lineTo(headX, headY)
+         .stroke({ width: Math.max(0.8, 3 * scale), color: 0x2a3550, alpha: 0.9 });
+       g.circle(headX, headY, Math.max(1.2, 4.5 * scale))
+         .fill({ color: LAMP_COLOR, alpha: 0.95 });
+       g.circle(headX, headY, Math.max(2.5, 11 * scale))
+         .fill({ color: LAMP_COLOR, alpha: 0.16 });
+     }
+   }
 
   // Parallax city band. Horizontal offset tracks the player's lateral
   // position (so steering swings the world, not just the car) and creeps with
@@ -792,82 +924,82 @@ export class PixiRenderer implements GameRenderer {
     this.skylineNear.tilePosition.x = -state.distance * 0.011 - lateral * 0.16;
   }
 
-  private syncPlayerEffects(state: GameState) {
-    if (this.currentCarType !== state.selectedCar) {
-      this.playerSprite.texture = this.textures.playerCars[state.selectedCar];
-      this.currentCarType = state.selectedCar;
-    }
-    const player = state.player;
-    // The player keeps unit visual scale for control readability, but its wheel
-    // contact is still projected onto the deck. Anchoring its center above that
-    // contact avoids the suspended-car look while preserving familiar size.
-    const placed = this.groundedPlacement(player.x, player.y, player.width, player.height, 1);
-    this.playerSprite.x = placed.x;
-    this.playerSprite.y = placed.y;
-    this.playerSprite.width = placed.width;
-    this.playerSprite.height = placed.height;
-    // Framerate-independent invulnerability flicker (Bug Fix 1)
-    this.playerSprite.alpha = player.isInvulnerable ? (Math.floor(this.totalTime / 100) % 2 === 0 ? 0.4 : 1) : 1;
-    this.playerSprite.tint = player.oilSlicked ? 0x99aaff : 0xffffff;
-    this.playerSprite.rotation = state.driveTilt * 0.14 + (state.rushTimer > 0 ? state.driveTilt * 0.035 : 0);
-    // Ground shadow + cyan underglow. Underglow intensity tracks speed and
-    // spikes during RUSH, so the player's own state is readable without
-    // looking away from the road at the HUD.
-    const glowColor = state.rushTimer > 0 ? NEON.magenta : NEON.cyan;
-    const glowStrength = 0.3 + Math.min(0.35, state.speedMultiplier * 0.12) + (state.rushTimer > 0 ? 0.2 : 0);
-    const pw = placed.width;
-    const ph = placed.height;
-    this.playerAnchor.clear();
-    this.playerAnchor
-      .ellipse(placed.x, placed.contactY - ph * 0.035, pw * 0.48, ph * 0.09)
-      .fill({ color: 0x000000, alpha: 0.58 });
-    this.playerAnchor
-      .ellipse(placed.x, placed.contactY - ph * 0.16, pw * 0.74, ph * 0.28)
-      .fill({ color: glowColor, alpha: glowStrength * 0.2 });
-    this.playerAnchor
-      .ellipse(placed.x, placed.contactY - ph * 0.1, pw * 0.5, ph * 0.13)
-      .fill({ color: glowColor, alpha: glowStrength * 0.36 });
+   private syncPlayerEffects(state: GameState) {
+     if (this.currentCarType !== state.selectedCar) {
+       this.playerSprite.texture = this.textures.playerCars[state.selectedCar];
+       this.currentCarType = state.selectedCar;
+     }
+     const player = state.player;
+     // The player keeps unit visual scale for control readability, but its wheel
+     // contact is still projected onto the deck. Anchoring its center above that
+     // contact avoids the suspended-car look while preserving familiar size.
+     const placed = this.groundedPlacement(player.x, player.y, player.width, player.height, 1);
+     this.playerSprite.x = placed.x;
+     this.playerSprite.y = placed.y;
+     this.playerSprite.width = placed.width;
+     this.playerSprite.height = placed.height;
+     // Framerate-independent invulnerability flicker (Bug Fix 1)
+     this.playerSprite.alpha = player.isInvulnerable ? (Math.floor(this.totalTime / PLAYER_INVULNERABILITY_FLICKER_INTERVAL) % 2 === 0 ? PLAYER_INVULNERABILITY_ALPHA_LOW : PLAYER_INVULNERABILITY_ALPHA_HIGH) : 1;
+     this.playerSprite.tint = player.oilSlicked ? PLAYER_OIL_SLICK_TINT : 0xffffff;
+     this.playerSprite.rotation = state.driveTilt * PLAYER_ROTATION_FACTOR_NORMAL + (state.rushTimer > 0 ? state.driveTilt * PLAYER_ROTATION_FACTOR_RUSH : 0);
+     // Ground shadow + cyan underglow. Underglow intensity tracks speed and
+     // spikes during RUSH, so the player's own state is readable without
+     // looking away from the road at the HUD.
+     const glowColor = state.rushTimer > 0 ? PLAYER_GLOW_COLOR_RUSH : PLAYER_GLOW_COLOR_NORMAL;
+     const glowStrength = PLAYER_GLOW_STRENGTH_BASE + Math.min(0.35, state.speedMultiplier * PLAYER_GLOW_STRENGTH_SPEED_FACTOR) + (state.rushTimer > 0 ? PLAYER_GLOW_STRENGTH_RUSH_BONUS : 0);
+     const pw = placed.width;
+     const ph = placed.height;
+     this.playerAnchor.clear();
+     this.playerAnchor
+       .ellipse(placed.x, placed.contactY - ph * 0.035, pw * PLAYER_SHADOW_ELLIPSE_WIDTH_RATIO, ph * PLAYER_SHADOW_ELLIPSE_HEIGHT_RATIO)
+       .fill({ color: 0x000000, alpha: PLAYER_SHADOW_ELLIPSE_ALPHA });
+     this.playerAnchor
+       .ellipse(placed.x, placed.contactY - ph * 0.16, pw * PLAYER_UNDERGLOW_ELLIPSE_WIDTH_RATIO, ph * PLAYER_UNDERGLOW_ELLIPSE_HEIGHT_RATIO)
+       .fill({ color: glowColor, alpha: glowStrength * PLAYER_UNDERGLOW_ELLIPSE_ALPHA_FACTOR });
+     this.playerAnchor
+       .ellipse(placed.x, placed.contactY - ph * 0.1, pw * 0.5, ph * 0.13)
+       .fill({ color: glowColor, alpha: glowStrength * PLAYER_UNDERGLOW_ELLIPSE_ALPHA_FACTOR_STRONG });
 
-    this.exhaustSprite.visible = true;
-    this.exhaustSprite.x = placed.x;
-    this.exhaustSprite.y = placed.contactY + 4;
-    this.exhaustSprite.width = pw * 0.5;
-    this.exhaustSprite.height = 14 + state.speedMultiplier * 10;
-    this.exhaustSprite.alpha = 0.35 + Math.min(0.4, state.speedMultiplier * 0.15);
-    this.syncShield(state);
-    if (this.motionBlur) this.motionBlur.velocity = { x: 0, y: state.speedMultiplier * (state.rushTimer > 0 ? 6 : 4) };
-  }
+     this.exhaustSprite.visible = true;
+     this.exhaustSprite.x = placed.x;
+     this.exhaustSprite.y = placed.contactY + PLAYER_EXHAUST_Y_OFFSET;
+     this.exhaustSprite.width = pw * PLAYER_EXHAUST_WIDTH_RATIO;
+     this.exhaustSprite.height = PLAYER_EXHAUST_HEIGHT_BASE + state.speedMultiplier * PLAYER_EXHAUST_HEIGHT_SPEED_FACTOR;
+     this.exhaustSprite.alpha = PLAYER_EXHAUST_ALPHA_BASE + Math.min(0.4, state.speedMultiplier * PLAYER_EXHAUST_ALPHA_SPEED_FACTOR);
+     this.syncShield(state);
+     if (this.motionBlur) this.motionBlur.velocity = { x: 0, y: state.speedMultiplier * (state.rushTimer > 0 ? 6 : 4) };
+   }
 
-  private syncShield(state: GameState) {
-    const active = state.activePowerUp === 'SHIELD' && state.powerUpTimer > 0;
-    this.shieldRing.visible = active;
-    if (!active) return;
-    const player = state.player;
-    const placed = this.groundedPlacement(player.x, player.y, player.width, player.height, 1);
-    // Framerate-independent shield pulse (Bug Fix 1)
-    const radius = Math.max(player.width, player.height) * 0.75 * (1 + Math.sin(this.totalTime / 150) * 0.06);
-    this.shieldRing.x = placed.x;
-    this.shieldRing.y = placed.y;
-    this.shieldRing.clear();
-    this.shieldRing.circle(0, 0, radius).stroke({ width: 3, color: 0x00ffff, alpha: 0.9 });
-  }
+   private syncShield(state: GameState) {
+     const active = state.activePowerUp === 'SHIELD' && state.powerUpTimer > 0;
+     this.shieldRing.visible = active;
+     if (!active) return;
+     const player = state.player;
+     const placed = this.groundedPlacement(player.x, player.y, player.width, player.height, 1);
+     // Framerate-independent shield pulse (Bug Fix 1)
+     const radius = Math.max(player.width, player.height) * SHIELD_RADIUS_MULTIPLIER * (1 + Math.sin(this.totalTime / SHIELD_PULSE_FREQUENCY) * SHIELD_PULSE_AMPLITUDE);
+     this.shieldRing.x = placed.x;
+     this.shieldRing.y = placed.y;
+     this.shieldRing.clear();
+     this.shieldRing.circle(0, 0, radius).stroke({ width: SHIELD_STROKE_WIDTH, color: SHIELD_COLOR, alpha: SHIELD_ALPHA });
+   }
 
   // Places a pooled sprite on the projected ground plane. Size scales with
   // depth, which is the whole point: a car that grows as it closes is the
   // approach cue a flat top-down view cannot give. Hit testing is unaffected
   // — GameEngine still collides in flat world coordinates.
-  private placeEntity(sprite: Sprite, worldX: number, worldY: number, w: number, h: number, rotation: number) {
-    const proj = this.projection;
-    const clamped = proj.clampWorldY(worldY);
-    const p = proj.project(worldX, clamped);
-    sprite.x = p.x;
-    sprite.y = p.y;
-    sprite.width = w * p.scale;
-    sprite.height = h * p.scale;
-    sprite.rotation = rotation;
-    sprite.alpha = proj.fadeInAlpha(worldY);
-    sprite.visible = sprite.alpha > 0.02;
-  }
+   private placeEntity(sprite: Sprite, worldX: number, worldY: number, w: number, h: number, rotation: number) {
+     const proj = this.projection;
+     const clamped = proj.clampWorldY(worldY);
+     const p = proj.project(worldX, clamped);
+     sprite.x = p.x;
+     sprite.y = p.y;
+     sprite.width = w * p.scale;
+     sprite.height = h * p.scale;
+     sprite.rotation = rotation;
+     sprite.alpha = proj.fadeInAlpha(worldY);
+     sprite.visible = sprite.alpha > VEHICLE_ALPHA_THRESHOLD;
+   }
 
   // Sprites are centered by Pixi, but a vehicle belongs to the road at its
   // wheel contact row. Projecting the hitbox center made the lower half of the
@@ -892,18 +1024,18 @@ export class PixiRenderer implements GameRenderer {
 
   private syncEntityPools(state: GameState) {
     this.gen++;
-    syncPool(this.vehiclePool, state.vehicles, this.gen, this.vehicleLayer,
-      (vehicle) => { const sprite = new Sprite(vehicleTexture(this.textures, vehicle)); sprite.anchor.set(0.5); return sprite; },
-      (vehicle, sprite) => {
-        const placed = this.groundedPlacement(vehicle.x, vehicle.y, vehicle.width, vehicle.height);
-        sprite.x = placed.x;
-        sprite.y = placed.y;
-        sprite.width = placed.width;
-        sprite.height = placed.height;
-        sprite.rotation = vehicle.direction === 'OPPOSITE' ? Math.PI : 0;
-        sprite.alpha = placed.alpha;
-        sprite.visible = placed.alpha > 0.02;
-      });
+     syncPool(this.vehiclePool, state.vehicles, this.gen, this.vehicleLayer,
+       (vehicle) => { const sprite = new Sprite(vehicleTexture(this.textures, vehicle)); sprite.anchor.set(0.5); return sprite; },
+       (vehicle, sprite) => {
+         const placed = this.groundedPlacement(vehicle.x, vehicle.y, vehicle.width, vehicle.height);
+         sprite.x = placed.x;
+         sprite.y = placed.y;
+         sprite.width = placed.width;
+         sprite.height = placed.height;
+         sprite.rotation = vehicle.direction === 'OPPOSITE' ? VEHICLE_OPPOSITE_ROTATION : 0;
+         sprite.alpha = placed.alpha;
+         sprite.visible = placed.alpha > VEHICLE_ALPHA_THRESHOLD;
+       });
     syncPool(this.obstaclePool, state.obstacles, this.gen, this.obstacleLayer,
       (obstacle) => { const sprite = new Sprite(obstacle.type === 'OIL_SLICK' ? this.textures.oilSlick : this.textures.debris); sprite.anchor.set(0.5); return sprite; },
       (obstacle, sprite) => this.placeEntity(sprite, obstacle.x, obstacle.y, obstacle.width, obstacle.height, 0));
@@ -952,84 +1084,84 @@ export class PixiRenderer implements GameRenderer {
     }
   }
 
-  private drawVehicleLights(state: GameState) {
-    const proj = this.projection;
-    this.vehicleLightLayer.clear();
-    for (const vehicle of state.vehicles) {
-      if (vehicle.type === 'BOSS') continue;
-      const alpha = proj.fadeInAlpha(vehicle.y);
-      if (alpha <= 0.02) continue;
-      const placed = this.groundedPlacement(vehicle.x, vehicle.y, vehicle.width, vehicle.height);
-      // Every dimension below comes from the same wheel-contact projection as
-      // the sprite. This prevents lights and shadows from revealing a gap
-      // between a car and its projected road surface.
-      const k = placed.scale;
-      const w = placed.width;
-      const h = placed.height;
-      const oncoming = vehicle.direction === 'OPPOSITE';
-      const color = oncoming ? NEON.headlight : NEON.trafficRed;
-      const y = placed.y + h * 0.34;
-      const spread = Math.max(2, w * 0.24);
-      // Direction lights existed before this pass but were drawn at ~5px
-      // radius, 0.5 alpha, with a 0.045-alpha beam — on a near-black playfield
-      // that is below the threshold of noticing, so oncoming and
-      // same-direction traffic read identically in play. Sized and lit to be
-      // the primary direction signal.
-      const radius = Math.max(1.5, w * 0.17);
+   private drawVehicleLights(state: GameState) {
+     const proj = this.projection;
+     this.vehicleLightLayer.clear();
+     for (const vehicle of state.vehicles) {
+       if (vehicle.type === 'BOSS') continue;
+       const alpha = proj.fadeInAlpha(vehicle.y);
+       if (alpha <= VEHICLE_LIGHT_ALPHA_THRESHOLD) continue;
+       const placed = this.groundedPlacement(vehicle.x, vehicle.y, vehicle.width, vehicle.height);
+       // Every dimension below comes from the same wheel-contact projection as
+       // the sprite. This prevents lights and shadows from revealing a gap
+       // between a car and its projected road surface.
+       const k = placed.scale;
+       const w = placed.width;
+       const h = placed.height;
+       const oncoming = vehicle.direction === 'OPPOSITE';
+       const color = oncoming ? NEON.headlight : NEON.trafficRed;
+       const y = placed.y + h * VEHICLE_LIGHT_Y_OFFSET_RATIO;
+       const spread = Math.max(2, w * VEHICLE_LIGHT_SPREAD_RATIO);
+       // Direction lights existed before this pass but were drawn at ~5px
+       // radius, 0.5 alpha, with a 0.045-alpha beam — on a near-black playfield
+       // that is below the threshold of noticing, so oncoming and
+       // same-direction traffic read identically in play. Sized and lit to be
+       // the primary direction signal.
+       const radius = Math.max(VEHICLE_LIGHT_RADIUS_MIN, w * VEHICLE_LIGHT_RADIUS_RATIO);
 
-      // Silhouette rim. Measured on a real capture, a light-bodied car reads
-      // at 6.2:1 against the projected road but a dark olive/maroon one only
-      // manages ~1.6:1 on body fill alone — the art itself is that dark, and
-      // no amount of layer contrast fixes it without blowing out the light
-      // vehicles. A cool halo just outside the sprite gives every vehicle a
-      // hard edge against the tarmac regardless of its paint.
-      // Soft ellipses, never a rounded rect: a rect halo reads as a card
-      // behind each car, which is precisely the "everything is in a box" look
-      // this pass exists to remove.
-      this.vehicleLightLayer
-        .ellipse(placed.x, placed.y, w * 0.62, h * 0.58)
-        .fill({ color: NEON.headlight, alpha: 0.075 * alpha });
-      this.vehicleLightLayer
-        .ellipse(placed.x, placed.y, w * 0.52, h * 0.5)
-        .fill({ color: NEON.headlight, alpha: 0.075 * alpha });
+       // Silhouette rim. Measured on a real capture, a light-bodied car reads
+       // at 6.2:1 against the projected road but a dark olive/maroon one only
+       // manages ~1.6:1 on body fill alone — the art itself is that dark, and
+       // no amount of layer contrast fixes it without blowing out the light
+       // vehicles. A cool halo just outside the sprite gives every vehicle a
+       // hard edge against the tarmac regardless of its paint.
+       // Soft ellipses, never a rounded rect: a rect halo reads as a card
+       // behind each car, which is precisely the "everything is in a box" look
+       // this pass exists to remove.
+       this.vehicleLightLayer
+         .ellipse(placed.x, placed.y, w * VEHICLE_LIGHT_HALO_WIDTH_RATIO, h * VEHICLE_LIGHT_HALO_HEIGHT_RATIO)
+         .fill({ color: NEON.headlight, alpha: VEHICLE_LIGHT_HALO_ALPHA * alpha });
+       this.vehicleLightLayer
+         .ellipse(placed.x, placed.y, w * VEHICLE_LIGHT_HALO_INNER_WIDTH_RATIO, h * VEHICLE_LIGHT_HALO_INNER_HEIGHT_RATIO)
+         .fill({ color: NEON.headlight, alpha: VEHICLE_LIGHT_HALO_ALPHA * alpha });
 
-      // Contact shadow next, so the lamps below stay the brightest pixels.
-      // Without it every vehicle floats, which is a large part of why the
-      // playfield used to read as a flat box.
-      this.vehicleLightLayer
-        .ellipse(placed.x, placed.contactY - h * 0.035, w * 0.44, h * 0.09)
-        .fill({ color: 0x000000, alpha: 0.54 * alpha });
+       // Contact shadow next, so the lamps below stay the brightest pixels.
+       // Without it every vehicle floats, which is a large part of why the
+       // playfield used to read as a flat box.
+       this.vehicleLightLayer
+         .ellipse(placed.x, placed.contactY - h * 0.035, w * VEHICLE_LIGHT_SHADOW_WIDTH_RATIO, h * VEHICLE_LIGHT_SHADOW_HEIGHT_RATIO)
+         .fill({ color: 0x000000, alpha: VEHICLE_LIGHT_SHADOW_ALPHA * alpha });
 
-      if (oncoming) {
-        // Headlight cone thrown toward the player: the cue arrives before the
-        // vehicle does, which is what makes closing speed readable. In
-        // perspective the cone also widens as the car nears, so approach is
-        // signalled twice over.
-        const coneLength = h * 1.15;
-        const coneHalf = w * 0.62;
-        this.vehicleLightLayer
-          .poly([placed.x - spread, y, placed.x + spread, y, placed.x + coneHalf, y + coneLength, placed.x - coneHalf, y + coneLength])
-          .fill({ color, alpha: 0.16 * alpha });
-        this.vehicleLightLayer
-          .poly([placed.x - spread, y, placed.x + spread, y, placed.x + coneHalf * 0.55, y + coneLength * 0.55, placed.x - coneHalf * 0.55, y + coneLength * 0.55])
-          .fill({ color, alpha: 0.2 * alpha });
-      } else {
-        // Same-direction traffic gets a taillight bar plus a short red wash —
-        // a different *shape*, not just a different hue, so the cue survives
-        // colour-vision deficiency (ASSETS.md accessibility clause).
-        this.vehicleLightLayer
-          .roundRect(placed.x - w * 0.34, y - radius * 0.5, w * 0.68, radius, radius * 0.5)
-          .fill({ color, alpha: 0.5 * alpha });
-        this.vehicleLightLayer
-          .roundRect(placed.x - w * 0.3, y + radius, w * 0.6, h * 0.3, 6 * k)
-          .fill({ color, alpha: 0.12 * alpha });
-      }
+       if (oncoming) {
+         // Headlight cone thrown toward the player: the cue arrives before the
+         // vehicle does, which is what makes closing speed readable. In
+         // perspective the cone also widens as the car nears, so approach is
+         // signalled twice over.
+         const coneLength = h * VEHICLE_LIGHT_CONE_LENGTH_RATIO;
+         const coneHalf = w * VEHICLE_LIGHT_CONE_HALF_WIDTH_RATIO;
+         this.vehicleLightLayer
+           .poly([placed.x - spread, y, placed.x + spread, y, placed.x + coneHalf, y + coneLength, placed.x - coneHalf, y + coneLength])
+           .fill({ color, alpha: VEHICLE_LIGHT_CONE_ALPHA * alpha });
+         this.vehicleLightLayer
+           .poly([placed.x - spread, y, placed.x + spread, y, placed.x + coneHalf * 0.55, y + coneLength * 0.55, placed.x - coneHalf * 0.55, y + coneLength * 0.55])
+           .fill({ color, alpha: VEHICLE_LIGHT_CONE_INNER_ALPHA * alpha });
+       } else {
+         // Same-direction traffic gets a taillight bar plus a short red wash —
+         // a different *shape*, not just a different hue, so the cue survives
+         // colour-vision deficiency (ASSETS.md accessibility clause).
+         this.vehicleLightLayer
+           .roundRect(placed.x - w * 0.34, y - radius * 0.5, w * VEHICLE_LIGHT_TAILLIGHT_WIDTH_RATIO, radius, radius * 0.5)
+           .fill({ color, alpha: VEHICLE_LIGHT_TAILLIGHT_ALPHA * alpha });
+         this.vehicleLightLayer
+           .roundRect(placed.x - w * 0.3, y + radius, w * VEHICLE_LIGHT_TAILLIGHT_WASH_WIDTH_RATIO, h * VEHICLE_LIGHT_TAILLIGHT_WASH_HEIGHT_RATIO, 6 * k)
+           .fill({ color, alpha: VEHICLE_LIGHT_TAILLIGHT_WASH_ALPHA * alpha });
+       }
 
-      // Lamp cores last so they stay the brightest part of the cue.
-      this.vehicleLightLayer.circle(placed.x - spread, y, radius).fill({ color, alpha: 0.95 * alpha });
-      this.vehicleLightLayer.circle(placed.x + spread, y, radius).fill({ color, alpha: 0.95 * alpha });
-    }
-  }
+       // Lamp cores last so they stay the brightest part of the cue.
+       this.vehicleLightLayer.circle(placed.x - spread, y, radius).fill({ color, alpha: VEHICLE_LIGHT_CORE_ALPHA * alpha });
+       this.vehicleLightLayer.circle(placed.x + spread, y, radius).fill({ color, alpha: VEHICLE_LIGHT_CORE_ALPHA * alpha });
+     }
+   }
 
   private drawWeather(state: GameState) {
     const width = this.app.screen.width;

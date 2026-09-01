@@ -16,6 +16,106 @@ import { drawVehicle, drawObstacle } from './renderer';
 // plan's Phase 1 for why this split exists: the exact same simulation now
 // also runs standalone on native behind a Skia renderer instead.
 export class WebGameEngine extends GameEngine {
+  // Rendering constants
+  /** Width of the guardrail in pixels. */
+  private static readonly GUARDRAIL_WIDTH = 12;
+  /** Width of the gutter (road edge) in pixels. */
+  private static readonly GUTTER_WIDTH = 10;
+  /** Scroll speed multiplier for gutter texture. */
+  private static readonly GUTTER_SCROLL_SPEED = 2;
+  /** Scroll speed for asphalt grain texture. */
+  private static readonly ASPHALT_GRAIN_SCROLL_SPEED = 1.5;
+  /** Vertical offset for asphalt grain texture. */
+  private static readonly ASPHALT_GRAIN_OFFSET = 16;
+  /** Base tile size for asphalt grain. */
+  private static readonly ASPHALT_GRAIN_TILE_SIZE = 7;
+  /** Width of the steel rail cap in pixels. */
+  private static readonly STEEL_RAIL_CAP_WIDTH = 4;
+  /** Multiplier for grain tile size. */
+  private static readonly GRAIN_TILE_MULTIPLIER = 16;
+  
+  // Speed streaks constants
+  private static readonly SPEED_STREAK_BASE_LENGTH = 14;
+  private static readonly SPEED_STREAK_LENGTH_MULTIPLIER = 55;
+  private static readonly SPEED_STREAK_BASE_ALPHA = 0.04;
+  private static readonly SPEED_STREAK_ALPHA_MULTIPLIER = 0.18;
+  private static readonly SPEED_STREAK_MAX_ALPHA = 0.6;
+  private static readonly SPEED_STREAK_COLOR = '190,205,255';
+  private static readonly SPEED_STREAK_LINE_WIDTH_THRESHOLD = 2.5;
+  private static readonly SPEED_STREAK_LINE_WIDTH = 1.8;
+  private static readonly SPEED_STREAK_DEFAULT_LINE_WIDTH = 1;
+  
+  // Chromatic aberration constants
+  private static readonly CHROMATIC_ABERRATION_SPEED_THRESHOLD = 2.8;
+  private static readonly CHROMATIC_ABERRATION_ALPHA_MULTIPLIER = 0.22;
+  private static readonly CHROMATIC_ABERRATION_MAX_ALPHA = 0.14;
+  private static readonly CHROMATIC_ABERRATION_STRIP_WIDTH = 5;
+  
+  // Lamp post constants
+  private static readonly LAMP_SPACING = 180;
+  private static readonly LAMP_POLE_HEIGHT = 36;
+  private static readonly LAMP_POLE_COLOR = '#252525';
+  private static readonly LAMP_POLE_LINE_WIDTH = 3;
+  private static readonly LAMP_POLE_LEFT_X = 9;
+  private static readonly LAMP_POLE_RIGHT_X = 17;
+  private static readonly LAMP_LIGHT_CONE_COLOR = 'rgba(255,220,100,0.07)';
+  private static readonly LAMP_LIGHT_CONE_WIDTH = 55;
+  private static readonly LAMP_LIGHT_CONE_HEIGHT = 70;
+  private static readonly LAMP_BULB_COLOR = '#ffeebb';
+  private static readonly LAMP_BULB_SHADOW_COLOR = '#ffdd44';
+  private static readonly LAMP_BULB_SHADOW_BLUR = 8;
+  private static readonly LAMP_BULB_RADIUS = 3.5;
+  
+  // Horizon fog constants
+  private static readonly HORIZON_FOG_HEIGHT_MULTIPLIER = 0.2;
+  private static readonly HORIZON_FOG_COLOR = '8,8,16';
+  private static readonly HORIZON_FOG_START_ALPHA = 0.88;
+  
+  // Exhaust constants
+  private static readonly EXHAUST_MIN_SPEED = 1.1;
+  private static readonly EXHAUST_WIDTH_MULTIPLIER = 0.30;
+  private static readonly EXHAUST_LENGTH_MULTIPLIER = 22;
+  private static readonly EXHAUST_HOT_SPEED_THRESHOLD = 2.2;
+  private static readonly EXHAUST_HOT_COLOR_START = '255,120,20';
+  private static readonly EXHAUST_HOT_COLOR_MID = '255,60,0';
+  private static readonly EXHAUST_HOT_COLOR_END = '80,0,0';
+  private static readonly EXHAUST_COOL_COLOR_START = '180,190,200';
+  private static readonly EXHAUST_COOL_COLOR_END = '180,190,200';
+  private static readonly EXHAUST_PLUME_WIDTH = 2.5;
+  private static readonly EXHAUST_CENTER_BOOST_SPEED_THRESHOLD = 2.0;
+  private static readonly EXHAUST_CENTER_BOOST_WIDTH = 1.5;
+  private static readonly EXHAUST_UNDERGLOW_SPEED_THRESHOLD = 2.5;
+  private static readonly EXHAUST_UNDERGLOW_ALPHA_MULTIPLIER = 0.3;
+  private static readonly EXHAUST_UNDERGLOW_MAX_ALPHA = 0.45;
+  private static readonly EXHAUST_UNDERGLOW_LENGTH_MULTIPLIER = 0.8;
+  private static readonly EXHAUST_UNDERGLOW_WIDTH_MULTIPLIER = 0.7;
+  
+  // Joystick constants
+  private static readonly JOYSTICK_BASE_RADIUS = 50;
+  private static readonly JOYSTICK_BASE_FILL_ALPHA = 0.08;
+  private static readonly JOYSTICK_BASE_STROKE_ALPHA = 0.25;
+  private static readonly JOYSTICK_BASE_LINE_WIDTH = 2;
+  private static readonly JOYSTICK_KNOB_RADIUS = 18;
+  private static readonly JOYSTICK_KNOB_FILL_ALPHA = 0.35;
+  private static readonly JOYSTICK_KNOB_STROKE_ALPHA = 0.6;
+  
+  // Guardrail stripe constants
+  private static readonly GUARDRAIL_STRIPE_HEIGHT = 36;
+  private static readonly GUARDRAIL_STRIPE_SCROLL_SPEED = 2.5;
+  
+  // Lane divider constants
+  private static readonly LANE_DIVIDER_COLOR = '255,255,200';
+  private static readonly LANE_DIVIDER_ALPHA = 0.25;
+  private static readonly LANE_DIVIDER_LINE_WIDTH = 3;
+  private static readonly LANE_DIVIDER_DASH_PATTERN = [34, 26];
+  private static readonly LANE_DIVIDER_SCROLL_SPEED = 2.8;
+  
+  // Center line constants
+  private static readonly CENTER_LINE_COLOR = '255,205,60';
+  private static readonly CENTER_LINE_ALPHA = 0.55;
+  private static readonly CENTER_LINE_WIDTH = 2.5;
+  private static readonly CENTER_LINE_OFFSET = 2.5;
+
   private canvasEl: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
   private grainPattern: CanvasPattern | null = null;
@@ -335,10 +435,10 @@ export class WebGameEngine extends GameEngine {
     ctx.globalAlpha = 0.035;
     ctx.fillStyle = '#777';
     for (let i = 0; i < 60; i++) {
-      const gx = (i * 83) % 10;
-      const gy = ((i * 131 + state.roadOffset * 2) % H);
+      const gx = (i * 83) % WebGameEngine.GUTTER_WIDTH;
+      const gy = ((i * 131 + state.roadOffset * WebGameEngine.GUTTER_SCROLL_SPEED) % H);
       ctx.fillRect(gx, gy, 2, 1);
-      ctx.fillRect(W - 10 + gx, gy, 2, 1);
+      ctx.fillRect(W - WebGameEngine.GUTTER_WIDTH + gx, gy, 2, 1);
     }
     ctx.globalAlpha = 1;
 
@@ -348,18 +448,18 @@ export class WebGameEngine extends GameEngine {
     roadGrad.addColorStop(0.3, '#23252e');
     roadGrad.addColorStop(1,   '#2c2f3c');
     ctx.fillStyle = roadGrad;
-    ctx.fillRect(12, 0, W - 24, H);
+    ctx.fillRect(WebGameEngine.GUARDRAIL_WIDTH, 0, W - WebGameEngine.GUARDRAIL_WIDTH * 2, H);
 
     // Fine asphalt grain — deterministic dots, baked into a tiled pattern once
     // instead of ~6k fillRect calls/frame.
-    const gs = 7;
+    const gs = WebGameEngine.ASPHALT_GRAIN_TILE_SIZE;
     if (!this.grainPattern) {
-      const tileSize = gs * 16;
-       const tile = document.createElement('canvas');
-       tile.width = tileSize;
-       tile.height = tileSize;
-       const tctx = tile.getContext('2d');
-       if (!tctx) throw new Error('Canvas 2D not supported');
+      const tileSize = gs * WebGameEngine.GRAIN_TILE_MULTIPLIER;
+        const tile = document.createElement('canvas');
+        tile.width = tileSize;
+        tile.height = tileSize;
+        const tctx = tile.getContext('2d');
+        if (!tctx) throw new Error('Canvas 2D not supported');
       tctx.fillStyle = '#fff';
       for (let y = 0; y < tileSize; y += gs) {
         for (let x = 0; x < tileSize; x += gs) {
@@ -373,26 +473,26 @@ export class WebGameEngine extends GameEngine {
     if (this.grainPattern) {
       ctx.globalAlpha = 0.022;
       ctx.save();
-      ctx.translate(0, Math.floor(state.roadOffset * 1.5) % gs);
+      ctx.translate(0, Math.floor(state.roadOffset * WebGameEngine.ASPHALT_GRAIN_SCROLL_SPEED) % gs);
       ctx.fillStyle = this.grainPattern;
-      ctx.fillRect(16, -gs, W - 32, H + gs * 2);
+      ctx.fillRect(WebGameEngine.ASPHALT_GRAIN_OFFSET, -gs, W - WebGameEngine.ASPHALT_GRAIN_OFFSET * 2, H + gs * 2);
       ctx.restore();
       ctx.globalAlpha = 1;
     }
 
     // === SPEED STREAKS — gradient fade, scale with speed ===
     if (speedMult > 1.05) {
-      const streakLen = 14 + speedMult * 55;
-      const streakAlpha = Math.min(0.6, 0.04 + (speedMult - 1) * 0.18);
+      const streakLen = WebGameEngine.SPEED_STREAK_BASE_LENGTH + speedMult * WebGameEngine.SPEED_STREAK_LENGTH_MULTIPLIER;
+      const streakAlpha = Math.min(WebGameEngine.SPEED_STREAK_MAX_ALPHA, WebGameEngine.SPEED_STREAK_BASE_ALPHA + (speedMult - 1) * WebGameEngine.SPEED_STREAK_ALPHA_MULTIPLIER);
       const streakXs = [28, 62, 98, 138, 178, 218, 258, 298, 338, 374];
       streakXs.forEach((sx, i) => {
-        if (sx < 14 || sx > W - 14) return;
+        if (sx < WebGameEngine.GUARDRAIL_WIDTH || sx > W - WebGameEngine.GUARDRAIL_WIDTH) return;
         const yBase = ((i * 141 + state.roadOffset * (3.5 + speedMult)) % H);
         const g = ctx.createLinearGradient(sx, yBase, sx, yBase + streakLen);
-        g.addColorStop(0, `rgba(190,205,255,${streakAlpha})`);
-        g.addColorStop(1, 'rgba(190,205,255,0)');
-         ctx.strokeStyle = g;
-        ctx.lineWidth = speedMult > 2.5 ? 1.8 : 1;
+        g.addColorStop(0, `rgba(${WebGameEngine.SPEED_STREAK_COLOR},${streakAlpha})`);
+        g.addColorStop(1, `rgba(${WebGameEngine.SPEED_STREAK_COLOR},0)`);
+          ctx.strokeStyle = g;
+        ctx.lineWidth = speedMult > WebGameEngine.SPEED_STREAK_LINE_WIDTH_THRESHOLD ? WebGameEngine.SPEED_STREAK_LINE_WIDTH : WebGameEngine.SPEED_STREAK_DEFAULT_LINE_WIDTH;
         ctx.beginPath();
         ctx.moveTo(sx, yBase);
         ctx.lineTo(sx, yBase + streakLen);
@@ -401,59 +501,59 @@ export class WebGameEngine extends GameEngine {
     }
 
     // Chromatic aberration strips at extreme speed
-    if (speedMult >= 2.8) {
-      const caA = Math.min(0.14, (speedMult - 2.8) * 0.22);
+    if (speedMult >= WebGameEngine.CHROMATIC_ABERRATION_SPEED_THRESHOLD) {
+      const caA = Math.min(WebGameEngine.CHROMATIC_ABERRATION_MAX_ALPHA, (speedMult - WebGameEngine.CHROMATIC_ABERRATION_SPEED_THRESHOLD) * WebGameEngine.CHROMATIC_ABERRATION_ALPHA_MULTIPLIER);
       ctx.globalAlpha = caA;
-      ctx.fillStyle = '#ff0040'; ctx.fillRect(12, 0, 5, H);
-      ctx.fillStyle = '#00ffff'; ctx.fillRect(W - 17, 0, 5, H);
+      ctx.fillStyle = '#ff0040'; ctx.fillRect(WebGameEngine.GUARDRAIL_WIDTH, 0, WebGameEngine.CHROMATIC_ABERRATION_STRIP_WIDTH, H);
+      ctx.fillStyle = '#00ffff'; ctx.fillRect(W - WebGameEngine.GUARDRAIL_WIDTH - WebGameEngine.CHROMATIC_ABERRATION_STRIP_WIDTH, 0, WebGameEngine.CHROMATIC_ABERRATION_STRIP_WIDTH, H);
       ctx.globalAlpha = 1;
     }
 
     // === SCROLLING LAMP POSTS ===
-    const lampSpacing = 180;
+    const lampSpacing = WebGameEngine.LAMP_SPACING;
     const lampOff = state.roadOffset % lampSpacing;
     for (let y = -lampSpacing + lampOff; y < H + lampSpacing; y += lampSpacing) {
       // Pole
-      ctx.strokeStyle = '#252525';
-      ctx.lineWidth = 3;
-      ctx.beginPath(); ctx.moveTo(9, y + 36); ctx.lineTo(9, y); ctx.lineTo(17, y); ctx.stroke();
+      ctx.strokeStyle = WebGameEngine.LAMP_POLE_COLOR;
+      ctx.lineWidth = WebGameEngine.LAMP_POLE_LINE_WIDTH;
+      ctx.beginPath(); ctx.moveTo(WebGameEngine.LAMP_POLE_LEFT_X, y + WebGameEngine.LAMP_POLE_HEIGHT); ctx.lineTo(WebGameEngine.LAMP_POLE_LEFT_X, y); ctx.lineTo(WebGameEngine.LAMP_POLE_RIGHT_X, y); ctx.stroke();
       // Light cone
-      ctx.fillStyle = 'rgba(255,220,100,0.07)';
-      ctx.beginPath(); ctx.moveTo(17, y); ctx.lineTo(55, y + 70); ctx.lineTo(28, y + 70); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = WebGameEngine.LAMP_LIGHT_CONE_COLOR;
+      ctx.beginPath(); ctx.moveTo(WebGameEngine.LAMP_POLE_RIGHT_X, y); ctx.lineTo(WebGameEngine.LAMP_POLE_RIGHT_X + WebGameEngine.LAMP_LIGHT_CONE_WIDTH, y + WebGameEngine.LAMP_LIGHT_CONE_HEIGHT); ctx.lineTo(WebGameEngine.LAMP_POLE_LEFT_X + (WebGameEngine.LAMP_LIGHT_CONE_WIDTH - (WebGameEngine.LAMP_POLE_RIGHT_X - WebGameEngine.LAMP_POLE_LEFT_X)), y + WebGameEngine.LAMP_LIGHT_CONE_HEIGHT); ctx.closePath(); ctx.fill();
       // Bulb
-      ctx.fillStyle = '#ffeebb';
-      ctx.shadowColor = '#ffdd44'; ctx.shadowBlur = 8;
-      ctx.beginPath(); ctx.arc(17, y, 3.5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = WebGameEngine.LAMP_BULB_COLOR;
+      ctx.shadowColor = WebGameEngine.LAMP_BULB_SHADOW_COLOR; ctx.shadowBlur = WebGameEngine.LAMP_BULB_SHADOW_BLUR;
+      ctx.beginPath(); ctx.arc(WebGameEngine.LAMP_POLE_RIGHT_X, y, WebGameEngine.LAMP_BULB_RADIUS, 0, Math.PI * 2); ctx.fill();
       ctx.shadowBlur = 0;
       // Right side (mirror)
-      ctx.strokeStyle = '#252525'; ctx.lineWidth = 3;
-      ctx.beginPath(); ctx.moveTo(W - 9, y + 36); ctx.lineTo(W - 9, y); ctx.lineTo(W - 17, y); ctx.stroke();
-      ctx.fillStyle = 'rgba(255,220,100,0.07)';
-      ctx.beginPath(); ctx.moveTo(W - 17, y); ctx.lineTo(W - 55, y + 70); ctx.lineTo(W - 28, y + 70); ctx.closePath(); ctx.fill();
-      ctx.fillStyle = '#ffeebb';
-      ctx.shadowColor = '#ffdd44'; ctx.shadowBlur = 8;
-      ctx.beginPath(); ctx.arc(W - 17, y, 3.5, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = WebGameEngine.LAMP_POLE_COLOR; ctx.lineWidth = WebGameEngine.LAMP_POLE_LINE_WIDTH;
+      ctx.beginPath(); ctx.moveTo(W - WebGameEngine.LAMP_POLE_LEFT_X, y + WebGameEngine.LAMP_POLE_HEIGHT); ctx.lineTo(W - WebGameEngine.LAMP_POLE_LEFT_X, y); ctx.lineTo(W - WebGameEngine.LAMP_POLE_RIGHT_X, y); ctx.stroke();
+      ctx.fillStyle = WebGameEngine.LAMP_LIGHT_CONE_COLOR;
+      ctx.beginPath(); ctx.moveTo(W - WebGameEngine.LAMP_POLE_RIGHT_X, y); ctx.lineTo(W - WebGameEngine.LAMP_POLE_RIGHT_X - WebGameEngine.LAMP_LIGHT_CONE_WIDTH, y + WebGameEngine.LAMP_LIGHT_CONE_HEIGHT); ctx.lineTo(W - WebGameEngine.LAMP_POLE_LEFT_X - (WebGameEngine.LAMP_LIGHT_CONE_WIDTH - (WebGameEngine.LAMP_POLE_RIGHT_X - WebGameEngine.LAMP_POLE_LEFT_X)), y + WebGameEngine.LAMP_LIGHT_CONE_HEIGHT); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = WebGameEngine.LAMP_BULB_COLOR;
+      ctx.shadowColor = WebGameEngine.LAMP_BULB_SHADOW_COLOR; ctx.shadowBlur = WebGameEngine.LAMP_BULB_SHADOW_BLUR;
+      ctx.beginPath(); ctx.arc(W - WebGameEngine.LAMP_POLE_RIGHT_X, y, WebGameEngine.LAMP_BULB_RADIUS, 0, Math.PI * 2); ctx.fill();
       ctx.shadowBlur = 0;
     }
 
     // === GUARDRAILS — warning chevron stripes ===
-    const stripeH = 36;
-    const stripeOff = state.roadOffset * 2.5;
+    const stripeH = WebGameEngine.GUARDRAIL_STRIPE_HEIGHT;
+    const stripeOff = state.roadOffset * WebGameEngine.GUARDRAIL_STRIPE_SCROLL_SPEED;
     for (let y = -stripeH + (stripeOff % (stripeH * 2)); y < H + stripeH; y += stripeH * 2) {
-      ctx.fillStyle = '#cc9900'; ctx.fillRect(0, y, 12, stripeH);
-      ctx.fillStyle = '#181818'; ctx.fillRect(0, y + stripeH, 12, stripeH);
-      ctx.fillRect(W - 12, y, 12, stripeH);
-      ctx.fillStyle = '#cc9900'; ctx.fillRect(W - 12, y + stripeH, 12, stripeH);
+      ctx.fillStyle = '#cc9900'; ctx.fillRect(0, y, WebGameEngine.GUARDRAIL_WIDTH, stripeH);
+      ctx.fillStyle = '#181818'; ctx.fillRect(0, y + stripeH, WebGameEngine.GUARDRAIL_WIDTH, stripeH);
+      ctx.fillRect(W - WebGameEngine.GUARDRAIL_WIDTH, y, WebGameEngine.GUARDRAIL_WIDTH, stripeH);
+      ctx.fillStyle = '#cc9900'; ctx.fillRect(W - WebGameEngine.GUARDRAIL_WIDTH, y + stripeH, WebGameEngine.GUARDRAIL_WIDTH, stripeH);
     }
     // Steel rail cap
-    ctx.fillStyle = '#444'; ctx.fillRect(0, 0, 4, H);
-    ctx.fillRect(W - 4, 0, 4, H);
+    ctx.fillStyle = '#444'; ctx.fillRect(0, 0, WebGameEngine.STEEL_RAIL_CAP_WIDTH, H);
+    ctx.fillRect(W - WebGameEngine.STEEL_RAIL_CAP_WIDTH, 0, WebGameEngine.STEEL_RAIL_CAP_WIDTH, H);
 
     // === LANE DIVIDERS — brighter, wider dashes ===
-    ctx.strokeStyle = 'rgba(255,255,200,0.25)';
-    ctx.lineWidth = 3;
-    ctx.setLineDash([34, 26]);
-    ctx.lineDashOffset = -(state.roadOffset * 2.8);
+    ctx.strokeStyle = `rgba(${WebGameEngine.LANE_DIVIDER_COLOR},${WebGameEngine.LANE_DIVIDER_ALPHA})`;
+    ctx.lineWidth = WebGameEngine.LANE_DIVIDER_LINE_WIDTH;
+    ctx.setLineDash(WebGameEngine.LANE_DIVIDER_DASH_PATTERN);
+    ctx.lineDashOffset = -(state.roadOffset * WebGameEngine.LANE_DIVIDER_SCROLL_SPEED);
     for (const i of [1, 3]) {
       ctx.beginPath();
       ctx.moveTo(laneWidth * i, 0);
@@ -465,10 +565,10 @@ export class WebGameEngine extends GameEngine {
 
     // Direction divide (between lanes 1 and 2) — solid double-yellow
     // center line, like a real two-way road, instead of another dash.
-    ctx.strokeStyle = 'rgba(255,205,60,0.55)';
-    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = `rgba(${WebGameEngine.CENTER_LINE_COLOR},${WebGameEngine.CENTER_LINE_ALPHA})`;
+    ctx.lineWidth = WebGameEngine.CENTER_LINE_WIDTH;
     const centerX = laneWidth * 2;
-    for (const offset of [-2.5, 2.5]) {
+    for (const offset of [-WebGameEngine.CENTER_LINE_OFFSET, WebGameEngine.CENTER_LINE_OFFSET]) {
       ctx.beginPath();
       ctx.moveTo(centerX + offset, 0);
       ctx.lineTo(centerX + offset, H);
@@ -476,36 +576,36 @@ export class WebGameEngine extends GameEngine {
     }
 
     // === HORIZON FOG ===
-    const fogGrad = ctx.createLinearGradient(0, 0, 0, H * 0.2);
-    fogGrad.addColorStop(0, 'rgba(8,8,16,0.88)');
-    fogGrad.addColorStop(1, 'rgba(8,8,16,0)');
+    const fogGrad = ctx.createLinearGradient(0, 0, 0, H * WebGameEngine.HORIZON_FOG_HEIGHT_MULTIPLIER);
+    fogGrad.addColorStop(0, `rgba(${WebGameEngine.HORIZON_FOG_COLOR},${WebGameEngine.HORIZON_FOG_START_ALPHA})`);
+    fogGrad.addColorStop(1, `rgba(${WebGameEngine.HORIZON_FOG_COLOR},0)`);
     ctx.fillStyle = fogGrad;
-    ctx.fillRect(0, 0, W, H * 0.2);
+    ctx.fillRect(0, 0, W, H * WebGameEngine.HORIZON_FOG_HEIGHT_MULTIPLIER);
   }
 
   private drawExhaust(ctx: CanvasRenderingContext2D, state: GameState) {
     const spd = state.speedMultiplier;
-    if (spd < 1.1) return;
+    if (spd < WebGameEngine.EXHAUST_MIN_SPEED) return;
 
     const px  = state.player.x;
     const py  = state.player.y + state.player.height / 2;
-    const hw  = state.player.width * 0.30;
-    const len = spd * 22;
+    const hw  = state.player.width * WebGameEngine.EXHAUST_WIDTH_MULTIPLIER;
+    const len = spd * WebGameEngine.EXHAUST_LENGTH_MULTIPLIER;
     const carColor = CAR_STATS[this.selectedCar].color;
 
     // Main exhaust plumes — gradient fade
     const drawPlume = (ox: number, width: number, hot: boolean) => {
       const g = ctx.createLinearGradient(0, py, 0, py + len);
-      if (hot && spd >= 2.2) {
-        g.addColorStop(0,   `rgba(255,120,20,${Math.min(0.9, (spd-1)*0.35)})`);
-        g.addColorStop(0.4, `rgba(255,60,0,${Math.min(0.5,(spd-1)*0.2)})`);
-        g.addColorStop(1,   'rgba(80,0,0,0)');
+      if (hot && spd >= WebGameEngine.EXHAUST_HOT_SPEED_THRESHOLD) {
+        g.addColorStop(0,   `rgba(${WebGameEngine.EXHAUST_HOT_COLOR_START},${Math.min(0.9, (spd-1)*0.35)})`);
+        g.addColorStop(0.4, `rgba(${WebGameEngine.EXHAUST_HOT_COLOR_MID},${Math.min(0.5,(spd-1)*0.2)})`);
+        g.addColorStop(1,   `rgba(${WebGameEngine.EXHAUST_HOT_COLOR_END},0)`);
       } else {
-        g.addColorStop(0,   `rgba(180,190,200,${Math.min(0.7,(spd-1)*0.3)})`);
-        g.addColorStop(1,   'rgba(180,190,200,0)');
-       }
-       ctx.strokeStyle = g;
-       ctx.lineWidth = width;
+        g.addColorStop(0,   `rgba(${WebGameEngine.EXHAUST_COOL_COLOR_START},${Math.min(0.7,(spd-1)*0.3)})`);
+        g.addColorStop(1,   `rgba(${WebGameEngine.EXHAUST_COOL_COLOR_END},0)`);
+        }
+        ctx.strokeStyle = g;
+        ctx.lineWidth = width;
       ctx.lineCap = 'round';
       ctx.beginPath();
       ctx.moveTo(px + ox, py);
@@ -513,26 +613,26 @@ export class WebGameEngine extends GameEngine {
       ctx.stroke();
     };
 
-    drawPlume(-hw, 2.5, true);
-    drawPlume( hw, 2.5, true);
+    drawPlume(-hw, WebGameEngine.EXHAUST_PLUME_WIDTH, true);
+    drawPlume( hw, WebGameEngine.EXHAUST_PLUME_WIDTH, true);
 
     // Center boost trail at speed ≥ 2
-    if (spd >= 2.0) {
-      drawPlume(0, 1.5, true);
+    if (spd >= WebGameEngine.EXHAUST_CENTER_BOOST_SPEED_THRESHOLD) {
+      drawPlume(0, WebGameEngine.EXHAUST_CENTER_BOOST_WIDTH, true);
     }
 
     // Car-colored underglow trail at very high speed
-    if (spd >= 2.5) {
-      const glowAlpha = Math.min(0.45, (spd - 2.5) * 0.3);
-      const g = ctx.createLinearGradient(0, py, 0, py + len * 0.8);
+    if (spd >= WebGameEngine.EXHAUST_UNDERGLOW_SPEED_THRESHOLD) {
+      const glowAlpha = Math.min(WebGameEngine.EXHAUST_UNDERGLOW_MAX_ALPHA, (spd - WebGameEngine.EXHAUST_UNDERGLOW_SPEED_THRESHOLD) * WebGameEngine.EXHAUST_UNDERGLOW_ALPHA_MULTIPLIER);
+      const g = ctx.createLinearGradient(0, py, 0, py + len * WebGameEngine.EXHAUST_UNDERGLOW_LENGTH_MULTIPLIER);
       g.addColorStop(0, carColor + Math.round(glowAlpha * 255).toString(16).padStart(2,'0'));
-       g.addColorStop(1, 'rgba(0,0,0,0)');
-       ctx.strokeStyle = g;
-       ctx.lineWidth = state.player.width * 0.7;
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.strokeStyle = g;
+        ctx.lineWidth = state.player.width * WebGameEngine.EXHAUST_UNDERGLOW_WIDTH_MULTIPLIER;
       ctx.lineCap = 'round';
       ctx.beginPath();
       ctx.moveTo(px, py);
-      ctx.lineTo(px, py + len * 0.8);
+      ctx.lineTo(px, py + len * WebGameEngine.EXHAUST_UNDERGLOW_LENGTH_MULTIPLIER);
       ctx.stroke();
     }
   }
@@ -545,20 +645,20 @@ export class WebGameEngine extends GameEngine {
 
     // Base
     ctx.beginPath();
-    ctx.arc(cx, cy, 50, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
+    ctx.arc(cx, cy, WebGameEngine.JOYSTICK_BASE_RADIUS, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(255, 255, 255, ${WebGameEngine.JOYSTICK_BASE_FILL_ALPHA})`;
     ctx.fill();
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = `rgba(255, 255, 255, ${WebGameEngine.JOYSTICK_BASE_STROKE_ALPHA})`;
+    ctx.lineWidth = WebGameEngine.JOYSTICK_BASE_LINE_WIDTH;
     ctx.stroke();
 
     // Knob
     ctx.beginPath();
-    ctx.arc(nx, ny, 18, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
+    ctx.arc(nx, ny, WebGameEngine.JOYSTICK_KNOB_RADIUS, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(255, 255, 255, ${WebGameEngine.JOYSTICK_KNOB_FILL_ALPHA})`;
     ctx.fill();
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = `rgba(255, 255, 255, ${WebGameEngine.JOYSTICK_KNOB_STROKE_ALPHA})`;
+    ctx.lineWidth = WebGameEngine.JOYSTICK_BASE_LINE_WIDTH;
     ctx.stroke();
 
     ctx.restore();
