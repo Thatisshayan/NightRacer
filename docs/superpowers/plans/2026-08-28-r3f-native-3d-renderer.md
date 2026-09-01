@@ -10,6 +10,37 @@
 
 ---
 
+## Progress (2026-08-28, inline execution session)
+
+Branch: `worktree-feat-native-3d-renderer` (isolated worktree, not pushed yet).
+
+**Done — all code written and committed:**
+- Task 0: `@workspace/render-frame` package extracted, both web consumers updated.
+- Task 1: dependencies added to `package.json` + Metro config updated.
+- Task 2: `R3FSmokeTest.tsx` written (not yet mounted/run — no device access this session).
+- Tasks 3–7: `RoadMesh.tsx`, `VehicleMesh.tsx`, `r3f-renderer.ts`, `R3FGameScene.tsx`, `Atmosphere.tsx`, `PostFX.tsx` all written.
+- Task 8: dev-only `EXPO_PUBLIC_RENDERER=3d` toggle wired into `app/(tabs)/index.tsx`.
+- `docs/NATIVE_3D_ASSET_MANIFEST.md` written (asset generation brief).
+
+**Update — later in the same session:**
+- `pnpm install` finished (took ~1h6m in this environment). `tsc -p tsconfig.json --noEmit` for `@workspace/warboss-highway-mobile` now passes clean (0 errors), and the web `warboss-highway` package still typechecks clean after the `render-frame` extraction. Note: running this repo's own `pnpm run typecheck` / `tsc --build` from the repo root reproduces 5 pre-existing `TS2304` errors in `lib/game-core/src/engine.ts` (`requestAnimationFrame`/`performance`/`cancelAnimationFrame` not found) that are **not** caused by anything in this branch — `global.d.ts` in that same package declares exactly those globals, but they don't resolve when building via an isolated `tsc --build` in this sandboxed Windows environment. This exact file has passed CI's typecheck on every push all session (including before this branch existed), so treat this as a local-environment quirk to re-verify on CI, not a real regression.
+- Real assets now exist: 13 Apex-cyberpunk-styled vehicle GLB models were generated via Higgsfield (Recraft V4.1 for concept art → SAM 3 3D Objects / Meshy image-to-3D for the GLB lift) and committed under `artifacts/warboss-highway-mobile/assets/3d/apex/*.glb` (~24MB total). `VehicleMesh.tsx` was rewritten to load them via `expo-asset` + `GLTFLoader` instead of primitive box geometry, keyed by the new `ApexVehiclePose.vehicleType` field (added to `@workspace/render-frame`).
+- Two real bugs were caught and fixed before ever seeing a device: (1) single-image-to-3D reconstructions have no guaranteed ground-contact convention, so a `normalizeGroundedModel()` step now grounds every model's lowest point to local y=0; (2) the old placeholder-box chassis-lift offset (`pose.y`) was still being applied on top of an already-grounded model, which would have floated every car — removed. Outer scaling switched from independent width/length stretching to uniform scale-by-length, so each model's real proportions aren't distorted.
+- A neutral studio PBR environment (three.js's bundled `RoomEnvironment` via drei's `<Environment>`) was added for realistic material reflections, at zero cost/no network dependency — a true Apex-matched HDRI skybox was scoped and explicitly skipped (see below).
+- The 5 web Apex Storm textures (wet asphalt, tunnel concrete, rain streak, steam puff, neon billboard) were copied into the mobile assets folder for future reuse — not yet wired into any native component.
+- Generation cost: ~287 Higgsfield credits spent this session (534.39 → 247.39), including a wasted first batch generated in the wrong (Mad Max/junkyard) visual style before correcting course to the actual Apex cyberpunk direction — kept on disk per request but gitignored, not committed (both concept-image sets total ~119MB, zero runtime purpose).
+
+**Still not done — genuinely unverified, not just unchecked as a formality:**
+- Nothing in this plan has run on an iOS simulator or device. This session has no macOS host — `expo run:ios` isn't possible here. CI's macOS runner (`.github/workflows/ios-build.yml`) is the realistic place this gets its first real verification.
+- **Forward-facing orientation of each vehicle model is unconfirmed.** Grounding is now correct by construction, but nothing verifies that each single-image reconstruction's "forward" axis actually matches the +Z heading this code assumes when applying `rotation.y`. A model could sit correctly on the road but visually face/drive the wrong way. This can only be checked by actually seeing it render.
+- No audit doc / proof screenshot was written for Task 8, on purpose — fabricating one without ever having seen the scene render would repeat exactly the kind of overclaiming CodeRabbit flagged on PR #35. Do not add one until there's a real screenshot.
+- Neon billboards and tunnel biome geometry remain deferred as originally scoped (Task 6).
+- `R3FSmokeTest.tsx` was written but never mounted/run (Task 2's on-device verification step).
+
+**Before this branch is worth pushing/reviewing:** get it building and rendering on an actual device or CI, visually confirm vehicle orientation/grounding, then decide whether to fix orientation in-code (a per-model rotation offset constant would be the likely fix, once the actual wrong-facing amount is known) versus regenerating the affected concept images with a more consistent camera angle.
+
+---
+
 ## File Structure
 
 | File | Responsibility |

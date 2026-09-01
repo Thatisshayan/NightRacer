@@ -1,4 +1,4 @@
-import type { GameState, Player, Vehicle } from '@workspace/game-core';
+import type { GameState, Player, Vehicle, VehicleType } from '@workspace/game-core';
 
 /**
  * A renderer-independent road layout for Apex Storm.
@@ -31,9 +31,15 @@ export interface ApexWheelContact {
   z: number;
 }
 
+/** Which concrete model a renderer should pick for this pose — 'PLAYER' maps
+ * to the selected CarType elsewhere (GameState.selectedCar), since the pose
+ * itself only tracks lane/kind, not which of the 5 player cars is active. */
+export type ApexVehicleModelType = VehicleType | 'PLAYER';
+
 export interface ApexVehiclePose {
   id: string;
   kind: ApexVehicleKind;
+  vehicleType: ApexVehicleModelType;
   /** Centre of the chassis. The chassis rises from the shared road plane. */
   x: number;
   y: number;
@@ -102,6 +108,7 @@ export interface ApexStormFrame {
 type RoadEntity = Pick<Player, 'x' | 'y' | 'width' | 'height'> & {
   id: string;
   kind: ApexVehicleKind;
+  vehicleType: ApexVehicleModelType;
 };
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
@@ -174,6 +181,7 @@ function vehiclePose(state: GameState, entity: RoadEntity): ApexVehiclePose {
   return {
     id: entity.id,
     kind: entity.kind,
+    vehicleType: entity.vehicleType,
     x,
     // The chassis lift is a physical height above exactly the wheel-contact plane.
     y: width * 0.18,
@@ -192,22 +200,28 @@ function vehiclePose(state: GameState, entity: RoadEntity): ApexVehiclePose {
 
 function toRoadEntity(vehicle: Vehicle): RoadEntity {
   return {
-    id: `vehicle-${vehicle.lane}-${vehicle.variant}-${vehicle.x.toFixed(1)}-${vehicle.y.toFixed(1)}`,
+    // Must be the vehicle's own stable spawn id, not derived from its
+    // position — R3FGameScene.tsx assigns each id a pool slot for the whole
+    // time it's on screen, so a position-derived id (which changes every
+    // frame as the vehicle moves) made every vehicle look "new" each tick,
+    // thrashing pool slots and forcing constant GLTF remounts.
+    id: vehicle.id,
     x: vehicle.x,
     y: vehicle.y,
     width: vehicle.width,
     height: vehicle.height,
     kind: vehicle.direction === 'OPPOSITE' ? 'oncoming' : 'same-direction',
+    vehicleType: vehicle.type,
   };
 }
 
 function demoFormation(state: GameState): RoadEntity[] {
   const [lane0 = 52.5, lane1 = 157.5, lane2 = 262.5, lane3 = 367.5] = state.lanes;
   return [
-    { id: 'demo-far-oncoming', x: lane0, y: -65, width: 48, height: 80, kind: 'oncoming' },
-    { id: 'demo-mid-same', x: lane3, y: 120, width: 48, height: 80, kind: 'same-direction' },
-    { id: 'demo-near-oncoming', x: lane1, y: 315, width: 48, height: 80, kind: 'oncoming' },
-    { id: 'demo-near-same', x: lane2, y: 455, width: 48, height: 80, kind: 'same-direction' },
+    { id: 'demo-far-oncoming', x: lane0, y: -65, width: 48, height: 80, kind: 'oncoming', vehicleType: 'SEDAN' },
+    { id: 'demo-mid-same', x: lane3, y: 120, width: 48, height: 80, kind: 'same-direction', vehicleType: 'BUS' },
+    { id: 'demo-near-oncoming', x: lane1, y: 315, width: 48, height: 80, kind: 'oncoming', vehicleType: 'SPORTS' },
+    { id: 'demo-near-same', x: lane2, y: 455, width: 48, height: 80, kind: 'same-direction', vehicleType: 'PICKUP' },
   ];
 }
 
@@ -225,7 +239,7 @@ export function buildApexStormFrame(state: GameState, options?: { demo?: boolean
     };
   });
   const traffic = options?.demo ? demoFormation(state) : state.vehicles.map(toRoadEntity);
-  const player: RoadEntity = { id: 'player', ...state.player, kind: 'player' };
+  const player: RoadEntity = { id: 'player', ...state.player, kind: 'player', vehicleType: 'PLAYER' };
   const vehicles = [player, ...traffic]
     .map((entity) => vehiclePose(state, entity))
     .sort((a, b) => b.z - a.z);

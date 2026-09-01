@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { Image as RNImage, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { Canvas, Image } from '@shopify/react-native-skia';
+import { LinearGradient } from 'expo-linear-gradient';
 import { CAR_STATS, type CarType } from '@workspace/game-core';
-import { usePlayerCarImages } from './sprites';
+import { CarPreview3D } from '@/components/game3d/CarPreview3D';
 import { Settings } from '@/lib/settings';
 
 const CAR_TYPES = Object.keys(CAR_STATS) as CarType[];
@@ -20,10 +20,10 @@ const UPGRADE_ICON: Record<'speed' | 'armor' | 'handling', string> = {
 // Native port of the web app's title/car-select screen (see
 // artifacts/warboss-highway/src/pages/Game.tsx's title JSX) — car
 // carousel, personal best, daily challenge toggle, garage/upgrades,
-// start button. Deliberately simplified vs. the web version: no bobbing
-// car-preview animation (static Skia image instead of the web's animated
-// Canvas2D CarPreview) and no virtual-joystick toggle (native input is
-// always drag-to-steer — see GameCanvas.tsx).
+// start button. The car card is a live spinning render of the actual GLB
+// (CarPreview3D, same model the in-game renderer draws), not a static 2D
+// image. No virtual-joystick toggle (native input is always drag-to-steer
+// — see GameCanvas.tsx).
 export function TitleScreen({
   selectedCar,
   onSelectCar,
@@ -41,7 +41,6 @@ export function TitleScreen({
   streak: number;
   onStart: () => void;
 }) {
-  const carImages = usePlayerCarImages();
   const stats = CAR_STATS[selectedCar];
   const [scrap, setScrap] = useState(Settings.getScrap());
   const [upgrades, setUpgrades] = useState(Settings.getUpgrades(selectedCar));
@@ -70,8 +69,6 @@ export function TitleScreen({
     setScrap(Settings.getScrap());
   };
 
-  const carImage = carImages[selectedCar];
-
   return (
     <View style={styles.screen}>
       {/* Skyline parallax backdrop — these two assets sat in the project
@@ -83,6 +80,16 @@ export function TitleScreen({
           of depth without real parallax scrolling. */}
       <RNImage source={require('../../assets/sprites/skyline_layer1.png')} style={styles.skylineLayer1} resizeMode="cover" />
       <RNImage source={require('../../assets/sprites/skyline_layer2.png')} style={styles.skylineLayer2} resizeMode="cover" />
+      {/* The skyline images have a hard top edge and the scrollable content
+          above rarely fills the screen, so without this the boundary reads
+          as a stark seam cutting the screen in two rather than a backdrop
+          peeking up from below. Fades the same black as the screen
+          background down to transparent over the skyline's own top edge. */}
+      <LinearGradient
+        colors={['#000000', 'rgba(0,0,0,0)']}
+        style={styles.skylineFade}
+        pointerEvents="none"
+      />
       <ScrollView contentContainerStyle={styles.root}>
       <Text style={styles.titleLine1}>WARBOSS</Text>
       <Text style={styles.titleLine2}>HIGHWAY</Text>
@@ -94,18 +101,17 @@ export function TitleScreen({
         </Pressable>
 
         <View style={styles.carCard}>
-          {carImage && (
-            <Canvas style={{ width: PREVIEW_SIZE, height: PREVIEW_SIZE }}>
-              <Image
-                image={carImage}
-                x={(PREVIEW_SIZE - stats.width) / 2}
-                y={(PREVIEW_SIZE - stats.height) / 2}
-                width={stats.width}
-                height={stats.height}
-                fit="fill"
-              />
-            </Canvas>
-          )}
+          {/* No key={selectedCar} here: that used to remount the whole
+              <Canvas> (a fresh GL context) on every carousel tap. Cycling
+              through cars quickly enough could exhaust iOS's limited
+              EAGLContext pool before the old one finished tearing down —
+              the same class of GL-churn crash this app has already hit
+              multiple times (see the GLTFLoader/Suspense crash fixes in
+              git history). CarPreview3D's Canvas now stays mounted for the
+              screen's lifetime; only the model inside swaps, which
+              expo-asset/useLoader already cache per key, so switching cars
+              is still cheap. */}
+          <CarPreview3D carType={selectedCar} size={PREVIEW_SIZE} />
           <Text style={styles.carLabel}>{stats.label}</Text>
           <Text style={styles.carDesc}>{stats.desc}</Text>
           <Text style={styles.carStats}>{stats.stats}</Text>
@@ -187,6 +193,9 @@ const styles = StyleSheet.create({
   // is drawn on top of it, shorter and slightly brighter for depth.
   skylineLayer1: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 220, opacity: 0.55 },
   skylineLayer2: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 150, opacity: 0.8 },
+  // Straddles skylineLayer1's top edge (the taller of the two) so the
+  // backdrop fades in instead of cutting on abruptly.
+  skylineFade: { position: 'absolute', left: 0, right: 0, bottom: 220, height: 90 },
   // Was opaque black — now transparent so the skyline backdrop shows
   // through behind the scrollable content.
   root: { flexGrow: 1, alignItems: 'center', backgroundColor: 'transparent', padding: 16, gap: 10 },

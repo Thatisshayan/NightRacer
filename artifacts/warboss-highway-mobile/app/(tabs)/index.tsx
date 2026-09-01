@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { runOnJS } from 'react-native-reanimated';
 import { useIsFocused } from '@react-navigation/native';
 import { getDailyModifier, type CarType, type GameState } from '@workspace/game-core';
-import { GameCanvas, GAME_WIDTH, GAME_HEIGHT } from '@/components/game/GameCanvas';
+import { GAME_WIDTH, GAME_HEIGHT } from '@/components/game/gameDimensions';
+import { R3FGameScene } from '@/components/game3d/R3FGameScene';
 import { HudOverlay } from '@/components/game/HudOverlay';
 import { TitleScreen } from '@/components/game/TitleScreen';
 import { GameOverScreen } from '@/components/game/GameOverScreen';
@@ -113,6 +116,48 @@ export default function TabOneScreen() {
     }
   }, [isFocused, screen, engine]);
 
+  // Drag-to-steer, ported from the archived 2D GameCanvas.tsx (same
+  // GameEngine.pointerDown/Move/Up input model as the web app's
+  // handleTouchStart/Move/End) — this wiring didn't carry over when the 3D
+  // renderer replaced GameCanvas as the default game, leaving the R3F
+  // screen with no touch input at all. Pan callbacks run as worklets on the
+  // UI thread; calls into the engine (plain JS, JS thread) go through
+  // runOnJS. handlePointerDown/Move/Up are plain (non-worklet) functions
+  // that close over `engine` normally — engine must NOT be passed as a
+  // runOnJS argument (only x/y, plain numbers, cross that boundary):
+  // runOnJS has to clone every argument into a Reanimated "shareable"
+  // value, and NativeGameEngine (audio refs, closures, internal state)
+  // isn't cloneable. Passing it as an arg threw inside the worklet on a
+  // real device — an unhandled worklet exception is fatal (SIGABRT), not
+  // just a caught JS error, which crashed the whole app on the first drag.
+  // GestureDetector's view is sized to the on-screen (scaled)
+  // R3FGameScene, so its local x/y are display-space — divide by `scale` to
+  // land back in the 420x800 logical space GameEngine expects.
+  function handlePointerDown(x: number, y: number) {
+    engine?.pointerDown(x, y);
+  }
+  function handlePointerMove(x: number, y: number) {
+    engine?.pointerMove(x, y);
+  }
+  function handlePointerUp() {
+    engine?.pointerUp();
+  }
+  const pan = useMemo(
+    () =>
+      Gesture.Pan()
+        .onBegin((e) => {
+          runOnJS(handlePointerDown)(e.x / scale, e.y / scale);
+        })
+        .onUpdate((e) => {
+          runOnJS(handlePointerMove)(e.x / scale, e.y / scale);
+        })
+        .onEnd(() => {
+          runOnJS(handlePointerUp)();
+        }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [engine, scale]
+  );
+
   const startGame = useCallback(() => {
     NativeAudio.stop('menu');
     setGameOverInfo(null);
@@ -168,7 +213,13 @@ export default function TabOneScreen() {
               border reads as an instrument viewport, matches the grimdark
               accent used elsewhere (HUD skulls, buttons). */}
           <View style={[styles.gameFrame, { width: GAME_WIDTH * scale, height: GAME_HEIGHT * scale }]}>
-            {engine && <GameCanvas engine={engine} scale={scale} />}
+            {engine && (
+              <GestureDetector gesture={pan}>
+                <View style={{ width: GAME_WIDTH * scale, height: GAME_HEIGHT * scale }}>
+                  <R3FGameScene engine={engine} />
+                </View>
+              </GestureDetector>
+            )}
             {engine && (
               <HudOverlay
                 engine={engine}

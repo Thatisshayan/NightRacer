@@ -171,6 +171,7 @@ jobs:
             CODE_SIGN_IDENTITY="iPhone Distribution" \
             PROVISIONING_PROFILE_SPECIFIER="Warboss Highway App Store" \
             DEVELOPMENT_TEAM=9Y6GYPM3K5 \
+            SOURCEMAP_FILE="$RUNNER_TEMP/main.jsbundle.map" \
             archive
 
           echo "--- archive Info.plist (signing metadata) ---"
@@ -178,6 +179,21 @@ jobs:
           echo "--- entitlements actually applied to the built app ---"
           APP_PATH="$(find "$RUNNER_TEMP/WarbossHighway.xcarchive/Products/Applications" -maxdepth 1 -name '*.app' | head -1)"
           codesign -d --entitlements :- "$APP_PATH" || true
+
+      # SOURCEMAP_FILE above (a react-native-xcode.sh convention: setting it
+      # makes the "Bundle React Native code and images" build phase also
+      # emit a sourcemap) is what makes crash reports from this build
+      # symbolicatable at all. Without this, a device crash's minified
+      # main.jsbundle:LINE:COL is unreadable — diagnosing one meant
+      # rebuilding this exact commit's JS bundle by hand just to map offsets
+      # back to real files, which is slow and error-prone to reproduce
+      # outside CI (see the 2026-08-29 "still crashing" investigation).
+      - name: Upload sourcemap as a build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WarbossHighway-sourcemap
+          path: ${{ runner.temp }}/main.jsbundle.map
+          retention-days: 30
 
       - name: Export IPA
         run: |

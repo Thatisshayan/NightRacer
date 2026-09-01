@@ -1,5 +1,5 @@
 import type { GameState } from '@workspace/game-core';
-import { APEX_STORM_ROAD, buildApexStormFrame, sampleApexRoad } from '../../artifacts/warboss-highway/src/lib/game/apex-storm-frame.ts';
+import { APEX_STORM_ROAD, buildApexStormFrame, sampleApexRoad } from '@workspace/render-frame';
 
 const assert = (condition: unknown, message: string): asserts condition => {
   if (!condition) throw new Error(`Apex Storm frame check failed: ${message}`);
@@ -18,8 +18,8 @@ const state: GameState = {
     vx: 0,
   },
   vehicles: [
-    { x: 52.5, y: -40, width: 48, height: 80, type: 'SEDAN', color: '#d7f5ff', speed: 4, lane: 0, passed: false, variant: 1, direction: 'OPPOSITE' },
-    { x: 367.5, y: 340, width: 48, height: 80, type: 'SPORTS', color: '#ff3f53', speed: 3, lane: 3, passed: false, variant: 2, direction: 'SAME' },
+    { id: 'vehicle-1', x: 52.5, y: -40, width: 48, height: 80, type: 'SEDAN', color: '#d7f5ff', speed: 4, lane: 0, passed: false, variant: 1, direction: 'OPPOSITE' },
+    { id: 'vehicle-2', x: 367.5, y: 340, width: 48, height: 80, type: 'SPORTS', color: '#ff3f53', speed: 3, lane: 3, passed: false, variant: 2, direction: 'SAME' },
   ],
   powerups: [],
   obstacles: [],

@@ -1,3 +1,10 @@
+// Archived alongside GameCanvas.tsx (see that file's header comment) — a
+// frozen, self-contained copy of the full legacy sprite-pack loader that
+// GameCanvas.tsx depended on. The live components/game/sprites.ts now
+// exports only usePlayerCarImages(), pointed at newer art, for the title
+// screen's car-select carousel; everything else here (the full in-game 2D
+// sprite set: enemy variants, powerups, road tile, etc.) has no live caller
+// once the 3D renderer replaced GameCanvas as the default game.
 import { useMemo } from 'react';
 import { AlphaType, ColorType, Skia, useImage, type SkImage } from '@shopify/react-native-skia';
 import type { CarType, PowerUpType } from '@workspace/game-core';
@@ -54,9 +61,9 @@ export interface SpriteImages {
   powerups: Record<PowerUpType, SkImage | null>;
 }
 
-// Standalone (doesn't pull in the full enemy/powerup sprite set) — used by
-// the title screen's car-select carousel, which only ever needs these 5.
-export function usePlayerCarImages(): Record<CarType, SkImage | null> {
+// Frozen copy of the pre-Apex-reskin player car sprites — the live
+// components/game/sprites.ts now serves newer art for the same 5 keys.
+function usePlayerCarImages(): Record<CarType, SkImage | null> {
   return {
     RATTLETRAP: useImage(require('../../assets/sprites/rattletrap.png')),
     WAR_RUNNER: useImage(require('../../assets/sprites/war_runner.png')),
