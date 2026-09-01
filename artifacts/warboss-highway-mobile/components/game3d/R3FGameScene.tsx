@@ -38,6 +38,17 @@ function SceneContent({ engine }: { engine: NativeGameEngine }) {
   const flashMesh = useRef<Mesh>(null);
   const flashMaterial = useRef<MeshBasicMaterial | null>(null);
 
+  // A three.js PerspectiveCamera constructed from the `camera` prop keeps its
+  // default identity orientation and looks down -Z, but the road
+  // (z ∈ [nearZ=-12, farZ=70]) sits in +Z from this seat — without an
+  // explicit aim the whole scene lands behind the camera and renders black.
+  // Mirror apex-storm-renderer.ts's FreeCamera.setTarget(3.45, 5.80, 24) so
+  // this camera actually faces the road. Position-only screen-shake below
+  // never re-orients the camera, so a single one-time lookAt is sufficient.
+  useEffect(() => {
+    camera.lookAt(3.45, 5.8, 24);
+  }, [camera]);
+
   // Rides along with the camera without needing to declare the camera
   // itself as JSX: reparenting an already-mounted Object3D onto the camera
   // is a one-time imperative operation, so this plane only needs to exist
@@ -182,6 +193,15 @@ export function R3FGameScene({ engine }: { engine: NativeGameEngine }) {
       camera={{ position: [BASE_CAMERA_X, BASE_CAMERA_Y, BASE_CAMERA_Z], fov: 47 }}
       gl={{ antialias: true }}
       shadows
+      onCreated={({ gl }) => {
+        // three.js clears to opaque black by default, but the scene fog (and
+        // the web renderer this mirrors: createScene()'s clearColor
+        // Color4(0.018,0.045,0.088)) renders the dusk sky a dark blue. Black
+        // shows through as a hard seam where fogged geometry ends and the
+        // empty void begins, reading as wrong-color/garbage at the horizon.
+        // Match the reference renderer's clear color so sky == clear.
+        gl.setClearColor('#040B16');
+      }}
     >
       <SceneContent engine={engine} />
       <PostFX />

@@ -92,7 +92,14 @@ function normalizeGroundedModel(object: Group): Group {
 
 function LoadedGltf({ uri }: { uri: string }) {
   const gltf = useLoader(GLTFLoader, uri);
-  const normalized = useMemo(() => normalizeGroundedModel(gltf.scene.clone()), [gltf]);
+  // The local `file://` asset path is unverified on-device (see the
+  // useLocalGltfUri comment). If a loader resolves to a GLTF without a scene
+  // (or the promise settles oddly on a failed/cancelled load), dereferencing
+  // gltf.scene would throw a render crash — render nothing instead so the
+  // slot falls back through its Suspense boundary quietly.
+  const scene = gltf?.scene;
+  if (!scene) return null;
+  const normalized = useMemo(() => normalizeGroundedModel(scene.clone()), [scene]);
   return <primitive object={normalized} />;
 }
 
