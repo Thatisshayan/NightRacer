@@ -1,10 +1,11 @@
-import { pgTable, text, serial, integer, timestamp, boolean, pgCheck } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, timestamp, boolean, index, check } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
 export const scoresTable = pgTable("scores", {
   id: serial("id").primaryKey(),
-  playerName: text("player_name", { length: 50 }).notNull(),
+  playerName: text("player_name").notNull(),
   score: integer("score").notNull(),
   powerupsUsed: integer("powerups_used").notNull().default(0),
   distanceTraveled: integer("distance_traveled").notNull().default(0),
@@ -16,9 +17,9 @@ export const scoresTable = pgTable("scores", {
   index("player_name_idx").on(table.playerName),
   index("daily_mode_idx").on(table.dailyMode),
   // Check constraints for range validation
-  pgCheck("score_non_negative_and_capped").on(table).expression("score >= 0 AND score <= 999999"),
-  pgCheck("powerups_used_non_negative_and_capped").on(table).expression("powerups_used >= 0 AND powerups_used <= 100"),
-  pgCheck("distance_traveled_non_negative_and_capped").on(table).expression("distance_traveled >= 0 AND distance_traveled <= 999999"),
+  check("score_non_negative_and_capped", sql`score >= 0 AND score <= 999999`),
+  check("powerups_used_non_negative_and_capped", sql`powerups_used >= 0 AND powerups_used <= 100`),
+  check("distance_traveled_non_negative_and_capped", sql`distance_traveled >= 0 AND distance_traveled <= 999999`),
 ]);
 
 export const insertScoreSchema = createInsertSchema(scoresTable)

@@ -140,7 +140,7 @@ router.post("/scores", scoreLimiter, async (req, res) => {
           score: body.score,
           powerupsUsed: body.powerupsUsed,
           distanceTraveled: body.distanceTraveled,
-          car: body.car ?? null,
+          car: body.car ?? "default_car",
           dailyMode: body.dailyMode,
         })
         .returning();

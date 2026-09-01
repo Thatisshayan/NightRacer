@@ -17,7 +17,7 @@ let musicStarting = false;
 const getCtx = (): AudioContext => {
   if (!ctx) {
     // Feature detection for AudioContext (Bug Fix 2)
-    if (!window.AudioContext && !window.webkitAudioContext) {
+    if (!window.AudioContext && !(window as any).webkitAudioContext) {
       throw new Error('Web Audio API not supported');
     }
     const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;

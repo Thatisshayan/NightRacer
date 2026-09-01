@@ -37,10 +37,11 @@ app.use(express.urlencoded({ extended: true }));
 app.get("/healthz", async (req, res) => {
   try {
     // Check DB connectivity
-    await db.query.scoresTable.select({ id: scoresTable.id }).limit(1);
+    await db.select().from(scoresTable).limit(1);
     res.status(200).json({ status: "ok", db: "connected" });
   } catch (err) {
-    res.status(503).json({ status: "degraded", db: "disconnected", error: err.message });
+    const message = err instanceof Error ? err.message : "unknown error";
+    res.status(503).json({ status: "degraded", db: "disconnected", error: message });
   }
 });
 
