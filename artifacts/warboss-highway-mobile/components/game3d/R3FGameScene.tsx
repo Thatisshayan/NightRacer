@@ -163,20 +163,16 @@ function SceneContent({ engine }: { engine: NativeGameEngine }) {
       {/* RoadSegments loads no async asset (plain box geometry/materials),
           so it never needs to sit inside a Suspense boundary at all. */}
       <RoadSegments handleRef={roadHandle} />
-      {/* useLoader (used by VehicleMesh's GLTF loading) throws its loading
-          promise for the nearest Suspense boundary to catch — that's how
-          R3F's suspense-based loaders work. Without one here, the thrown
-          promise bubbles up as an uncaught error, which the app's root
-          ErrorBoundary then shows as "something went wrong, please reload"
-          the instant a vehicle model starts loading. fallback={null} means
-          nothing renders for the (very brief, local-asset) load instead of
-          a spinner. Each slot gets its OWN Suspense boundary (not one
-          shared boundary around the whole pool): a slot's model loading for
-          the first time — routine mid-game, whenever a not-yet-seen
-          vehicle type first appears — should only blank that one slot, not
-          every other already-loaded vehicle on screen. The camera itself
-          must NOT be a descendant of any of these: see the useThree comment
-          above for why that previously caused a fully black frame. */}
+      {/* Vehicle model loading is fail-soft and non-suspending now: LoadedGltf
+          loads imperatively (GLTFLoader.loadAsync + try/catch) and renders a
+          grounded placeholder if the file:// URI is rejected on device, so it
+          never throws into the app's root ErrorBoundary ("something went
+          wrong, please reload"). Each slot still gets its OWN Suspense
+          boundary so any future suspending child (or one slot re-mounting its
+          model as traffic swaps) only blanks that one slot, never every
+          already-loaded vehicle on screen. The camera itself must NOT be a
+          descendant of any of these: see the useThree comment above for why
+          that previously caused a fully black frame. */}
       {Array.from({ length: MAX_VEHICLE_SLOTS }, (_, i) => (
         <Suspense key={i} fallback={null}>
           <VehicleMesh index={i} ref={(h) => { vehicleHandles.current[i] = h; }} />

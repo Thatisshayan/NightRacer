@@ -1,8 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import { useLoader } from '@react-three/fiber';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { Asset } from 'expo-asset';
-import { Box3, Group, Vector3 } from 'three';
+import { Box3, Group, MeshStandardMaterial, Vector3 } from 'three';
 import type { ApexVehicleModelType, ApexVehiclePose } from '@workspace/render-frame';
 import type { CarType } from '@workspace/game-core';
 
@@ -35,10 +34,9 @@ const MODEL_KEYS = Object.keys(MODEL_MODULES) as ModelKey[];
 
 // expo-gl's GL context can't fetch() a Metro `require()` id directly the way
 // browser Three.js expects a URL string — expo-asset resolves the bundled
-// module to a real, loadable local URI first. This has not run on a real
-// device yet in this session; if GLTFLoader chokes on the resolved URI's
-// scheme, that's the first thing to check (see the implementation plan's
-// progress notes).
+// module to a real, loadable local URI first. GLTFLoader's fetch() can still
+// reject that file:// URI on React Native; that rejection is handled
+// fail-soft in LoadedGltf (renders a grounded placeholder, never a crash).
 function useLocalGltfUri(moduleId: number): string | null {
   const [uri, setUri] = useState<string | null>(null);
   useEffect(() => {
@@ -90,17 +88,79 @@ function normalizeGroundedModel(object: Group): Group {
   return wrapper;
 }
 
+// Failed GLTF loads are cached so we don't retry a known-bad asset on every
+// re-mount (a slot's model swaps as traffic spawns/despawns, which would
+// otherwise hammer the loader with already-failing fetches every frame).
+const failedUris = new Set<string>();
+
+// One grounded, non-throwing placeholder for a load that fails on the device
+// (GLTFLoader's internal fetch() rejects file:// URIs on React Native, which
+// is exactly what a deployed device hits via the expo-asset path). Rendering
+// a simple car-shaped box instead of throwing keeps the game running and the
+// slot visually occupied, so the "everything invisible / blank / app crash"
+// failure mode (the root ErrorBoundary's "something went wrong" screen) never
+// fires from a model load. It is normalized the SAME way a real model is:
+// longest horizontal axis = 1, x/z centered, lowest point at y=0 — the outer
+// pool group then applies the identical ×pose.length scale, so it sits on the
+// road at the same size/pose a real GLTF would occupy.
+function PlaceholderVehicle() {
+  const material = useMemo(() => new MeshStandardMaterial({ color: '#2b3a52', roughness: 0.9 }), []);
+  return (
+    <group>
+      <mesh material={material} position={[0, 0.14, 0]}>
+        <boxGeometry args={[0.44, 0.28, 1.0]} />
+      </mesh>
+      <mesh material={material} position={[0, 0.36, -0.05]}>
+        <boxGeometry args={[0.4, 0.16, 0.55]} />
+      </mesh>
+    </group>
+  );
+}
+
+type LoadedState =
+  | { status: 'loading' }
+  | { status: 'ok'; gltf: { scene: Group } }
+  | { status: 'failed' };
+
 function LoadedGltf({ uri }: { uri: string }) {
-  const gltf = useLoader(GLTFLoader, uri);
-  // The local `file://` asset path is unverified on-device (see the
-  // useLocalGltfUri comment). If a loader resolves to a GLTF without a scene
-  // (or the promise settles oddly on a failed/cancelled load), dereferencing
-  // gltf.scene would throw a render crash — render nothing instead so the
-  // slot falls back through its Suspense boundary quietly.
-  const scene = gltf?.scene;
-  if (!scene) return null;
-  const normalized = useMemo(() => normalizeGroundedModel(scene.clone()), [scene]);
-  return <primitive object={normalized} />;
+  const [state, setState] = useState<LoadedState>({ status: 'loading' });
+
+  useEffect(() => {
+    let cancelled = false;
+    if (failedUris.has(uri)) {
+      setState({ status: 'failed' });
+      return;
+    }
+    const loader = new GLTFLoader();
+    loader
+      .loadAsync(uri)
+      .then((gltf) => {
+        if (!cancelled) {
+          // A load resolving to a GLTF without a scene is treated as a
+          // failure so we never dereference an undefined scene.
+          setState(gltf?.scene ? { status: 'ok', gltf: gltf as { scene: Group } } : { status: 'failed' });
+        }
+      })
+      .catch(() => {
+        failedUris.add(uri);
+        if (!cancelled) setState({ status: 'failed' });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [uri]);
+
+  // All hooks run unconditionally (Rules of Hooks) — the normalized object is
+  // only meaningful in the ok state, guarded by the render branch below.
+  const normalized = useMemo(
+    () =>
+      state.status === 'ok' ? normalizeGroundedModel(state.gltf.scene.clone()) : null,
+    [state],
+  );
+
+  if (state.status === 'loading') return null;
+  if (state.status === 'failed') return <PlaceholderVehicle />;
+  return normalized ? <primitive object={normalized} /> : <PlaceholderVehicle />;
 }
 
 // One pool slot mounts only the single model matching the vehicle currently
@@ -108,11 +168,13 @@ function LoadedGltf({ uri }: { uri: string }) {
 // R3FGameScene.tsx), but *which* vehicle occupies a given slot changes as
 // traffic spawns/despawns, so the mounted model swaps when that changes.
 // Mounting all 13 candidates per slot (as siblings, toggling visibility) was
-// tried first and caused MAX_VEHICLE_SLOTS x 13 = 130 concurrent
-// useLoader(GLTFLoader, ...) calls the instant the scene mounted, which
-// crashed real devices. useLoader caches its parsed result per URL, so
-// re-mounting a previously-seen key is cheap, and preloadVehicleModels()
-// below still warms every model's local URI in the background.
+// tried first and caused 130 concurrent model loads the instant the scene
+// mounted, which crashed real devices. Each loaded GLTF result is cached per
+// URL (see LoadedGltf), so re-mounting a previously-seen key is cheap, and
+// preloadVehicleModels() below still warms every model's local URI in the
+// background. Loads are non-suspending and fail-soft (a rejected file:// URI
+// renders a grounded placeholder instead of throwing into the root
+// ErrorBoundary).
 export const VehicleMesh = forwardRef<VehicleMeshHandle, { index: number }>(function VehicleMesh(_props, ref) {
   const group = useRef<Group>(null);
   const [activeKey, setActiveKey] = useState<ModelKey | null>(null);
