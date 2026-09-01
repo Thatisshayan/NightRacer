@@ -34,6 +34,12 @@ export function CarPreview3D({ carType, size }: { carType: CarType; size: number
       style={{ width: size, height: size }}
       camera={{ position: [1.6, 0.85, 1.9], fov: 32 }}
       gl={{ antialias: true, alpha: true }}
+      onCreated={({ camera }) => {
+        // Default three.js camera looks down -Z, but the grounded model sits
+        // at the origin (z=0) which is behind that view — the spinning car
+        // card rendered empty. Aim at the normalized model's center instead.
+        camera.lookAt(0, 0.5, 0);
+      }}
     >
       <Suspense fallback={null}>
         <hemisphereLight args={['#5779a9', '#0b1728', 1.1]} />
