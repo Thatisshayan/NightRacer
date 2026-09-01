@@ -1,13 +1,21 @@
 import { Router, type IRouter } from "express";
+import { rateLimit } from "express-rate-limit";
 import { db } from "@workspace/db";
 import { scoresTable } from "@workspace/db";
-import { desc, sql, gte } from "drizzle-orm";
+import { desc, sql, gte, lt, gt } from "drizzle-orm";
 import {
   SubmitScoreBody,
   GetLeaderboardQueryParams,
 } from "@workspace/api-zod";
 
 const router: IRouter = Router();
+
+// Rate limiting: 10 submissions/minute per IP
+const scoreLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  message: { error: "Too many score submissions, please try again later" },
+});
 
 // Max plausible score: baseSpeed(5) * maxSpeedMult(3) * maxScoreMult(3) / 10 per distance unit * generous factor
 // Score per distance ≈ 0.3 at theoretical max; we allow 1.5× headroom for combo bonuses
@@ -64,9 +72,30 @@ router.get("/scores", async (req, res) => {
 });
 
 // POST /scores — submit score with server-side validation
-router.post("/scores", async (req, res) => {
+router.post("/scores", scoreLimiter, async (req, res) => {
   try {
     const body = SubmitScoreBody.parse(req.body);
+
+    // Validate distanceTraveled: finite, positive, and <= 100,000
+    if (
+      !Number.isFinite(body.distanceTraveled) ||
+      body.distanceTraveled <= 0 ||
+      body.distanceTraveled > 100_000
+    ) {
+      req.log.warn({ body }, "Score rejected: invalid distanceTraveled");
+      res.status(400).json({ error: "distanceTraveled must be a positive finite number <= 100,000" });
+      return;
+    }
+
+    // Explicitly check for negative score
+    if (body.score < 0) {
+      req.log.warn({ body }, "Score rejected: negative score");
+      res.status(400).json({ error: "Score cannot be negative" });
+      return;
+    }
+
+    // Sanitize playerName to remove HTML tags and control characters
+    const sanitizedPlayerName = body.playerName.replace(/[<>"'&]/g, "");
 
     // Server-side plausibility check
     const maxAllowed = Math.min(
@@ -79,35 +108,39 @@ router.post("/scores", async (req, res) => {
       return;
     }
 
-    const [inserted] = await db
-      .insert(scoresTable)
-      .values({
-        playerName: body.playerName,
-        score: body.score,
-        powerupsUsed: body.powerupsUsed,
-        distanceTraveled: body.distanceTraveled,
-        car: body.car ?? null,
-        dailyMode: body.dailyMode,
-      })
-      .returning();
+    // Wrap insert and rank query in a transaction for atomicity
+    await db.transaction(async (tx) => {
+      const [inserted] = await tx
+        .insert(scoresTable)
+        .values({
+          playerName: sanitizedPlayerName,
+          score: body.score,
+          powerupsUsed: body.powerupsUsed,
+          distanceTraveled: body.distanceTraveled,
+          car: body.car ?? null,
+          dailyMode: body.dailyMode,
+        })
+        .returning();
 
-    const rankResult = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(scoresTable)
-      .where(sql`${scoresTable.score} > ${inserted.score}`);
+      // Use parameterized query with Drizzle's gt operator to avoid SQL injection
+      const rankResult = await tx
+        .select({ count: sql<number>`count(*)` })
+        .from(scoresTable)
+        .where(gt(scoresTable.score, inserted.score));
 
-    const rank = Number(rankResult[0]?.count ?? 0) + 1;
+      const rank = Number(rankResult[0]?.count ?? 0) + 1;
 
-    res.status(201).json({
-      id: inserted.id,
-      playerName: inserted.playerName,
-      score: inserted.score,
-      powerupsUsed: inserted.powerupsUsed,
-      distanceTraveled: inserted.distanceTraveled,
-      car: inserted.car,
-      dailyMode: inserted.dailyMode,
-      rank,
-      createdAt: inserted.createdAt.toISOString(),
+      res.status(201).json({
+        id: inserted.id,
+        playerName: inserted.playerName,
+        score: inserted.score,
+        powerupsUsed: inserted.powerupsUsed,
+        distanceTraveled: inserted.distanceTraveled,
+        car: inserted.car,
+        dailyMode: inserted.dailyMode,
+        rank,
+        createdAt: inserted.createdAt.toISOString(),
+      });
     });
   } catch (err) {
     req.log.error({ err }, "Failed to submit score");

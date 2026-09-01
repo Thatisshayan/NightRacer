@@ -51,7 +51,11 @@ export class WebGameEngine extends GameEngine {
     );
 
     this.canvasEl = canvas;
-    this.ctx = canvas.getContext('2d')!;
+    const context = canvas.getContext('2d');
+    if (!context) {
+      throw new Error('Failed to get 2D rendering context from canvas');
+    }
+    this.ctx = context;
 
     window.addEventListener('keydown', this.handleKeyDownDom);
     window.addEventListener('keyup', this.handleKeyUpDom);
@@ -71,11 +75,34 @@ export class WebGameEngine extends GameEngine {
     super.cleanup();
   }
 
-  private handleKeyDownDom = (e: KeyboardEvent) => this.handleKeyDown(e.code);
-  private handleKeyUpDom = (e: KeyboardEvent) => this.handleKeyUp(e.code);
+  // Destructor-like method to ensure cleanup is called
+  public disconnect() {
+    this.cleanup();
+  }
+
+  private handleKeyDownDom = (e: KeyboardEvent) => {
+    // Prevent scrolling for game-related keys
+    const gameKeys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space'];
+    if (gameKeys.includes(e.code)) {
+      e.preventDefault();
+    }
+    this.handleKeyDown(e.code);
+  };
+  private handleKeyUpDom = (e: KeyboardEvent) => {
+    // Prevent scrolling for game-related keys
+    const gameKeys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space'];
+    if (gameKeys.includes(e.code)) {
+      e.preventDefault();
+    }
+    this.handleKeyUp(e.code);
+  };
 
   private toCanvasCoords(clientX: number, clientY: number): { x: number; y: number } {
     const rect = this.canvasEl.getBoundingClientRect();
+    // Guard against division by zero if canvas has no dimensions
+    if (rect.width === 0 || rect.height === 0) {
+      return { x: 0, y: 0 };
+    }
     const scaleX = this.width / rect.width;
     const scaleY = this.height / rect.height;
     return { x: (clientX - rect.left) * scaleX, y: (clientY - rect.top) * scaleY };
@@ -328,10 +355,11 @@ export class WebGameEngine extends GameEngine {
     const gs = 7;
     if (!this.grainPattern) {
       const tileSize = gs * 16;
-      const tile = document.createElement('canvas');
-      tile.width = tileSize;
-      tile.height = tileSize;
-      const tctx = tile.getContext('2d')!;
+       const tile = document.createElement('canvas');
+       tile.width = tileSize;
+       tile.height = tileSize;
+       const tctx = tile.getContext('2d');
+       if (!tctx) throw new Error('Canvas 2D not supported');
       tctx.fillStyle = '#fff';
       for (let y = 0; y < tileSize; y += gs) {
         for (let x = 0; x < tileSize; x += gs) {
@@ -363,7 +391,7 @@ export class WebGameEngine extends GameEngine {
         const g = ctx.createLinearGradient(sx, yBase, sx, yBase + streakLen);
         g.addColorStop(0, `rgba(190,205,255,${streakAlpha})`);
         g.addColorStop(1, 'rgba(190,205,255,0)');
-        ctx.strokeStyle = g as unknown as string;
+         ctx.strokeStyle = g;
         ctx.lineWidth = speedMult > 2.5 ? 1.8 : 1;
         ctx.beginPath();
         ctx.moveTo(sx, yBase);
@@ -475,9 +503,9 @@ export class WebGameEngine extends GameEngine {
       } else {
         g.addColorStop(0,   `rgba(180,190,200,${Math.min(0.7,(spd-1)*0.3)})`);
         g.addColorStop(1,   'rgba(180,190,200,0)');
-      }
-      ctx.strokeStyle = g as unknown as string;
-      ctx.lineWidth = width;
+       }
+       ctx.strokeStyle = g;
+       ctx.lineWidth = width;
       ctx.lineCap = 'round';
       ctx.beginPath();
       ctx.moveTo(px + ox, py);
@@ -498,9 +526,9 @@ export class WebGameEngine extends GameEngine {
       const glowAlpha = Math.min(0.45, (spd - 2.5) * 0.3);
       const g = ctx.createLinearGradient(0, py, 0, py + len * 0.8);
       g.addColorStop(0, carColor + Math.round(glowAlpha * 255).toString(16).padStart(2,'0'));
-      g.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.strokeStyle = g as unknown as string;
-      ctx.lineWidth = state.player.width * 0.7;
+       g.addColorStop(1, 'rgba(0,0,0,0)');
+       ctx.strokeStyle = g;
+       ctx.lineWidth = state.player.width * 0.7;
       ctx.lineCap = 'round';
       ctx.beginPath();
       ctx.moveTo(px, py);

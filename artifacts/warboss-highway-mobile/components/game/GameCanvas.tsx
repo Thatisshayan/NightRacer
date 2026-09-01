@@ -26,6 +26,7 @@ import { useSpriteImages, vehicleImage } from './sprites';
 // Matches the web app's internal game resolution (see
 // artifacts/warboss-highway/src/pages/Game.tsx's canvas width/height) so
 // GameEngine's lane math produces the same layout on both platforms.
+// Computed dynamically based on scale to support different aspect ratios
 export const GAME_WIDTH = 420;
 export const GAME_HEIGHT = 800;
 // Was 80 — real playtesting called the asphalt texture too subtle/hard to
@@ -183,7 +184,7 @@ function hexagonPath(cx: number, cy: number, r: number, rotation: number): strin
   return `${d}Z`;
 }
 
-type NumberSharedValue = ReturnType<typeof useSharedValue<number>>;
+
 
 interface NativeBillboardGeometry {
   color: string;
@@ -662,13 +663,14 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
         billboardOpacity2.value = Math.min(1, Math.max(0.14, pulse * (0.72 + 0.28 * Math.sin(state.distance * 0.013 + 3.4)) + flicker * 0.55) + lightning * 0.4);
 
         vehiclePool.sync(state.vehicles, (handle, v) => {
+          if (!(handle && 'set' in handle && 'hide' in handle)) return;
           const img = vehicleImage(images, v.type, v.variant);
           const placed = groundedNativePlacement(v.x, v.y, v.width, v.height);
           // Oncoming traffic (lanes 0-1) faces the player, same-direction
           // traffic (lanes 2-3) faces away — matches the player's own
           // orientation, like real two-way traffic. See Vehicle.direction.
           const rotate = v.direction === 'OPPOSITE' ? Math.PI : 0;
-          (handle as SpriteSlotHandle).set(
+          handle.set(
             placed.centerX - placed.width / 2,
             placed.centerY - placed.height / 2,
             placed.width,
@@ -680,9 +682,10 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
           );
         });
         obstaclePool.sync(state.obstacles, (handle, o) => {
+          if (!(handle && 'set' in handle && 'hide' in handle)) return;
           const img = o.type === 'OIL_SLICK' ? images.oilSlick : images.debris;
           const placed = groundedNativePlacement(o.x, o.y, o.width, o.height);
-          (handle as SpriteSlotHandle).set(
+          handle.set(
             placed.centerX - placed.width / 2,
             placed.centerY - placed.height / 2,
             placed.width,
@@ -693,9 +696,10 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
           );
         });
         powerupPool.sync(state.powerups, (handle, p) => {
+          if (!(handle && 'set' in handle && 'hide' in handle)) return;
           const img = images.powerups[p.type];
           const placed = groundedNativePlacement(p.x, p.y, p.width, p.height);
-          (handle as SpriteSlotHandle).set(
+          handle.set(
             placed.centerX - placed.width / 2,
             placed.centerY - placed.height / 2,
             placed.width,
@@ -706,9 +710,10 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
           );
         });
         particlePool.sync(state.particles, (handle, p) => {
+          if (!(handle && 'set' in handle && 'hide' in handle)) return;
           const life = Math.max(0, p.life / p.maxLife);
           const placed = projectNativeGround(p.x, p.y);
-          (handle as ParticleSlotHandle).set(placed.x, placed.y, p.size * placed.scale * 1.2, life * placed.alpha, p.color);
+          handle.set(placed.x, placed.y, p.size * placed.scale * 1.2, life * placed.alpha, p.color);
         });
 
         // Crash flash — see the explosionCx/Cy/Size/Opacity declaration
@@ -859,6 +864,16 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
   // GestureDetector's view is sized to the on-screen (scaled) Canvas, so
   // its local x/y are in display space — divide by `scale` to land back in
   // the 420x800 logical space GameEngine expects.
+  const handlePointerDown = useCallback((x: number, y: number) => {
+    engine.pointerDown(x, y);
+  }, [engine]);
+  const handlePointerMove = useCallback((x: number, y: number) => {
+    engine.pointerMove(x, y);
+  }, [engine]);
+  const handlePointerUp = useCallback(() => {
+    engine.pointerUp();
+  }, [engine]);
+
   const pan = useMemo(
     () =>
       Gesture.Pan()
@@ -871,18 +886,8 @@ export function GameCanvas({ engine, scale = 1 }: { engine: NativeGameEngine; sc
         .onEnd(() => {
           runOnJS(handlePointerUp)();
         }),
-    [engine, scale]
+    [engine, scale, handlePointerDown, handlePointerMove, handlePointerUp]
   );
-
-  function handlePointerDown(x: number, y: number) {
-    engine.pointerDown(x, y);
-  }
-  function handlePointerMove(x: number, y: number) {
-    engine.pointerMove(x, y);
-  }
-  function handlePointerUp() {
-    engine.pointerUp();
-  }
 
   const displayWidth = GAME_WIDTH * scale;
   const displayHeight = GAME_HEIGHT * scale;

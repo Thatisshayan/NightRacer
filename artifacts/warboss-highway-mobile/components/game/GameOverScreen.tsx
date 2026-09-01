@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSubmitScore } from '@workspace/api-client-react';
 import { ACHIEVEMENTS, getAchievementById, type CarType, type GameState } from '@workspace/game-core';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 // Native port of the web app's game-over-overlay.tsx — final stats,
 // achievements unlocked, score submission to the Kill-Board, and
@@ -31,6 +32,11 @@ export function GameOverScreen({
   const [error, setError] = useState<string | null>(null);
   const submitScore = useSubmitScore();
 
+  // Wrap the entire component in an ErrorBoundary to catch errors from useSubmitScore or getAchievementById
+  if (submitScore.error) {
+    throw submitScore.error;
+  }
+
   const handleSubmit = () => {
     const name = playerName.trim();
     if (!name) return;
@@ -54,7 +60,8 @@ export function GameOverScreen({
   };
 
   return (
-    <ScrollView contentContainerStyle={styles.root}>
+    <ErrorBoundary>
+      <ScrollView contentContainerStyle={styles.root}>
       <Text style={styles.wasted}>WASTED</Text>
       {isNewRecord && <Text style={styles.newRecord}>★ NEW PERSONAL RECORD ★</Text>}
 
@@ -69,19 +76,19 @@ export function GameOverScreen({
         {state.achievementsEarned.length > 0 && (
           <View style={styles.achievementsSection}>
             <Text style={styles.achievementsLabel}>Achievements Unlocked</Text>
-            <View style={styles.achievementsRow}>
-              {state.achievementsEarned.map((id) => {
-                const a = getAchievementById(id);
-                if (!a) return null;
-                return (
-                  <View key={id} style={styles.achievementChip}>
-                    <Text style={styles.achievementText}>
-                      {a.icon} {a.label}
-                    </Text>
-                  </View>
-                );
-              })}
-            </View>
+             <View style={styles.achievementsRow}>
+               {state.achievementsEarned.map((id) => {
+                 const a = getAchievementById(id);
+                 if (!a) return <Text key={id} style={styles.achievementText}>Unknown Achievement</Text>;
+                 return (
+                   <View key={id} style={styles.achievementChip}>
+                     <Text style={styles.achievementText}>
+                       {a.icon} {a.label}
+                     </Text>
+                   </View>
+                 );
+               })}
+             </View>
           </View>
         )}
 
@@ -116,15 +123,16 @@ export function GameOverScreen({
         )}
 
         <View style={styles.actionsRow}>
-          <Pressable style={styles.actionButton} onPress={onRestart}>
+          <Pressable style={styles.actionButton} onPress={onRestart} accessibilityLabel="Play Again">
             <Text style={styles.actionButtonText}>PLAY AGAIN</Text>
           </Pressable>
-          <Pressable style={styles.actionButton} onPress={onMenu}>
+          <Pressable style={styles.actionButton} onPress={onMenu} accessibilityLabel="Main Menu">
             <Text style={styles.actionButtonText}>MAIN MENU</Text>
           </Pressable>
         </View>
       </View>
-    </ScrollView>
+      </ScrollView>
+    </ErrorBoundary>
   );
 }
 

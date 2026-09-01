@@ -85,7 +85,8 @@ function centerLineX(width: number): number {
 
 function vehicleTexture(textures: SpriteTextures, v: Vehicle) {
   if (v.type === 'BOSS') return textures.bossVehicle;
-  const variants = textures.enemyVehicles[v.type as keyof typeof textures.enemyVehicles];
+  const enemyType = v.type as keyof typeof textures.enemyVehicles;
+  const variants = textures.enemyVehicles[enemyType] || textures.enemyVehicles.SEDAN;
   const idx = Math.min(3, Math.max(1, v.variant || 1)) - 1;
   return variants[idx];
 }
@@ -119,12 +120,17 @@ function syncPool<T extends object>(
     entry.gen = gen;
     update(item, entry.sprite);
   }
-  for (const [item, entry] of pool) {
-    if (entry.gen !== gen) {
-      entry.sprite.destroy();
-      pool.delete(item);
-    }
-  }
+   for (const [item, entry] of pool) {
+     if (entry.gen !== gen) {
+       // Clean up filters to prevent memory leaks
+       if (entry.sprite.filters) {
+         entry.sprite.filters.forEach(f => (f as any).destroy?.());
+         entry.sprite.filters = [];
+       }
+       entry.sprite.destroy({ children: true, texture: true });
+       pool.delete(item);
+     }
+   }
 }
 
 // Phase B: adds enemy vehicles, obstacles, and powerups as pooled sprites on
@@ -184,6 +190,8 @@ export class PixiRenderer implements GameRenderer {
   private shieldRing: Graphics;
   private currentCarType: CarType | null = null;
   private gen = 0;
+  private totalTime = 0;
+  private lastSyncTime = 0;
   private vehiclePool = new Map<Vehicle, PoolEntry>();
   private obstaclePool = new Map<Obstacle, PoolEntry>();
   private powerupPool = new Map<PowerUpItem, PoolEntry>();
@@ -365,6 +373,15 @@ export class PixiRenderer implements GameRenderer {
   }
 
   sync(state: GameState, cameraY: number, screenShake: number) {
+    // Accumulate totalTime for framerate-independent animations (Bug Fix 1)
+    const now = performance.now();
+    if (this.lastSyncTime > 0) {
+      this.totalTime += now - this.lastSyncTime;
+    } else {
+      this.totalTime = now;
+    }
+    this.lastSyncTime = now;
+    
     this.syncWorldTransform(cameraY, screenShake);
     this.syncCrashFlash(state, screenShake);
     this.drawWorld(state);
@@ -471,9 +488,10 @@ export class PixiRenderer implements GameRenderer {
   }
 
   private syncCrashFlash(state: GameState, screenShake: number) {
-    if (screenShake > this.prevScreenShake) this.explosionUntil = performance.now() + EXPLOSION_FLASH_MS;
+    // Framerate-independent crash flash (Bug Fix 1)
+    if (screenShake > this.prevScreenShake) this.explosionUntil = this.totalTime + EXPLOSION_FLASH_MS;
     this.prevScreenShake = screenShake;
-    const remaining = this.explosionUntil - performance.now();
+    const remaining = this.explosionUntil - this.totalTime;
     this.explosionSprite.visible = remaining > 0;
     if (remaining <= 0) return;
     const progress = 1 - remaining / EXPLOSION_FLASH_MS;
@@ -788,7 +806,8 @@ export class PixiRenderer implements GameRenderer {
     this.playerSprite.y = placed.y;
     this.playerSprite.width = placed.width;
     this.playerSprite.height = placed.height;
-    this.playerSprite.alpha = player.isInvulnerable ? (Math.floor(performance.now() / 100) % 2 === 0 ? 0.4 : 1) : 1;
+    // Framerate-independent invulnerability flicker (Bug Fix 1)
+    this.playerSprite.alpha = player.isInvulnerable ? (Math.floor(this.totalTime / 100) % 2 === 0 ? 0.4 : 1) : 1;
     this.playerSprite.tint = player.oilSlicked ? 0x99aaff : 0xffffff;
     this.playerSprite.rotation = state.driveTilt * 0.14 + (state.rushTimer > 0 ? state.driveTilt * 0.035 : 0);
     // Ground shadow + cyan underglow. Underglow intensity tracks speed and
@@ -825,7 +844,8 @@ export class PixiRenderer implements GameRenderer {
     if (!active) return;
     const player = state.player;
     const placed = this.groundedPlacement(player.x, player.y, player.width, player.height, 1);
-    const radius = Math.max(player.width, player.height) * 0.75 * (1 + Math.sin(performance.now() / 150) * 0.06);
+    // Framerate-independent shield pulse (Bug Fix 1)
+    const radius = Math.max(player.width, player.height) * 0.75 * (1 + Math.sin(this.totalTime / 150) * 0.06);
     this.shieldRing.x = placed.x;
     this.shieldRing.y = placed.y;
     this.shieldRing.clear();
@@ -1044,7 +1064,8 @@ export class PixiRenderer implements GameRenderer {
     const placed = this.groundedPlacement(player.x, player.y, player.width, player.height, 1);
     const pw = placed.width;
     const ph = placed.height;
-    const radius = Math.max(pw, ph) * 1.2 * (0.75 + Math.sin(performance.now() / 70) * 0.18);
+    // Framerate-independent rush feedback pulse (Bug Fix 1)
+    const radius = Math.max(pw, ph) * 1.2 * (0.75 + Math.sin(this.totalTime / 70) * 0.18);
     this.feedbackLayer.circle(placed.x, placed.contactY - ph * 0.14, radius).fill({ color: NEON.cyan, alpha: 0.10 });
     this.feedbackLayer.circle(placed.x, placed.y, radius * 0.9).stroke({ width: 2, color: NEON.magenta, alpha: 0.6 });
     for (let i = -2; i <= 2; i++) {

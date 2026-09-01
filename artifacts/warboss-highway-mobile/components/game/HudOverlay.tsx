@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 import { POP_DURATION_MS, POWERUP_DURATION_MS, type GameState, type PowerUpType } from '@workspace/game-core';
 import type { NativeGameEngine } from './native-engine';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 // Native port of the web app's game-hud-overlay.tsx — score/combo/lives/
 // power-up bar/speedometer plus level-up flash, boss warning, and
@@ -42,14 +43,14 @@ export function HudOverlay({
   const stateRef = useRef<GameState | null>(null);
 
   useEffect(() => {
-    let rafId = 0;
+    const rafIdRef = { current: 0 };
     const tick = () => {
       stateRef.current = engine.getState();
       setTick((t) => (t + 1) % 1_000_000);
-      rafId = requestAnimationFrame(tick);
+      rafIdRef.current = requestAnimationFrame(tick);
     };
-    rafId = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(rafId);
+    rafIdRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafIdRef.current);
   }, [engine]);
 
   const state = stateRef.current;
@@ -64,10 +65,13 @@ export function HudOverlay({
   const powerUpSeconds = powerUp ? Math.max(0, Math.ceil(state.powerUpTimer / 1000)) : 0;
 
   const speedRatio = Math.min(1, state.speedMultiplier / 3);
+  // Speed thresholds for color changes
+  const RUSH_SPEED_THRESHOLD = 2.5;
+  const HIGH_SPEED_THRESHOLD = 1.8;
   // Amber-at-rest instead of the previous mint green — mint read as a
   // generic fitness-app accent color, tonally off against the rest of the
   // grimdark palette. Escalates through orange to red exactly as before.
-  const speedColor = state.rushTimer > 0 ? '#df4bff' : state.speedMultiplier >= 2.5 ? '#df4bff' : state.speedMultiplier >= 1.8 ? '#ffb347' : '#27d9ff';
+  const speedColor = state.rushTimer > 0 ? '#df4bff' : state.speedMultiplier >= RUSH_SPEED_THRESHOLD ? '#df4bff' : state.speedMultiplier >= HIGH_SPEED_THRESHOLD ? '#ffb347' : '#27d9ff';
 
   const showCombo = state.combo > 1;
   const showLevelUp = state.levelUpFlash > 0;
@@ -77,7 +81,8 @@ export function HudOverlay({
   const rushLabel = state.rushTimer > 0 ? 'RUSH ACTIVE' : rushReady ? 'RUSH — TAP' : `RUSH ${Math.floor(state.rushCharge)}%`;
 
   return (
-    <View style={styles.root} pointerEvents="box-none">
+    <ErrorBoundary>
+      <View style={styles.root} pointerEvents="box-none">
       {/* Top HUD bar */}
       <View style={styles.topBar} pointerEvents="box-none">
         <Pressable onPress={onPause} style={styles.pauseButton} hitSlop={8}>
@@ -223,9 +228,10 @@ export function HudOverlay({
           ]}
         >
           NEAR MISS ×{state.combo}!
-        </Text>
-      )}
-    </View>
+         </Text>
+       )}
+      </View>
+    </ErrorBoundary>
   );
 }
 

@@ -1,5 +1,6 @@
 import express, { type Express } from "express";
 import cors from "cors";
+import helmet from "helmet";
 import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
@@ -25,8 +26,9 @@ app.use(
     },
   }),
 );
-app.use(cors());
-app.use(express.json());
+app.use(helmet());
+app.use(cors({ origin: ["https://yourdomain.com"] }));
+app.use(express.json({ limit: "10kb" }));
 app.use(express.urlencoded({ extended: true }));
 
 app.use("/api", router);

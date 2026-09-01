@@ -15,10 +15,11 @@ export interface Score {
   score: number;
   powerupsUsed: number;
   distanceTraveled: number;
-  car?: string | null;
+  car?: string | null | undefined;
   dailyMode: boolean;
   /** @nullable */
-  rank?: number | null;
+  rank?: number | null | undefined;
+  /** Format: ISO 8601 date-time */
   createdAt: string;
 }
 

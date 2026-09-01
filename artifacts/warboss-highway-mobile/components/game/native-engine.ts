@@ -24,6 +24,10 @@ export class NativeGameEngine extends GameEngine {
       dailyModifier?: DailyModifier;
     }
   ) {
+    // Validate dimensions to ensure they are positive
+    if (dims.width <= 0 || dims.height <= 0) {
+      throw new Error("Invalid dimensions for NativeGameEngine");
+    }
     super(dims, onGameOver, {
       ...options,
       audio: NativeAudio,
