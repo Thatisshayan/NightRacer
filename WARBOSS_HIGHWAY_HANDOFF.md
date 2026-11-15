@@ -1,5 +1,7 @@
 # Warboss Highway — Project Handoff Document
 
+> **Update 2026-11-15:** the native app no longer uses the Skia renderer described in the sections below. Since PRs #36 to #53 the default native game is a 3D scene built on React Three Fiber / three.js over expo-gl (`components/game3d/`: `R3FGameScene.tsx`, `r3f-renderer.ts`, `Atmosphere.tsx`, `PostFX.tsx`, `CarPreview3D.tsx`). The Skia game was moved to `artifacts/warboss-highway-mobile/_archive/legacy-2d-game/` (PR #43). PostFX is gated off on expo-gl and GLTF loading fails soft (PR #53). Where the text below says Skia / `GameCanvas.tsx` for native, read it as the archived implementation; the shared simulation (`lib/game-core`) and `native-engine.ts` are unchanged. Asset needs are listed in [`docs/NATIVE_3D_ASSET_MANIFEST.md`](docs/NATIVE_3D_ASSET_MANIFEST.md).
+
 > Updated 2026-08-14 for the Neon Rainway overhaul (PR #19). This handoff now reflects the shared simulation, Pixi/Skia renderer parity work, Rush mechanic, reproducible verification path, and the residual hardware-validation limitation. Consult [`docs/NEON_RAINWAY_DESIGN.md`](docs/NEON_RAINWAY_DESIGN.md) for the full visual-system contract.
 
 ## What Is This?
@@ -77,7 +79,7 @@ NightRacer/
 │   │   │   └── (tabs)/               ← index.tsx (game tab), leaderboard.tsx
 │   │   ├── components/game/
 │   │   │   ├── native-engine.ts      ← NativeGameEngine: game-core subclass for RN
-│   │   │   ├── GameCanvas.tsx        ← react-native-skia renderer (see Known Issues)
+│   │   │   ├── (GameCanvas.tsx moved to _archive/legacy-2d-game/ — Skia, no longer the default)
 │   │   │   ├── HudOverlay.tsx        ← Score/lives/power-up HUD
 │   │   │   ├── TitleScreen.tsx / GameOverScreen.tsx / PauseOverlay.tsx / TutorialOverlay.tsx
 │   │   │   ├── useGameEngine.ts      ← Engine lifecycle hook (owns the engine instance)
@@ -246,7 +248,8 @@ the bare `/` in `BASE_PATH=/`). See `README.md` for the full gotcha list.
 | Web renderer | `artifacts/warboss-highway/src/lib/game/pixi-renderer.ts` |
 | Web engine subclass | `artifacts/warboss-highway/src/lib/game/web-engine.ts` |
 | Web audio | `artifacts/warboss-highway/src/lib/game/audio.ts` |
-| Native renderer (Skia) | `artifacts/warboss-highway-mobile/components/game/GameCanvas.tsx` |
+| Native renderer (R3F 3D) | `artifacts/warboss-highway-mobile/components/game3d/R3FGameScene.tsx`, `r3f-renderer.ts` |
+| Native renderer (archived Skia) | `artifacts/warboss-highway-mobile/_archive/legacy-2d-game/GameCanvas.tsx` |
 | Native engine subclass | `artifacts/warboss-highway-mobile/components/game/native-engine.ts` |
 | Native audio | `artifacts/warboss-highway-mobile/lib/native-audio.ts` |
 | API routes (scores) | `artifacts/api-server/src/routes/scores.ts` |

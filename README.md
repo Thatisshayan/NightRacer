@@ -3,12 +3,12 @@
 > ⚠️ Naming note: this repo folder is `NightRacer`, but the product is **Warboss Highway**.
 > Keep both names mapped in docs and issues.
 
-A mobile-first **top-down endless arcade racer** with a neon-noir **Rainway** visual identity. Steer through oncoming traffic, collect four power-ups, charge a deterministic Rush burst through close passes, and compete on a global high-score leaderboard backed by a persistent full-stack backend. The web app uses Pixi.js; the native iOS/Android app uses React Native Skia; both consume the same simulation.
+A mobile-first **top-down endless arcade racer** with a neon-noir **Rainway** visual identity. Steer through oncoming traffic, collect four power-ups, charge a deterministic Rush burst through close passes, and compete on a global high-score leaderboard backed by a persistent full-stack backend. The web app uses Pixi.js; the native iOS/Android app renders in 3D with React Three Fiber on expo-gl (the earlier Skia 2D game is archived); both consume the same simulation.
 
 ## Stack
 - **Monorepo**: pnpm workspaces, Node.js 24, TypeScript 5.9
 - **Frontend**: React + Vite (TypeScript), Pixi.js scene renderer, Wouter routing, Tailwind v4
-- **Native app**: Expo + React Native + React Native Skia, sharing `lib/game-core` with the web renderer
+- **Native app**: Expo + React Native + React Three Fiber / three.js (expo-gl), sharing `lib/game-core` with the web renderer. The legacy Skia 2D game lives in `artifacts/warboss-highway-mobile/_archive/legacy-2d-game/`.
 - **State/Data**: TanStack React Query + Orval-generated hooks
 - **Backend**: Express 5 (Node.js)
 - **DB**: PostgreSQL + Drizzle ORM

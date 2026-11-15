@@ -9,5 +9,9 @@ import type { GetLeaderboardPeriod } from './getLeaderboardPeriod';
 
 export type GetLeaderboardParams = {
 limit?: number;
+/**
+ * Number of entries to skip (pagination)
+ */
+offset?: number;
 period?: GetLeaderboardPeriod;
 };

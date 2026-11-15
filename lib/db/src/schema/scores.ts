@@ -16,6 +16,7 @@ export const scoresTable = pgTable("scores", {
   index("score_idx").on(table.score),
   index("player_name_idx").on(table.playerName),
   index("daily_mode_idx").on(table.dailyMode),
+  index("created_at_idx").on(table.createdAt),
   // Check constraints for range validation
   check("score_non_negative_and_capped", sql`score >= 0 AND score <= 999999`),
   check("powerups_used_non_negative_and_capped", sql`powerups_used >= 0 AND powerups_used <= 100`),
