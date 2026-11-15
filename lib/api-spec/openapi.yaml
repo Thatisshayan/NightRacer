@@ -40,6 +40,13 @@ paths:
           schema:
             type: integer
             default: 20
+        - name: offset
+          in: query
+          required: false
+          description: Number of entries to skip (pagination)
+          schema:
+            type: integer
+            default: 0
         - name: period
           in: query
           required: false

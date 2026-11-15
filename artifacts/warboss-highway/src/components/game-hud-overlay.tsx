@@ -227,7 +227,7 @@ export function GameHudOverlay({ engine }: { engine: GameEngine }) {
         type="button"
         onClick={() => engine.triggerRush()}
         aria-label="Activate Rush when charged"
-        className="pointer-events-auto absolute left-1/2 bottom-[26px] -translate-x-1/2 w-[196px] h-[62px] rounded-md overflow-hidden border bg-[#050816]/90 text-white transition-[opacity,box-shadow,border-color] duration-150 active:scale-[0.96] motion-reduce:active:scale-100"
+        className="pointer-events-auto absolute left-1/2 bottom-[26px] -translate-x-1/2 w-[196px] h-[62px] rounded-md overflow-hidden border bg-[#050816]/90 text-white transition-[opacity,box-shadow,border-color] duration-150 active:scale-[0.96] motion-reduce:active:scale-100 z-20"
       >
         <div ref={rushFillRef} className="absolute inset-y-0 left-0 w-0 opacity-70 transition-[width] duration-100" />
         <span ref={rushLabelRef} className="relative z-10 text-[13px] font-bold tracking-[0.16em]">RUSH 0%</span>
