@@ -17,7 +17,7 @@ const FACADE_COUNT = 3;
 const PER_FACADE = BUILDING_COUNT / FACADE_COUNT;
 const STRIP_EVERY = 2;
 const STRIP_COUNT = Math.ceil(BUILDING_COUNT / STRIP_EVERY);
-const BILLBOARD_EVERY = 5;
+const BILLBOARD_EVERY = 3;
 const BILLBOARD_COUNT = Math.ceil(BUILDING_COUNT / BILLBOARD_EVERY);
 const BILLBOARD_ART = 6;
 // Buildings recycle along this z-band: they fade in out of the fog at the far
@@ -56,7 +56,7 @@ function createBuildings(): Building[] {
     const depth = 7 + hash(i, 3) * 9;
     // Farther rows are taller, so the skyline steps up away from the road
     // instead of the nearest block hiding everything behind it.
-    const height = 18 + hash(i, 4) * 28 + (distance - MIN_DISTANCE) * 1.5;
+    const height = 28 + hash(i, 4) * 34 + (distance - MIN_DISTANCE) * 1.5;
     return {
       side,
       x: side * (distance + width / 2),
@@ -83,7 +83,7 @@ function tintTowers(towers: (InstancedMesh | null)[], strips: InstancedMesh | nu
     if (!mesh) return;
     for (let n = 0; n < PER_FACADE; n += 1) {
       // Grey tint only: the facade art carries its own colour.
-      const shade = 0.55 + hash(n * FACADE_COUNT + facade, 6) * 0.4;
+      const shade = 0.7 + hash(n * FACADE_COUNT + facade, 6) * 0.3;
       mesh.setColorAt(n, color.setRGB(shade, shade, shade));
     }
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
@@ -108,7 +108,7 @@ function Towers({ meshRef, facade, fallback }: { meshRef: (mesh: InstancedMesh |
         map={facade ?? null}
         emissive="#ffffff"
         emissiveMap={facade ?? fallback}
-        emissiveIntensity={facade ? 0.85 : 1.15}
+        emissiveIntensity={facade ? 1.5 : 1.15}
         roughness={0.85}
         metalness={0}
       />
@@ -175,7 +175,7 @@ function placeBuilding(
 // down the road at the oncoming camera, like the screens in the reference.
 function placeBillboard(group: Group | null, b: Building, z: number): void {
   if (!group) return;
-  const height = Math.min(b.height * 0.5, 15);
+  const height = Math.min(b.height * 0.55, 22);
   group.position.set(b.x - b.side * (b.width / 2 + 0.5), Math.max(height / 2 + 5, b.height * 0.52), z - b.depth / 2 - 0.4);
   // Planes face +Z by default; turn them to face the camera (-Z), angled in
   // toward the carriageway.
