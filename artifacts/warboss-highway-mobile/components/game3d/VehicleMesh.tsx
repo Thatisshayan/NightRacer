@@ -1,12 +1,16 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { Asset } from 'expo-asset';
-import { Box3, Group, MeshStandardMaterial, Vector3 } from 'three';
+import { AdditiveBlending, Box3, Group, Mesh, MeshBasicMaterial, MeshStandardMaterial, Vector3 } from 'three';
+import type { Material } from 'three';
 import type { ApexVehicleModelType, ApexVehiclePose } from '@workspace/render-frame';
 import type { CarType } from '@workspace/game-core';
+import { getGlowTexture } from './textures';
 
 export interface VehicleMeshHandle {
-  update(pose: ApexVehiclePose | undefined, selectedCar: CarType): void;
+  /** fade: 0..1 extra opacity multiplier (traffic that has passed the player
+   * is faded out so it cannot sit between the chase camera and the car). */
+  update(pose: ApexVehiclePose | undefined, selectedCar: CarType, fade: number): void;
 }
 
 // Every generated model, keyed by the identifier that actually selects it at
@@ -81,6 +85,17 @@ function normalizeGroundedModel(object: Group): Group {
   const horizontalExtent = Math.max(size.x, size.z) || 1;
   const scale = 1 / horizontalExtent;
 
+  // Object3D.clone() shares materials between clones. Every pool slot fades
+  // its own vehicle independently (see VehicleMesh.update), so each instance
+  // needs its own material; the texture and geometry stay shared.
+  object.traverse((child) => {
+    const mesh = child as Mesh;
+    if (!mesh.isMesh) return;
+    mesh.material = Array.isArray(mesh.material)
+      ? mesh.material.map((m) => toPaintMaterial(m.clone()))
+      : toPaintMaterial(mesh.material.clone());
+  });
+
   const wrapper = new Group();
   wrapper.add(object);
   object.position.set(-center.x, -box.min.y, -center.z);
@@ -88,10 +103,53 @@ function normalizeGroundedModel(object: Group): Group {
   return wrapper;
 }
 
+// Most of these GLBs omit metallicFactor, and glTF's default for a missing
+// value is 1.0 — fully metallic. A metal has no diffuse term at all: it only
+// shows reflections, and this scene has no environment map to reflect, so the
+// textured paint rendered almost pure black (and plain white while the
+// textures were failing to load). The textures are photo-derived albedo with
+// lighting baked in, so treat every vehicle as painted, non-metallic bodywork.
+function toPaintMaterial<T extends Material>(material: T): T {
+  const standard = material as unknown as MeshStandardMaterial;
+  if (standard.isMeshStandardMaterial) {
+    standard.metalness = 0;
+    standard.roughness = 0.62;
+    // The paint textures are dark bodywork with neon trim. Feeding the same
+    // texture back in as a weak emissive map keeps that trim (and the body
+    // colour) readable at night instead of sinking into the dark road.
+    if (standard.map) {
+      standard.emissiveMap = standard.map;
+      standard.emissive.set('#ffffff');
+      standard.emissiveIntensity = 0.5;
+    }
+  }
+  return material;
+}
+
 // Failed GLTF loads are cached so we don't retry a known-bad asset on every
 // re-mount (a slot's model swaps as traffic spawns/despawns, which would
 // otherwise hammer the loader with already-failing fetches every frame).
 const failedUris = new Set<string>();
+
+// Successful loads are cached per URI too. Without this every pool slot
+// re-read and re-parsed the same ~1.5MB GLB (and re-uploaded its ~1MB
+// texture) each time a vehicle of that type appeared: a hitch per spawn and
+// unbounded duplicate GPU memory over a long run.
+const gltfCache = new Map<string, Promise<{ scene: Group } | null>>();
+
+function loadGltf(uri: string): Promise<{ scene: Group } | null> {
+  let pending = gltfCache.get(uri);
+  if (!pending) {
+    pending = new GLTFLoader()
+      .loadAsync(uri)
+      // A load resolving to a GLTF without a scene is treated as a failure so
+      // we never dereference an undefined scene.
+      .then((gltf) => (gltf?.scene ? (gltf as { scene: Group }) : null));
+    gltfCache.set(uri, pending);
+    pending.catch(() => gltfCache.delete(uri));
+  }
+  return pending;
+}
 
 // One grounded, non-throwing placeholder for a load that fails on the device
 // (GLTFLoader's internal fetch() rejects file:// URIs on React Native, which
@@ -131,15 +189,9 @@ function LoadedGltf({ uri }: { uri: string }) {
       setState({ status: 'failed' });
       return;
     }
-    const loader = new GLTFLoader();
-    loader
-      .loadAsync(uri)
+    loadGltf(uri)
       .then((gltf) => {
-        if (!cancelled) {
-          // A load resolving to a GLTF without a scene is treated as a
-          // failure so we never dereference an undefined scene.
-          setState(gltf?.scene ? { status: 'ok', gltf: gltf as { scene: Group } } : { status: 'failed' });
-        }
+        if (!cancelled) setState(gltf ? { status: 'ok', gltf } : { status: 'failed' });
       })
       .catch(() => {
         failedUris.add(uri);
@@ -170,20 +222,69 @@ function LoadedGltf({ uri }: { uri: string }) {
 // Mounting all 13 candidates per slot (as siblings, toggling visibility) was
 // tried first and caused 130 concurrent model loads the instant the scene
 // mounted, which crashed real devices. Each loaded GLTF result is cached per
-// URL (see LoadedGltf), so re-mounting a previously-seen key is cheap, and
+// URL (see loadGltf), so re-mounting a previously-seen key is cheap, and
 // preloadVehicleModels() below still warms every model's local URI in the
 // background. Loads are non-suspending and fail-soft (a rejected file:// URI
 // renders a grounded placeholder instead of throwing into the root
 // ErrorBoundary).
+const TAIL_LIGHT_COLOR = '#ff2a3d';
+const HEAD_LIGHT_COLOR = '#eaf6ff';
+
+function applyOpacity(material: Material, opacity: number): void {
+  const transparent = opacity < 1;
+  if (material.transparent !== transparent) {
+    material.transparent = transparent;
+    material.needsUpdate = true;
+  }
+  material.opacity = opacity;
+}
+
 export const VehicleMesh = forwardRef<VehicleMeshHandle, { index: number }>(function VehicleMesh(_props, ref) {
   const group = useRef<Group>(null);
+  const model = useRef<Group>(null);
+  const lamps = useRef<Group>(null);
+  const pool = useRef<Mesh>(null);
+  const beam = useRef<Mesh>(null);
   const [activeKey, setActiveKey] = useState<ModelKey | null>(null);
+  const glowMap = useMemo(() => getGlowTexture(), []);
+  // Per-slot materials (not shared) so each vehicle can carry its own colour
+  // and fade.
+  const lampMaterial = useMemo(() => new MeshBasicMaterial({ color: TAIL_LIGHT_COLOR, toneMapped: false }), []);
+  const poolMaterial = useMemo(
+    () =>
+      new MeshBasicMaterial({
+        color: TAIL_LIGHT_COLOR,
+        map: glowMap,
+        transparent: true,
+        blending: AdditiveBlending,
+        depthWrite: false,
+        toneMapped: false,
+      }),
+    [glowMap],
+  );
+  const beamMaterial = useMemo(
+    () =>
+      new MeshBasicMaterial({
+        color: HEAD_LIGHT_COLOR,
+        map: glowMap,
+        transparent: true,
+        blending: AdditiveBlending,
+        depthWrite: false,
+        toneMapped: false,
+      }),
+    [glowMap],
+  );
+  const shadowMaterial = useMemo(
+    () => new MeshBasicMaterial({ color: '#000000', map: glowMap, transparent: true, depthWrite: false }),
+    [glowMap],
+  );
 
   useImperativeHandle(ref, () => ({
-    update(pose, selectedCar) {
+    update(pose, selectedCar, fade) {
       const g = group.current;
       if (!g) return;
-      if (!pose || pose.alpha <= 0) {
+      const opacity = pose ? Math.max(0, Math.min(1, pose.alpha * fade)) : 0;
+      if (!pose || opacity <= 0.01) {
         g.visible = false;
         return;
       }
@@ -197,16 +298,62 @@ export const VehicleMesh = forwardRef<VehicleMeshHandle, { index: number }>(func
       // width/length aspect ratio, so scaling width and length independently
       // would stretch a bus into a sedan's proportions instead of just
       // resizing it.
-      g.position.set(pose.x, 0, pose.z);
-      g.rotation.y = pose.heading;
+      // X and yaw are negated: frame coordinates are left-handed (Babylon),
+      // three.js is right-handed. See toSceneX in R3FGameScene.tsx.
+      g.position.set(-pose.x, 0, pose.z);
+      g.rotation.y = -pose.heading;
       g.scale.setScalar(pose.length);
       setActiveKey(pose.vehicleType === 'PLAYER' ? selectedCar : pose.vehicleType);
+
+      // Lamps sit on whichever end faces the chase camera: tail lights (red)
+      // for the player and same-direction traffic, headlights (white) for
+      // oncoming traffic. Everything below is in the model's normalized
+      // unit-length space (the group scale above resizes it with the car).
+      const cameraEnd = pose.lights.facesCamera ? 1 : -1;
+      const lampColor = pose.lights.facesCamera ? HEAD_LIGHT_COLOR : TAIL_LIGHT_COLOR;
+      lampMaterial.color.set(lampColor);
+      poolMaterial.color.set(lampColor);
+      if (lamps.current) lamps.current.position.z = cameraEnd * 0.505;
+      if (pool.current) pool.current.position.z = cameraEnd * 0.95;
+      // Only the player throws a headlight beam up the road ahead.
+      if (beam.current) beam.current.visible = pose.kind === 'player';
+
+      applyOpacity(lampMaterial, opacity);
+      poolMaterial.opacity = opacity * (pose.lights.facesCamera ? 0.5 : 0.42) * pose.lights.intensity;
+      beamMaterial.opacity = opacity * 0.3;
+      shadowMaterial.opacity = opacity * 0.62;
+      model.current?.traverse((child) => {
+        const mesh = child as Mesh;
+        if (!mesh.isMesh) return;
+        if (Array.isArray(mesh.material)) mesh.material.forEach((m) => applyOpacity(m, opacity));
+        else applyOpacity(mesh.material, opacity);
+      });
     },
   }));
 
   return (
     <group ref={group} visible={false}>
-      {activeKey && <VehicleModel key={activeKey} modelKey={activeKey} />}
+      <group ref={model}>{activeKey && <VehicleModel key={activeKey} modelKey={activeKey} />}</group>
+      {/* Contact shadow: grounds the car on the road. The 3D models carry no
+          shadow of their own and floated visually without it. */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.006, 0]} material={shadowMaterial}>
+        <planeGeometry args={[0.78, 1.3]} />
+      </mesh>
+      {/* Lamp light pooling on the wet road behind/in front of the car. */}
+      <mesh ref={pool} rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.012, -0.95]} material={poolMaterial}>
+        <planeGeometry args={[0.95, 1.25]} />
+      </mesh>
+      <mesh ref={beam} rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.014, 1.75]} material={beamMaterial} visible={false}>
+        <planeGeometry args={[1.35, 3.1]} />
+      </mesh>
+      <group ref={lamps} position={[0, 0.2, -0.505]}>
+        <mesh position={[-0.15, 0, 0]} material={lampMaterial}>
+          <boxGeometry args={[0.1, 0.045, 0.02]} />
+        </mesh>
+        <mesh position={[0.15, 0, 0]} material={lampMaterial}>
+          <boxGeometry args={[0.1, 0.045, 0.02]} />
+        </mesh>
+      </group>
     </group>
   );
 });

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSubmitScore } from '@workspace/api-client-react';
 import { ACHIEVEMENTS, getAchievementById, type CarType, type GameState } from '@workspace/game-core';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
@@ -31,11 +32,12 @@ export function GameOverScreen({
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const submitScore = useSubmitScore();
-
-  // Wrap the entire component in an ErrorBoundary to catch errors from useSubmitScore or getAchievementById
-  if (submitScore.error) {
-    throw submitScore.error;
-  }
+  const insets = useSafeAreaInsets();
+  // A failed submission is reported inline through the mutation's onError
+  // below. It must not be re-thrown during render: the <ErrorBoundary> this
+  // component returns cannot catch an error thrown by this component itself,
+  // so a single failed request (offline, rate-limited, rejected score) took
+  // the whole app to the root "something went wrong" screen.
 
   const handleSubmit = () => {
     const name = playerName.trim();
@@ -61,7 +63,10 @@ export function GameOverScreen({
 
   return (
     <ErrorBoundary>
-      <ScrollView contentContainerStyle={styles.root}>
+      <ScrollView
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={[styles.root, { paddingTop: insets.top + 16, paddingBottom: insets.bottom + 88 }]}
+      >
       <Text style={styles.wasted}>WASTED</Text>
       {isNewRecord && <Text style={styles.newRecord}>★ NEW PERSONAL RECORD ★</Text>}
 
