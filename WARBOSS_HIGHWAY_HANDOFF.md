@@ -4,6 +4,8 @@
 >
 > The native scene was rebuilt on 2026-11-15 (road ribbon, skyline, camera, lighting, texture loading); see [`audits/2026-11-15_Claude_NativeVisualQA_Audit.md`](audits/2026-11-15_Claude_NativeVisualQA_Audit.md). New files: `components/game3d/Skyline.tsx`, `components/game3d/textures.ts`. A simulator build for QA comes from `.github/workflows/ios-simulator-build.yml`.
 
+> **Update 2026-11-16 (resume here):** an art pass toward the owner's reference image followed in PRs #59 and #60: generated city art (`assets/3d/city_pack.glb`, `texturePack.ts`), a red hero car as the default (`assets/3d/apex/apex_hero.glb`), a reframed camera, neon road reflections, and power-ups/oil/debris finally drawn in 3D (`RoadItems.tsx`; the shared frame gained `items`). The owner rates the result about 10% better and still far from expectation. Current state, what is unverified, and the options for the next step are in [`audits/2026-11-16_Claude_ApexArtPass_Audit.md`](audits/2026-11-16_Claude_ApexArtPass_Audit.md).
+
 > Updated 2026-08-14 for the Neon Rainway overhaul (PR #19). This handoff now reflects the shared simulation, Pixi/Skia renderer parity work, Rush mechanic, reproducible verification path, and the residual hardware-validation limitation. Consult [`docs/NEON_RAINWAY_DESIGN.md`](docs/NEON_RAINWAY_DESIGN.md) for the full visual-system contract.
 
 ## What Is This?
