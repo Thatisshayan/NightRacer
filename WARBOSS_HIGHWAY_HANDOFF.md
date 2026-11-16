@@ -1,6 +1,8 @@
 # Warboss Highway — Project Handoff Document
 
 > **Update 2026-11-15:** the native app no longer uses the Skia renderer described in the sections below. Since PRs #36 to #53 the default native game is a 3D scene built on React Three Fiber / three.js over expo-gl (`components/game3d/`: `R3FGameScene.tsx`, `r3f-renderer.ts`, `Atmosphere.tsx`, `PostFX.tsx`, `CarPreview3D.tsx`). The Skia game was moved to `artifacts/warboss-highway-mobile/_archive/legacy-2d-game/` (PR #43). PostFX is gated off on expo-gl and GLTF loading fails soft (PR #53). Where the text below says Skia / `GameCanvas.tsx` for native, read it as the archived implementation; the shared simulation (`lib/game-core`) and `native-engine.ts` are unchanged. Asset needs are listed in [`docs/NATIVE_3D_ASSET_MANIFEST.md`](docs/NATIVE_3D_ASSET_MANIFEST.md).
+>
+> The native scene was rebuilt on 2026-11-15 (road ribbon, skyline, camera, lighting, texture loading); see [`audits/2026-11-15_Claude_NativeVisualQA_Audit.md`](audits/2026-11-15_Claude_NativeVisualQA_Audit.md). New files: `components/game3d/Skyline.tsx`, `components/game3d/textures.ts`. A simulator build for QA comes from `.github/workflows/ios-simulator-build.yml`.
 
 > Updated 2026-08-14 for the Neon Rainway overhaul (PR #19). This handoff now reflects the shared simulation, Pixi/Skia renderer parity work, Rush mechanic, reproducible verification path, and the residual hardware-validation limitation. Consult [`docs/NEON_RAINWAY_DESIGN.md`](docs/NEON_RAINWAY_DESIGN.md) for the full visual-system contract.
 
