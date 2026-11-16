@@ -397,13 +397,15 @@ function VehicleExtras({ refs, materials }: { refs: ExtraRefs; materials: Vehicl
 }
 
 function useExtraRefs(): ExtraRefs {
-  return {
-    root: useRef<Group>(null),
-    lamps: useRef<Group>(null),
-    streak: useRef<Mesh>(null),
-    beam: useRef<Mesh>(null),
-    spray: useRef<Mesh>(null),
-  };
+  // Each useRef is its own statement on purpose. This app builds with the
+  // React Compiler, which wraps an object literal in a cache check; hooks
+  // called inside one only ran on the first render (React error #311).
+  const root = useRef<Group>(null);
+  const lamps = useRef<Group>(null);
+  const streak = useRef<Mesh>(null);
+  const beam = useRef<Mesh>(null);
+  const spray = useRef<Mesh>(null);
+  return { root, lamps, streak, beam, spray };
 }
 
 // Lamps sit on whichever end faces the chase camera: tail lights (red) for

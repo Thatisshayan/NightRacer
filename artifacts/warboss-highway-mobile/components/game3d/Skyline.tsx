@@ -134,12 +134,14 @@ function NeonInstances({ meshRef, count }: { meshRef: MeshRef; count: number }) 
 // each), recycled along z so the city streams past with the road.
 export function Skyline({ handleRef }: { handleRef: MutableRefObject<SkylineHandle | null> }) {
   const buildings = useMemo(() => createBuildings(), []);
-  const refs: SkylineRefs = {
-    towers: useRef<InstancedMesh>(null),
-    signs: useRef<InstancedMesh>(null),
-    strips: useRef<InstancedMesh>(null),
-    beacons: useRef<InstancedMesh>(null),
-  };
+  // Each useRef is its own statement on purpose. This app builds with the
+  // React Compiler, which wraps an object literal in a cache check; hooks
+  // called inside one only ran on the first render (React error #311).
+  const towers = useRef<InstancedMesh>(null);
+  const signs = useRef<InstancedMesh>(null);
+  const strips = useRef<InstancedMesh>(null);
+  const beacons = useRef<InstancedMesh>(null);
+  const refs: SkylineRefs = { towers, signs, strips, beacons };
   const beaconMaterial = useRef<MeshBasicMaterial>(null);
   const dummy = useMemo(() => new Object3D(), []);
   const windowMap = useMemo(() => getWindowTexture(), []);

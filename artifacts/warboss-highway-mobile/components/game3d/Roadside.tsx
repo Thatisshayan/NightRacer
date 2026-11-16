@@ -179,13 +179,15 @@ function BoxInstances({ meshRef, count, color, lit }: { meshRef: MeshRef; count:
 // Everything that lines the road and streams past with `travel`. Without it
 // the only thing that visibly moved was the lane paint.
 export function Roadside({ handleRef }: { handleRef: MutableRefObject<RoadsideHandle | null> }) {
-  const lamps: LampRefs = {
-    posts: useRef<InstancedMesh>(null),
-    heads: useRef<InstancedMesh>(null),
-    halos: useRef<InstancedMesh>(null),
-    pools: useRef<InstancedMesh>(null),
-    streaks: useRef<InstancedMesh>(null),
-  };
+  // Each useRef is its own statement on purpose. This app builds with the
+  // React Compiler, which wraps an object literal in a cache check; hooks
+  // called inside one only ran on the first render (React error #311).
+  const posts = useRef<InstancedMesh>(null);
+  const heads = useRef<InstancedMesh>(null);
+  const halos = useRef<InstancedMesh>(null);
+  const pools = useRef<InstancedMesh>(null);
+  const streaks = useRef<InstancedMesh>(null);
+  const lamps: LampRefs = { posts, heads, halos, pools, streaks };
   const studs = useRef<InstancedMesh>(null);
   const gantryFrames = useRef<InstancedMesh>(null);
   const gantrySigns = useRef<InstancedMesh>(null);
