@@ -19,8 +19,11 @@ const POWERUP_COLORS: Record<string, string> = {
   EXTRA_LIFE: '#ff3b6b',
 };
 
-const GLOW = { transparent: true, blending: AdditiveBlending, depthWrite: false, toneMapped: false, side: DoubleSide };
+// Unfogged: a pickup has to be readable from the far end of the road, which
+// is exactly where fog would otherwise swallow it.
+const GLOW = { transparent: true, blending: AdditiveBlending, depthWrite: false, toneMapped: false, fog: false, side: DoubleSide };
 const FLAT: [number, number, number] = [-Math.PI / 2, 0, 0];
+const GEM_HEIGHT = 1.35;
 
 type Apply = (pose: ApexItemPose | undefined) => void;
 
@@ -34,21 +37,26 @@ function PowerUpVisual({ groupRef, gemRef, tint, glow }: {
 }) {
   return (
     <group ref={groupRef}>
-      <mesh ref={gemRef} position={[0, 1.1, 0]}>
-        <octahedronGeometry args={[0.5, 0]} />
-        <meshBasicMaterial ref={tint} toneMapped={false} />
+      <mesh ref={gemRef} position={[0, GEM_HEIGHT, 0]}>
+        <octahedronGeometry args={[0.72, 0]} />
+        <meshBasicMaterial ref={tint} toneMapped={false} fog={false} />
       </mesh>
-      <mesh position={[0, 1.1, 0.2]}>
-        <planeGeometry args={[2.8, 2.8]} />
-        <meshBasicMaterial ref={tint} map={glow} opacity={0.75} {...GLOW} />
+      {/* White-hot core over a wide coloured halo. */}
+      <mesh position={[0, GEM_HEIGHT, 0.15]}>
+        <planeGeometry args={[2.2, 2.2]} />
+        <meshBasicMaterial color="#ffffff" map={glow} opacity={0.9} {...GLOW} />
       </mesh>
-      <mesh position={[0, 3.4, 0.25]}>
-        <planeGeometry args={[0.5, 6.4]} />
-        <meshBasicMaterial ref={tint} map={glow} opacity={0.4} {...GLOW} />
+      <mesh position={[0, GEM_HEIGHT, 0.2]}>
+        <planeGeometry args={[6, 6]} />
+        <meshBasicMaterial ref={tint} map={glow} opacity={1} {...GLOW} />
+      </mesh>
+      <mesh position={[0, 5.5, 0.25]}>
+        <planeGeometry args={[1.3, 11]} />
+        <meshBasicMaterial ref={tint} map={glow} opacity={0.8} {...GLOW} />
       </mesh>
       <mesh position={[0, 0.05, 0]} rotation={FLAT}>
-        <planeGeometry args={[3.4, 3.4]} />
-        <meshBasicMaterial ref={tint} map={glow} opacity={0.55} {...GLOW} />
+        <planeGeometry args={[5.5, 5.5]} />
+        <meshBasicMaterial ref={tint} map={glow} opacity={0.9} {...GLOW} />
       </mesh>
     </group>
   );
@@ -65,11 +73,11 @@ function OilVisual({ groupRef, glow }: { groupRef: MutableRefObject<Group | null
       </mesh>
       <mesh position={[-0.08, 0.04, 0.05]} rotation={FLAT} renderOrder={2}>
         <planeGeometry args={[1.1, 1.1]} />
-        <meshBasicMaterial color="#3cffb0" map={glow} opacity={0.42} {...GLOW} />
+        <meshBasicMaterial color="#3cffb0" map={glow} opacity={0.75} {...GLOW} />
       </mesh>
       <mesh position={[0.12, 0.045, -0.06]} rotation={FLAT} renderOrder={3}>
         <planeGeometry args={[0.9, 0.9]} />
-        <meshBasicMaterial color="#c24bff" map={glow} opacity={0.5} {...GLOW} />
+        <meshBasicMaterial color="#c24bff" map={glow} opacity={0.85} {...GLOW} />
       </mesh>
     </group>
   );
@@ -92,8 +100,8 @@ function DebrisVisual({ groupRef, glow }: { groupRef: MutableRefObject<Group | n
         <meshBasicMaterial color="#aeb4c4" toneMapped={false} />
       </mesh>
       <mesh position={[0, 0.05, 0]} rotation={FLAT}>
-        <planeGeometry args={[3, 3]} />
-        <meshBasicMaterial color="#ff8a2a" map={glow} opacity={0.6} {...GLOW} />
+        <planeGeometry args={[5, 5]} />
+        <meshBasicMaterial color="#ff8a2a" map={glow} opacity={0.95} {...GLOW} />
       </mesh>
     </group>
   );
@@ -126,14 +134,14 @@ function ItemSlot({ register, glow }: { register: (apply: Apply) => void; glow: 
     }
     if (debris.current) {
       debris.current.visible = pose.type === 'DEBRIS';
-      debris.current.scale.setScalar(pose.width);
+      debris.current.scale.setScalar(pose.width * 1.5);
     }
     if (color === undefined) return;
     tinted.current.forEach((material) => material.color.set(color));
     const now = performance.now();
     if (gem.current) {
       gem.current.rotation.y = now * 0.004;
-      gem.current.position.y = 1.1 + Math.sin(now * 0.005) * 0.14;
+      gem.current.position.y = GEM_HEIGHT + Math.sin(now * 0.005) * 0.16;
     }
   });
 
