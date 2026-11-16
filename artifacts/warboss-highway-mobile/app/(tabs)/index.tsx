@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { Modal, StyleSheet, View } from 'react-native';
+import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { runOnJS } from 'react-native-reanimated';
 import { useIsFocused } from '@react-navigation/native';
 import { getDailyModifier, type CarType, type GameState } from '@workspace/game-core';
@@ -46,6 +47,7 @@ export default function TabOneScreen() {
   // gesture surface. Measured via onLayout since useWindowDimensions
   // doesn't account for this container's own safe-area/tab-bar insets.
   const [availableSize, setAvailableSize] = useState<{ width: number; height: number } | null>(null);
+  const insets = useSafeAreaInsets();
   const scale = availableSize
     ? Math.min(availableSize.width / GAME_WIDTH, availableSize.height / GAME_HEIGHT)
     : 1;
@@ -199,7 +201,23 @@ export default function TabOneScreen() {
         />
       )}
 
+      {/* Gameplay is presented full-screen ABOVE the tab navigator. Rendered
+          inline, the system tab bar (a floating liquid-glass bar on iOS 26)
+          sat on top of the bottom of the playfield: it covered the Rush
+          button and speed gauge, and a steering drag that ended on it
+          switched tabs mid-run. NativeTabs has no API to hide the bar, so the
+          run lives in a Modal instead, padded to the safe area so the HUD
+          clears the notch/Dynamic Island and the home indicator. */}
       {screen === 'playing' && (
+        <Modal
+          visible
+          animationType="fade"
+          presentationStyle="fullScreen"
+          statusBarTranslucent
+          supportedOrientations={['portrait']}
+          onRequestClose={() => engine?.pause()}
+        >
+        <GestureHandlerRootView style={[styles.playRoot, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
         <View
           style={styles.gameAreaMeasure}
           onLayout={(e) => {
@@ -231,6 +249,8 @@ export default function TabOneScreen() {
             {isPaused && <PauseOverlay onResume={() => engine?.resume()} onQuit={quitToMenu} />}
           </View>
         </View>
+        </GestureHandlerRootView>
+        </Modal>
       )}
 
       {screen === 'gameover' && gameOverInfo && (
@@ -262,6 +282,10 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: '#000',
+  },
+  playRoot: {
+    flex: 1,
     backgroundColor: '#000',
   },
   gameAreaMeasure: {

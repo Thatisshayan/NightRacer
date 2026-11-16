@@ -97,6 +97,9 @@ export interface ApexSteamVent {
 
 export interface ApexStormFrame {
   roadPhase: number;
+  /** Monotonic distance the road surface has scrolled toward the camera, in
+   * world units. Renderers scroll road textures / roadside scenery with it. */
+  travel: number;
   road: readonly ApexRoadSegment[];
   vehicles: readonly ApexVehiclePose[];
   lightningIntensity: number;
@@ -112,6 +115,33 @@ type RoadEntity = Pick<Player, 'x' | 'y' | 'width' | 'height'> & {
 };
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+
+/** World units per simulation pixel along the road (the 960px depth band maps
+ * onto nearZ..farZ in depthToZ below). */
+const UNITS_PER_PIXEL = (APEX_STORM_ROAD.farZ - APEX_STORM_ROAD.nearZ) / 960;
+
+/**
+ * Monotonic road travel in scroll pixels.
+ *
+ * This must NOT be derived from `state.roadOffset`: the engine wraps that
+ * value at 80px because it only exists to scroll a repeating 2D road tile.
+ * Driving the curve phase from it made the whole 3D road (and every vehicle
+ * on it) snap back to its starting shape several times a second, and made
+ * the lightning/biome logic below fire on that same sub-second sawtooth.
+ * `state.distance` never wraps; x1.5 matches the engine's road-scroll rate.
+ */
+function roadTravelPixels(state: Pick<GameState, 'distance'>): number {
+  return state.distance * 1.5;
+}
+
+/** Curve phase per scroll pixel. Deliberately slower than the surface scroll
+ * so a full S-bend takes several seconds to pass instead of whipping the
+ * road (and the camera following it) from side to side. */
+const CURVE_PHASE_PER_PIXEL = 0.002;
+
+function roadPhaseFor(state: Pick<GameState, 'distance'>): number {
+  return roadTravelPixels(state) * CURVE_PHASE_PER_PIXEL;
+}
 const lerp = (from: number, to: number, t: number) => from + (to - from) * t;
 
 /**
@@ -171,7 +201,7 @@ function wheelContacts(x: number, z: number, heading: number, width: number, len
 function vehiclePose(state: GameState, entity: RoadEntity): ApexVehiclePose {
   const depth = entity.kind === 'player' ? playerDepth(entity) : entityDepth(entity);
   const z = depthToZ(depth);
-  const road = sampleApexRoad(z, state.roadOffset * 0.011);
+  const road = sampleApexRoad(z, roadPhaseFor(state));
   const lateral = laneRatio(state, entity.x) * (road.halfWidth - 1.25);
   const x = road.x + lateral;
   const width = clamp(1.25 + entity.width / 42, 1.55, 3.05);
@@ -226,7 +256,8 @@ function demoFormation(state: GameState): RoadEntity[] {
 }
 
 export function buildApexStormFrame(state: GameState, options?: { demo?: boolean }): ApexStormFrame {
-  const roadPhase = state.roadOffset * 0.011;
+  const travelPixels = roadTravelPixels(state);
+  const roadPhase = roadPhaseFor(state);
   const spacing = (APEX_STORM_ROAD.farZ - APEX_STORM_ROAD.nearZ) / APEX_STORM_ROAD.segmentCount;
   const road = Array.from({ length: APEX_STORM_ROAD.segmentCount }, (_, index) => {
     const startZ = APEX_STORM_ROAD.nearZ + spacing * index;
@@ -244,9 +275,10 @@ export function buildApexStormFrame(state: GameState, options?: { demo?: boolean
     .map((entity) => vehiclePose(state, entity))
     .sort((a, b) => b.z - a.z);
 
-  // Deterministic lightning based on roadOffset
-  const lightningPhase = (state.roadOffset * 0.0007) % 1;
-  const lightningIntensity = lightningPhase < 0.02 ? Math.sin((lightningPhase / 0.02) * Math.PI) : 0;
+  // Deterministic lightning: one short flash roughly every 4000 scroll px
+  // (~9s at base speed), derived from monotonic travel (see roadTravelPixels).
+  const lightningPhase = (travelPixels * 0.00025) % 1;
+  const lightningIntensity = lightningPhase < 0.012 ? Math.sin((lightningPhase / 0.012) * Math.PI) : 0;
 
   // Fixed billboard anchors
   const billboards: ApexBillboardPose[] = [
@@ -254,8 +286,8 @@ export function buildApexStormFrame(state: GameState, options?: { demo?: boolean
     { id: 'billboard-2', x: 12, z: 55, side: 1, width: 6, height: 9, color: '#00ffff' },
   ];
 
-  // District biome logic (alternates every 500m)
-  const biome: ApexBiome = (state.roadOffset % 1000) < 500 ? 'highway' : 'tunnel';
+  // District biome logic: 6000m of open highway, then a 2000m tunnel.
+  const biome: ApexBiome = (state.distance % 8000) < 6000 ? 'highway' : 'tunnel';
 
   // Steam vents only in tunnel biome
   const steamVents: ApexSteamVent[] = biome === 'tunnel' ? [
@@ -263,5 +295,5 @@ export function buildApexStormFrame(state: GameState, options?: { demo?: boolean
     { x: 5, z: 45, intensity: 0.6 },
   ] : [];
 
-  return { roadPhase, road, vehicles, lightningIntensity, billboards, biome, steamVents };
+  return { roadPhase, travel: travelPixels * UNITS_PER_PIXEL, road, vehicles, lightningIntensity, billboards, biome, steamVents };
 }

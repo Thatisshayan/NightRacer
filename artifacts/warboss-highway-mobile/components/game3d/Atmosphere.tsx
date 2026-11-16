@@ -1,78 +1,107 @@
 import { useFrame } from '@react-three/fiber';
 import { useMemo, useRef } from 'react';
 import type { MutableRefObject } from 'react';
-import { AdditiveBlending, BufferAttribute, Points, PointLight } from 'three';
+import { BufferAttribute, BufferGeometry, DoubleSide, DynamicDrawUsage, Group, MeshBasicMaterial } from 'three';
 import type { ApexStormFrame } from '@workspace/render-frame';
+import { getSkyTexture } from './textures';
 
-const RAIN_COUNT = 800;
+const RAIN_COUNT = 320;
+const RAIN_TOP = 26;
+const RAIN_FALL_SPEED = 42;
+const RAIN_STREAK = 1.25;
 
-// A single, never-recreated point cloud, recycled top-to-bottom like a
-// particle emitter — mirrors apex-storm-renderer.ts's ParticleSystem, just
-// hand-rolled since expo-gl's WebGL2 support doesn't cover every Three.js
-// GPU-particle extension a desktop browser gets.
-function RainField({ frameRef }: { frameRef: MutableRefObject<ApexStormFrame | null> }) {
-  const points = useRef<Points>(null);
-  const positions = useMemo(() => {
+// Rain as short slanted line streaks. The previous version drew gl.POINTS,
+// which expo-gl rasterises as fat screen-space squares — it read as a field
+// of blocky "stars" hanging in the sky, not weather. One never-recreated
+// LineSegments buffer, recycled top-to-bottom.
+function RainField() {
+  const geometry = useMemo(() => {
+    const g = new BufferGeometry();
+    const positions = new Float32Array(RAIN_COUNT * 2 * 3);
     // Deterministic (not Math.random) spread across the rain volume — this
-    // is cosmetic initial placement, not a security-sensitive value, but a
-    // fixed hash-based spread keeps repeated captures/screenshots
-    // reproducible and satisfies the weak-RNG lint rule.
-    const arr = new Float32Array(RAIN_COUNT * 3);
+    // is cosmetic placement, but a fixed hash-based spread keeps repeated
+    // captures reproducible and satisfies the weak-RNG lint rule.
     for (let i = 0; i < RAIN_COUNT; i += 1) {
-      arr[i * 3] = Math.sin(i * 12.9898) * 30 * 0.5;
-      arr[i * 3 + 1] = (Math.sin(i * 78.233) * 0.5 + 0.5) * 15 + 2;
-      arr[i * 3 + 2] = (Math.sin(i * 39.425) * 0.5 + 0.5) * 60 - 10;
+      const x = Math.sin(i * 12.9898) * 17;
+      const y = (Math.sin(i * 78.233) * 0.5 + 0.5) * RAIN_TOP;
+      const z = (Math.sin(i * 39.425) * 0.5 + 0.5) * 60 - 12;
+      positions.set([x, y, z, x - 0.14, y - RAIN_STREAK, z - 0.3], i * 6);
     }
-    return arr;
+    const attribute = new BufferAttribute(positions, 3);
+    attribute.setUsage(DynamicDrawUsage);
+    g.setAttribute('position', attribute);
+    return g;
   }, []);
 
   useFrame((_, delta) => {
-    const frame = frameRef.current;
-    const geometry = points.current?.geometry;
-    if (!geometry || !frame) return;
-    const isRaining = frame.biome !== 'tunnel';
-    if (points.current) points.current.visible = isRaining;
-    if (!isRaining) return;
     const attr = geometry.getAttribute('position') as BufferAttribute;
+    // Clamp the step so a long frame (app resumed from background) can't
+    // teleport every streak below the ground at once.
+    const fall = Math.min(delta, 0.05) * RAIN_FALL_SPEED;
     for (let i = 0; i < RAIN_COUNT; i += 1) {
-      let y = attr.getY(i) - delta * 28;
-      if (y < 0) y = 15;
-      attr.setY(i, y);
+      let top = attr.getY(i * 2) - fall;
+      if (top < 0) top += RAIN_TOP;
+      attr.setY(i * 2, top);
+      attr.setY(i * 2 + 1, top - RAIN_STREAK);
     }
     attr.needsUpdate = true;
   });
 
   return (
-    <points ref={points}>
-      <bufferGeometry>
-        <bufferAttribute attach="attributes-position" args={[positions, 3]} />
-      </bufferGeometry>
-      <pointsMaterial color="#a8d8ff" size={0.08} transparent opacity={0.55} blending={AdditiveBlending} />
-    </points>
+    <lineSegments geometry={geometry} frustumCulled={false}>
+      <lineBasicMaterial color="#a9c9ff" transparent opacity={0.34} depthWrite={false} />
+    </lineSegments>
   );
 }
 
-function LightningFlash({ frameRef }: { frameRef: MutableRefObject<ApexStormFrame | null> }) {
-  const light = useRef<PointLight>(null);
+// Sky backdrop: a vertical gradient (horizon haze -> city glow -> night) on a
+// plane far behind everything. Its bottom band is exactly the fog colour, so
+// fogged-out road and towers melt into it with no seam. Not fogged itself.
+function SkyBackdrop({ frameRef }: { frameRef: MutableRefObject<ApexStormFrame | null> }) {
+  const material = useRef<MeshBasicMaterial>(null);
+  const map = useMemo(() => getSkyTexture(), []);
   useFrame(() => {
-    const frame = frameRef.current;
-    if (!light.current || !frame) return;
-    light.current.intensity = frame.lightningIntensity * 12;
+    // Lightning lifts the whole sky for the length of the flash.
+    const flash = frameRef.current?.lightningIntensity ?? 0;
+    material.current?.color.setScalar(1 + flash * 1.6);
   });
-  return <pointLight ref={light} position={[0, 10, 30]} color="#d7f5ff" intensity={0} />;
+  return (
+    <mesh position={[0, 110, 262]}>
+      <planeGeometry args={[760, 260]} />
+      <meshBasicMaterial ref={material} map={map} fog={false} side={DoubleSide} depthWrite={false} toneMapped={false} />
+    </mesh>
+  );
 }
 
-// Neon billboards and the concrete tunnel biome (ribs, steam vents) are
-// intentionally deferred here — see Task 6 of the implementation plan
-// (docs/superpowers/plans/2026-08-28-r3f-native-3d-renderer.md): their
-// placement should be tuned against a real on-device screenshot with this
-// camera's actual FOV, not guessed from the web renderer's different
-// Babylon camera framing.
-export function Atmosphere({ frameRef }: { frameRef: MutableRefObject<ApexStormFrame | null> }) {
+// The tunnel biome (ribs, steam vents) is intentionally not rendered here —
+// see Task 6 of the implementation plan
+// (docs/superpowers/plans/2026-08-28-r3f-native-3d-renderer.md). Rain
+// therefore stays on for the whole run rather than cutting out over a road
+// that still looks like open highway.
+export function Atmosphere({
+  frameRef,
+  cameraXRef,
+}: {
+  frameRef: MutableRefObject<ApexStormFrame | null>;
+  cameraXRef: MutableRefObject<number | null>;
+}) {
+  const follow = useRef<Group>(null);
+  const sky = useRef<Group>(null);
+  // The rain volume and backdrop ride with the camera's lateral follow so the
+  // player never drives out from under the rain or past the edge of the sky.
+  useFrame(() => {
+    const x = cameraXRef.current ?? 0;
+    if (follow.current) follow.current.position.x = x;
+    if (sky.current) sky.current.position.x = x;
+  });
   return (
     <>
-      <RainField frameRef={frameRef} />
-      <LightningFlash frameRef={frameRef} />
+      <group ref={sky}>
+        <SkyBackdrop frameRef={frameRef} />
+      </group>
+      <group ref={follow}>
+        <RainField />
+      </group>
     </>
   );
 }

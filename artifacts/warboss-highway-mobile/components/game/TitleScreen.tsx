@@ -1,13 +1,17 @@
 import React, { useState } from 'react';
 import { Image as RNImage, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CAR_STATS, type CarType } from '@workspace/game-core';
 import { CarPreview3D } from '@/components/game3d/CarPreview3D';
 import { Settings } from '@/lib/settings';
 
 const CAR_TYPES = Object.keys(CAR_STATS) as CarType[];
 const UPGRADE_COST = 100;
-const PREVIEW_SIZE = 90;
+const PREVIEW_SIZE = 150;
+// Height the floating system tab bar covers at the bottom of the screen, on
+// top of the home-indicator inset.
+const TAB_BAR_CLEARANCE = 72;
 // The garage cards used to be plain bordered boxes with just a text label —
 // visually flatter than the vehicle carousel right above them. A small
 // glyph per stat is a cheap, no-new-asset way to close that gap.
@@ -42,6 +46,7 @@ export function TitleScreen({
   onStart: () => void;
 }) {
   const stats = CAR_STATS[selectedCar];
+  const insets = useSafeAreaInsets();
   const [scrap, setScrap] = useState(Settings.getScrap());
   const [upgrades, setUpgrades] = useState(Settings.getUpgrades(selectedCar));
 
@@ -90,7 +95,15 @@ export function TitleScreen({
         style={styles.skylineFade}
         pointerEvents="none"
       />
-      <ScrollView contentContainerStyle={styles.root}>
+      {/* Top padding clears the status bar / Dynamic Island (the title used
+          to render underneath it); bottom padding keeps START ENGINE
+          reachable above the floating tab bar on short screens. */}
+      <ScrollView
+        contentContainerStyle={[
+          styles.root,
+          { paddingTop: insets.top + 12, paddingBottom: insets.bottom + TAB_BAR_CLEARANCE },
+        ]}
+      >
       <Text style={styles.titleLine1}>WARBOSS</Text>
       <Text style={styles.titleLine2}>HIGHWAY</Text>
 
@@ -195,7 +208,10 @@ const styles = StyleSheet.create({
   skylineLayer2: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 150, opacity: 0.8 },
   // Straddles skylineLayer1's top edge (the taller of the two) so the
   // backdrop fades in instead of cutting on abruptly.
-  skylineFade: { position: 'absolute', left: 0, right: 0, bottom: 220, height: 90 },
+  // It has to overlap the image itself (bottom edge 90 below the image's
+  // top): placed entirely above it, it faded black into black and the image
+  // still began on a hard horizontal line.
+  skylineFade: { position: 'absolute', left: 0, right: 0, bottom: 130, height: 90 },
   // Was opaque black — now transparent so the skyline backdrop shows
   // through behind the scrollable content.
   root: { flexGrow: 1, alignItems: 'center', backgroundColor: 'transparent', padding: 16, gap: 10 },

@@ -1,18 +1,49 @@
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { Suspense, useEffect, useRef } from 'react';
-import type { Mesh, MeshBasicMaterial } from 'three';
+import type { HemisphereLight, Mesh, MeshBasicMaterial } from 'three';
+import { sampleApexRoad } from '@workspace/render-frame';
 import type { NativeGameEngine } from '../game/native-engine';
 import { useApexNativeRenderer } from './r3f-renderer';
 import { RoadSegments, type RoadMeshHandle } from './RoadMesh';
+import { Skyline, type SkylineHandle } from './Skyline';
 import { VehicleMesh, preloadVehicleModels, type VehicleMeshHandle } from './VehicleMesh';
 import { Atmosphere } from './Atmosphere';
 import { PostFX } from './PostFX';
+import { HAZE_COLOR } from './textures';
 
-// Base chase-cam position — see the module doc comment below for why this
-// must exactly match apex-storm-renderer.ts's FreeCamera seat.
-const BASE_CAMERA_X = 0;
-const BASE_CAMERA_Y = 2.55;
-const BASE_CAMERA_Z = -14.5;
+// Chase-cam seat, tuned against real simulator captures of THIS renderer —
+// deliberately not a copy of apex-storm-renderer.ts's Babylon FreeCamera.
+// That seat (y=2.55, aimed slightly up at a skyline) left ~60% of a phone
+// screen as empty sky here, squeezed all oncoming traffic into a ~10%-tall
+// band, let passing trucks fill the entire view, and — being fixed in X with
+// only an ~11 degree horizontal half-FOV in portrait — let the player car
+// slide completely off screen whenever the road curved.
+// This seat sits higher, looks down the road and follows the player.
+const CAMERA_Y = 8.5;
+const CAMERA_Z = -15.5;
+const CAMERA_FOV = 52;
+const LOOK_Y = -2.1;
+const LOOK_Z = 24;
+// 0 = camera rides the road centreline, 1 = camera locked to the player.
+const CAMERA_FOLLOW = 0.6;
+// How much the aim point leans into the curve ahead (0 = no yaw).
+const CAMERA_CURVE_LEAN = 0.3;
+
+// Traffic the player has already passed is faded out over this band behind
+// the player (world units). Left solid, a tall vehicle between the camera and
+// the car hides the player and the road ahead.
+const PASS_FADE_START = 3;
+const PASS_FADE_LENGTH = 5;
+
+const SKY_LIGHT_INTENSITY = 2.4;
+
+// @workspace/render-frame's coordinates come from the Babylon web renderer,
+// which is LEFT-handed: looking down +Z, +X is screen-right. three.js is
+// right-handed: looking down +Z, +X is screen-LEFT. Every frame X (and every
+// heading) is therefore negated on its way into this scene — here, in
+// RoadMesh and in VehicleMesh. Without this the whole scene is mirrored and
+// dragging right steers the car left on screen.
+const toSceneX = (frameX: number) => -frameX;
 
 // Matches apex-storm-renderer.ts's MAX_VEHICLE_SLOTS — a fixed pool of
 // reusable meshes, hidden/shown per frame rather than created/destroyed.
@@ -23,6 +54,7 @@ const MAX_TRAFFIC_SLOTS = MAX_VEHICLE_SLOTS - 1;
 function SceneContent({ engine }: { engine: NativeGameEngine }) {
   const { latestFrame, latestScreenShake } = useApexNativeRenderer(engine);
   const roadHandle = useRef<RoadMeshHandle | null>(null);
+  const skylineHandle = useRef<SkylineHandle | null>(null);
   const vehicleHandles = useRef<(VehicleMeshHandle | null)[]>([]);
   // The Canvas's own default camera (set via the `camera` prop below) — read
   // through useThree rather than defined as JSX so it lives entirely outside
@@ -37,16 +69,20 @@ function SceneContent({ engine }: { engine: NativeGameEngine }) {
   const { camera } = useThree();
   const flashMesh = useRef<Mesh>(null);
   const flashMaterial = useRef<MeshBasicMaterial | null>(null);
+  const skyLight = useRef<HemisphereLight>(null);
+  // Smoothed camera X; null until the first frame so the camera snaps to the
+  // player instead of sweeping in from x=0. Shared with Atmosphere so the
+  // rain volume and sky backdrop ride along.
+  const cameraX = useRef<number | null>(null);
 
   // A three.js PerspectiveCamera constructed from the `camera` prop keeps its
-  // default identity orientation and looks down -Z, but the road
-  // (z ∈ [nearZ=-12, farZ=70]) sits in +Z from this seat — without an
-  // explicit aim the whole scene lands behind the camera and renders black.
-  // Mirror apex-storm-renderer.ts's FreeCamera.setTarget(3.45, 5.80, 24) so
-  // this camera actually faces the road. Position-only screen-shake below
-  // never re-orients the camera, so a single one-time lookAt is sufficient.
+  // default identity orientation and looks down -Z, but the road sits in +Z
+  // from this seat — without an explicit aim the whole scene lands behind the
+  // camera and renders black. The follow logic in useFrame re-aims every
+  // frame; this initial aim only covers the frames before the engine has
+  // produced its first frame.
   useEffect(() => {
-    camera.lookAt(3.45, 5.8, 24);
+    camera.lookAt(0, LOOK_Y, LOOK_Z);
   }, [camera]);
 
   // Rides along with the camera without needing to declare the camera
@@ -79,21 +115,23 @@ function SceneContent({ engine }: { engine: NativeGameEngine }) {
     preloadVehicleModels();
   }, []);
 
-  useFrame(() => {
+  useFrame((_, delta) => {
     const frame = latestFrame.current;
     if (!frame) return;
-    roadHandle.current?.update(frame.road, frame.biome);
+    roadHandle.current?.update(frame.roadPhase, frame.travel);
+    skylineHandle.current?.update(frame.travel);
 
     const selectedCar = engine.getState().selectedCar;
 
     const player = frame.vehicles.find((v) => v.kind === 'player');
-    vehicleHandles.current[0]?.update(player, selectedCar);
+    vehicleHandles.current[0]?.update(player, selectedCar, 1);
 
     const traffic = frame.vehicles.filter((v) => v.kind !== 'player');
     // Nearest-first: if traffic count exceeds the pool, the farthest
     // vehicles are the ones left unassigned below, not an arbitrary subset.
     traffic.sort((a, b) => b.depth - a.depth);
 
+    const fadeStartZ = (player?.z ?? 0) - PASS_FADE_START;
     const assigned = trafficSlotById.current;
     const free = freeTrafficSlots.current;
     const present = new Set<string>();
@@ -105,12 +143,13 @@ function SceneContent({ engine }: { engine: NativeGameEngine }) {
         if (slot === undefined) continue; // pool exhausted this frame — farthest traffic skipped
         assigned.set(pose.id, slot);
       }
-      vehicleHandles.current[slot]?.update(pose, selectedCar);
+      const fade = 1 - Math.max(0, Math.min(1, (fadeStartZ - pose.z) / PASS_FADE_LENGTH));
+      vehicleHandles.current[slot]?.update(pose, selectedCar, fade);
     }
     for (const [id, slot] of assigned) {
       if (!present.has(id)) {
         assigned.delete(id);
-        vehicleHandles.current[slot]?.update(undefined, selectedCar);
+        vehicleHandles.current[slot]?.update(undefined, selectedCar, 0);
         free.push(slot);
       }
     }
@@ -118,23 +157,46 @@ function SceneContent({ engine }: { engine: NativeGameEngine }) {
     // Camera shake + crash flash on collision — engine.ts sets screenShake
     // to 300 on a hit and decays it over time (see handleCrash()). The web
     // renderers (apex-storm-renderer.ts, pixi-renderer.ts) both surface this
-    // as camera jitter + a flash; this renderer computed latestScreenShake
-    // every sync() but never read it back, so hits on the native 3D
-    // renderer had zero screen feedback. Formula matches
-    // apex-storm-renderer.ts's sync() exactly, same deterministic
-    // high-frequency noise (not Math.random) so the two renderers shake in
-    // lockstep for the same input.
+    // as camera jitter + a flash. Formula matches apex-storm-renderer.ts's
+    // sync(): deterministic high-frequency noise (not Math.random) so the
+    // two renderers shake in lockstep for the same input.
     const screenShake = latestScreenShake.current;
+    let shakeX = 0;
+    let shakeY = 0;
     if (screenShake > 0) {
       const shake = screenShake * 0.05;
       const now = performance.now();
-      camera.position.x = BASE_CAMERA_X + Math.sin(now * 0.083) * shake * 0.5;
-      camera.position.y = BASE_CAMERA_Y + Math.sin(now * 0.071 + 1.7) * shake * 0.5;
+      shakeX = Math.sin(now * 0.083) * shake * 0.5;
+      shakeY = Math.sin(now * 0.071 + 1.7) * shake * 0.5;
       if (flashMaterial.current) flashMaterial.current.opacity = Math.min(0.8, screenShake * 0.15);
-    } else {
-      camera.position.x = BASE_CAMERA_X;
-      camera.position.y = BASE_CAMERA_Y;
-      if (flashMaterial.current) flashMaterial.current.opacity = 0;
+    } else if (flashMaterial.current) {
+      flashMaterial.current.opacity = 0;
+    }
+
+    // Follow the player laterally. The road centreline wanders by several
+    // units as it curves and the player can sit up to ~5 units either side
+    // of it, far more than a portrait frustum shows at the player's depth —
+    // a fixed camera loses the car entirely. Blend between the centreline
+    // and the player so the car stays on screen while still visibly moving
+    // across it when steering.
+    if (player) {
+      const centreX = toSceneX(sampleApexRoad(player.z, frame.roadPhase).x);
+      const followX = centreX + (toSceneX(player.x) - centreX) * CAMERA_FOLLOW;
+      cameraX.current =
+        cameraX.current === null
+          ? followX
+          : cameraX.current + (followX - cameraX.current) * Math.min(1, delta * 5);
+    }
+    const camX = cameraX.current ?? 0;
+    const aheadX = toSceneX(sampleApexRoad(LOOK_Z, frame.roadPhase).x);
+    camera.position.set(camX + shakeX, CAMERA_Y + shakeY, CAMERA_Z);
+    camera.lookAt(camX + (aheadX - camX) * CAMERA_CURVE_LEAN, LOOK_Y, LOOK_Z);
+
+    // Lightning: a brief lift of the sky fill (the backdrop brightens itself,
+    // see Atmosphere). The old point light 30 units up the road fell off with
+    // distance squared and lit nothing.
+    if (skyLight.current) {
+      skyLight.current.intensity = SKY_LIGHT_INTENSITY + frame.lightningIntensity * 5;
     }
   });
 
@@ -145,9 +207,9 @@ function SceneContent({ engine }: { engine: NativeGameEngine }) {
           declared as the camera's JSX child. Lives outside <Suspense> —
           transparent/opacity-0 by default, never touches any async asset,
           so it never needs to survive a Suspense fallback the way the
-          camera itself does. */}
-      <mesh ref={flashMesh} position={[0, 0, -0.2]}>
-        <planeGeometry args={[2, 2]} />
+          camera itself does. Sits just beyond the near plane (1). */}
+      <mesh ref={flashMesh} position={[0, 0, -1.2]}>
+        <planeGeometry args={[6, 6]} />
         <meshBasicMaterial
           ref={flashMaterial}
           color="#ff1a1a"
@@ -157,12 +219,25 @@ function SceneContent({ engine }: { engine: NativeGameEngine }) {
           depthWrite={false}
         />
       </mesh>
-      <hemisphereLight args={['#5779a9', '#0b1728', 0.95]} />
-      <directionalLight position={[-3.5, 10, 3.5]} intensity={1.35} color="#b8dcff" castShadow />
-      <fog attach="fog" args={['#112941', 20, 140]} />
-      {/* RoadSegments loads no async asset (plain box geometry/materials),
-          so it never needs to sit inside a Suspense boundary at all. */}
+      {/* Light values are NOT the web renderer's numbers copied 1:1. Babylon's
+          StandardMaterial has no 1/PI in its diffuse term; three.js's
+          physically-based lights do, so the same intensities render ~3x
+          darker here (every vehicle read as a black silhouette). The key
+          light also has to come from BEHIND the camera (z < 0), like the web
+          renderer's direction (-0.35,-1,0.35): it used to sit ahead of the
+          cars and lit only the faces a chase camera never sees. */}
+      <hemisphereLight ref={skyLight} args={['#86a8d8', '#1b2a45', SKY_LIGHT_INTENSITY]} />
+      <directionalLight position={[-4, 12, -10]} intensity={3.4} color="#d6e6ff" />
+      {/* Neon rim from up the road: picks vehicle silhouettes out of the dark
+          in the magenta of the city glow. */}
+      <directionalLight position={[7, 6, 30]} intensity={1.1} color="#ff5fd0" />
+      {/* Fog colour == clear colour == sky horizon (HAZE_COLOR) so the far
+          end of the road and the distant towers dissolve into the sky. */}
+      <fogExp2 attach="fog" args={[HAZE_COLOR, 0.012]} />
+      {/* Road, skyline and atmosphere load no async asset (procedural
+          geometry and textures), so none of them needs a Suspense boundary. */}
       <RoadSegments handleRef={roadHandle} />
+      <Skyline handleRef={skylineHandle} />
       {/* Vehicle model loading is fail-soft and non-suspending now: LoadedGltf
           loads imperatively (GLTFLoader.loadAsync + try/catch) and renders a
           grounded placeholder if the file:// URI is rejected on device, so it
@@ -178,7 +253,7 @@ function SceneContent({ engine }: { engine: NativeGameEngine }) {
           <VehicleMesh index={i} ref={(h) => { vehicleHandles.current[i] = h; }} />
         </Suspense>
       ))}
-      <Atmosphere frameRef={latestFrame} />
+      <Atmosphere frameRef={latestFrame} cameraXRef={cameraX} />
     </>
   );
 }
@@ -186,17 +261,13 @@ function SceneContent({ engine }: { engine: NativeGameEngine }) {
 export function R3FGameScene({ engine }: { engine: NativeGameEngine }) {
   return (
     <Canvas
-      camera={{ position: [BASE_CAMERA_X, BASE_CAMERA_Y, BASE_CAMERA_Z], fov: 47 }}
+      camera={{ position: [0, CAMERA_Y, CAMERA_Z], fov: CAMERA_FOV, near: 1, far: 420 }}
       gl={{ antialias: true }}
-      shadows
       onCreated={({ gl }) => {
-        // three.js clears to opaque black by default, but the scene fog (and
-        // the web renderer this mirrors: createScene()'s clearColor
-        // Color4(0.018,0.045,0.088)) renders the dusk sky a dark blue. Black
-        // shows through as a hard seam where fogged geometry ends and the
-        // empty void begins, reading as wrong-color/garbage at the horizon.
-        // Match the reference renderer's clear color so sky == clear.
-        gl.setClearColor('#040B16');
+        // three.js clears to opaque black by default. Black shows through as
+        // a hard seam where fogged geometry ends and the empty void begins.
+        // Clear to exactly the fog colour so nothing can show a seam.
+        gl.setClearColor(HAZE_COLOR);
       }}
     >
       <SceneContent engine={engine} />
