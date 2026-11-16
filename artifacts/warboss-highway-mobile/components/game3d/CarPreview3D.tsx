@@ -42,9 +42,12 @@ export function CarPreview3D({ carType, size }: { carType: CarType; size: number
       }}
     >
       <Suspense fallback={null}>
-        <hemisphereLight args={['#5779a9', '#0b1728', 1.1]} />
-        <directionalLight position={[-2, 3, 2]} intensity={1.5} color="#ffe9c7" />
-        <directionalLight position={[2, 1.5, -2]} intensity={0.4} color="#4fb9ff" />
+        {/* three.js physical light units: the same numbers as the Babylon web
+            renderer come out ~3x darker (see R3FGameScene.tsx), which left
+            the showroom car a near-black silhouette. */}
+        <hemisphereLight args={['#7f9fd0', '#1b2a45', 3.2]} />
+        <directionalLight position={[-2, 3, 2]} intensity={4.4} color="#ffe9c7" />
+        <directionalLight position={[2, 1.5, -2]} intensity={1.4} color="#4fb9ff" />
         <Spinner modelKey={carType} />
       </Suspense>
     </Canvas>

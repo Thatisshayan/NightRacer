@@ -114,6 +114,14 @@ function toPaintMaterial<T extends Material>(material: T): T {
   if (standard.isMeshStandardMaterial) {
     standard.metalness = 0;
     standard.roughness = 0.62;
+    // The paint textures are dark bodywork with neon trim. Feeding the same
+    // texture back in as a weak emissive map keeps that trim (and the body
+    // colour) readable at night instead of sinking into the dark road.
+    if (standard.map) {
+      standard.emissiveMap = standard.map;
+      standard.emissive.set('#ffffff');
+      standard.emissiveIntensity = 0.5;
+    }
   }
   return material;
 }
