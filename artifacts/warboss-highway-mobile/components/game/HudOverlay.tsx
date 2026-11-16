@@ -292,7 +292,7 @@ const styles = StyleSheet.create({
   // (sprites, "WASTED" game-over screen, etc). Remaining lives get a
   // bone-white skull with a faint red glow (textShadow); lost lives fade to
   // a dim outline instead of just disappearing, so the pip stays visible.
-  heart: { fontSize: 20, lineHeight: 20 },
+  heart: { fontSize: 26, lineHeight: 26 },
   heartAlive: {
     color: '#e8ded0',
     textShadowColor: 'rgba(255,40,20,0.85)',

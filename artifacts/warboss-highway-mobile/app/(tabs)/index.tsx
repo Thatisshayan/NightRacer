@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Modal, StyleSheet, View } from 'react-native';
+import { Modal, StyleSheet, Text, View } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { runOnJS } from 'react-native-reanimated';
@@ -162,16 +162,19 @@ export default function TabOneScreen() {
 
   // Start the simulation exactly once per engine, when its scene is ready.
   const startedEngine = useRef<typeof engine>(null);
+  const [sceneReady, setSceneReady] = useState(false);
   const handleSceneReady = useCallback(() => {
     if (!engine || startedEngine.current === engine) return;
     startedEngine.current = engine;
     engine.start();
+    setSceneReady(true);
   }, [engine]);
 
   const startGame = useCallback(() => {
     NativeAudio.stop('menu');
     setGameOverInfo(null);
     setIsPaused(false);
+    setSceneReady(false);
     setRunKey((k) => k + 1);
     setScreen('playing');
   }, []);
@@ -254,6 +257,13 @@ export default function TabOneScreen() {
                 onToggleMute={handleToggleMute}
               />
             )}
+            {/* The GL view takes about a second to come up. Cover that with
+                a deliberate beat instead of a bare black rectangle. */}
+            {!sceneReady && (
+              <View style={styles.readyOverlay} pointerEvents="none">
+                <Text style={styles.readyText}>START YOUR ENGINE</Text>
+              </View>
+            )}
             {isPaused && <PauseOverlay onResume={() => engine?.resume()} onQuit={quitToMenu} />}
           </View>
         </View>
@@ -295,6 +305,18 @@ const styles = StyleSheet.create({
   playRoot: {
     flex: 1,
     backgroundColor: '#000',
+  },
+  readyOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#050816',
+  },
+  readyText: {
+    fontSize: 18,
+    fontWeight: '900',
+    letterSpacing: 4,
+    color: '#27d9ff',
   },
   gameAreaMeasure: {
     flex: 1,
