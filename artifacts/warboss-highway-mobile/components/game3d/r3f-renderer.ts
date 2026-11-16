@@ -21,6 +21,10 @@ export function useApexNativeRenderer(engine: NativeGameEngine) {
       },
       destroy() {},
     };
+    // Seed a frame from the engine's initial state so the scene can draw the
+    // road and the player before the simulation starts ticking (the run is
+    // only started once the 3D view is actually on screen, see index.tsx).
+    latestFrame.current = buildApexStormFrame(engine.getState(), { demo: false });
     engine.attachRenderer(renderer);
     return () => engine.attachRenderer(null);
   }, [engine]);

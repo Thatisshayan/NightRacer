@@ -40,6 +40,31 @@ Reported during this work: `EXC_BAD_ACCESS (SIGSEGV)` 16 seconds after launch, c
 - **Fix.** `lib/fatal-errors.ts` installs a global handler: a fatal JS error now shows the existing error screen (message and stack available from its details button) and is persisted, instead of taking the native path. Verified with the same probe: the app stays alive on the error screen.
 - **Not known.** Which JS error fired on the device. The crash report carries no message, and that build (commit `18d576c`, the pre-rebuild scene) did not fail on the simulator. If it recurs on the new build the error screen will show it.
 
+## Second pass (recorded play sessions)
+
+Found by recording video of steered runs and reading frames from it, and by rendering every vehicle GLB offline to check its axes.
+
+| # | Finding | Cause | Fix |
+| --- | --- | --- | --- |
+| 13 | Box truck and bus drove sideways across the lanes. | Those two models lie along X with the cab at -X; every other model lies along Z with the nose at +Z. | Models longer in X than Z are turned a quarter turn when normalized. |
+| 14 | Cars visibly overlapped while passing without a hit registering. | Visual width came from an unrelated formula, ~50% wider than the simulation hitbox. | Width derives from the hitbox; length follows each model's own proportions (a bus is now long, a car short). |
+| 15 | The highway wriggled like a ribbon. | Curve frequency put two and a half S-bends in view. | One bend spans the visible road, and the curve is locked to the surface scroll. |
+| 16 | About a second of black at the start of every run while the game was already running; the player car appeared late. | The engine started before the GL view existed; models were parsed on first use. | The run starts when the scene reports ready; models are preloaded and cached from the title screen; a "START YOUR ENGINE" beat covers GL start-up. |
+| 17 | The player car disappeared inside a truck after a crash. | Traffic keeps driving through during the grace period. | Traffic overlapping the player is ghosted; the player blinks while invulnerable. |
+| 18 | Lives looked like 5 when a run has 3, and lost lives looked the same as remaining ones. | HUD drew five pips; iOS rendered the skull as a colour emoji that ignores text colour. | Three pips (more only with extra lives), text-presentation glyph, lost pips dimmed. |
+| 19 | Nothing at the roadside; the sky showed as one flat purple rectangle. | No scenery between rails and towers; bare gradient visible between buildings. | Street lamps with light pools streaming past; a far wall of tower silhouettes on the horizon. |
+
+## Third pass (owner feedback)
+
+Feedback after the second pass: the player car is too big for the lane, car motion looks fake, and the visuals should go up a level.
+
+| # | Change | How |
+| --- | --- | --- |
+| 20 | Cars about 40% of a lane instead of ~55%; camera closer. | `GameEngine` takes an optional `entityScale` (default 1, so the 2D web game is unchanged); the native engine passes 0.78 and visuals follow the hitbox. |
+| 21 | Cars move with weight. | The body trails the hitbox by a few frames, the nose turns into lateral motion, the body rolls outward and pitches, and there is a small road bob. The camera banks into steering, and widens and drops back as speed builds. |
+| 22 | Night-highway look. | Sprite halos standing in for bloom, lamp and tail-light reflections streaked down the wet road, tyre spray, a lens vignette, barrier reflectors, overhead sign gantries, neon strips and roof beacons on the towers. |
+| 23 | React error #311 on first run of this pass. | `useRef` called inside object literals; the React Compiler caches such literals, so the hooks ran only once. Hook calls are now plain statements. The fatal-error handler caught it and showed the error screen, which is how it was diagnosed. |
+
 ## Verification
 
 | Check | Result |

@@ -110,9 +110,14 @@ export function HudOverlay({
         )}
         {state.isDailyChallenge && <Text style={styles.dailyBadge}>◆ DAILY CHALLENGE</Text>}
         <View style={styles.lives}>
-          {[0, 1, 2, 3, 4].map((i) => (
+          {/* A run starts with 3 lives (extra lives can raise it to 5), so
+              only that many pips are drawn: five skulls made a fresh run look
+              like it had five lives. The text-presentation selector (U+FE0E)
+              stops iOS swapping in the colour emoji, which ignores text
+              colour and made lost lives look identical to remaining ones. */}
+          {Array.from({ length: Math.max(3, state.lives) }, (_, i) => (
             <Text key={i} style={[styles.heart, i < state.lives ? styles.heartAlive : styles.heartLost]}>
-              {'☠'}
+              {'☠\uFE0E'}
             </Text>
           ))}
         </View>
@@ -287,14 +292,14 @@ const styles = StyleSheet.create({
   // (sprites, "WASTED" game-over screen, etc). Remaining lives get a
   // bone-white skull with a faint red glow (textShadow); lost lives fade to
   // a dim outline instead of just disappearing, so the pip stays visible.
-  heart: { fontSize: 20, lineHeight: 20 },
+  heart: { fontSize: 26, lineHeight: 26 },
   heartAlive: {
     color: '#e8ded0',
     textShadowColor: 'rgba(255,40,20,0.85)',
     textShadowRadius: 4,
     textShadowOffset: { width: 0, height: 0 },
   },
-  heartLost: { color: 'rgba(255,255,255,0.15)' },
+  heartLost: { color: '#ffffff', opacity: 0.18 },
   oilWarning: { position: 'absolute', right: 12, top: 66, fontSize: 12, color: '#8888ff' },
   rushControl: {
     position: 'absolute',

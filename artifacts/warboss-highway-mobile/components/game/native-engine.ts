@@ -12,6 +12,8 @@ import { NativeAudio } from '@/lib/native-audio';
 // Canvas is a React scene graph, not an imperative 2D context. GameCanvas
 // still attaches a tiny GameRenderer so it can read cameraY, which isn't
 // part of GameState.
+const NATIVE_ENTITY_SCALE = 0.78;
+
 export class NativeGameEngine extends GameEngine {
   constructor(
     dims: { width: number; height: number },
@@ -30,6 +32,10 @@ export class NativeGameEngine extends GameEngine {
     }
     super(dims, onGameOver, {
       ...options,
+      // The native game is drawn from a chase camera, where the 2D game's
+      // car-to-lane ratio (a car ~half a lane wide) leaves almost no room to
+      // place the car. Smaller hitboxes, drawn to match, open the lanes up.
+      entityScale: NATIVE_ENTITY_SCALE,
       audio: NativeAudio,
       haptics: (pattern) => {
         const style = Array.isArray(pattern)

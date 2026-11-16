@@ -50,7 +50,9 @@ export function useNativeGameEngine(
         onPauseChange: (paused) => onPauseChangeRef.current?.(paused),
       }
     );
-    instance.start();
+    // Not started here: the screen calls start() once the 3D scene reports
+    // it is on screen (see R3FGameScene's onReady), so the run never begins
+    // behind a view that is still initialising.
     setEngine(instance);
 
     return () => {
