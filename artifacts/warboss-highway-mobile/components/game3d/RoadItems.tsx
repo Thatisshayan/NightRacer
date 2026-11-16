@@ -27,14 +27,24 @@ const GEM_HEIGHT = 1.35;
 
 type Apply = (pose: ApexItemPose | undefined) => void;
 
-/** A floating gem in the power-up's colour, with a halo, a pool of light on
- * the road and a beam so it can be read from far up the road. */
-function PowerUpVisual({ groupRef, gemRef, tint, glow }: {
+interface VisualProps {
   groupRef: MutableRefObject<Group | null>;
+  glow: Texture;
+}
+
+interface PowerUpProps extends VisualProps {
   gemRef: MutableRefObject<Mesh | null>;
   tint: (material: MeshBasicMaterial | null) => void;
+}
+
+interface SlotProps {
+  register: (apply: Apply) => void;
   glow: Texture;
-}) {
+}
+
+/** A floating gem in the power-up's colour, with a halo, a pool of light on
+ * the road and a beam so it can be read from far up the road. */
+function PowerUpVisual({ groupRef, gemRef, tint, glow }: PowerUpProps) {
   return (
     <group ref={groupRef}>
       <mesh ref={gemRef} position={[0, GEM_HEIGHT, 0]}>
@@ -64,7 +74,7 @@ function PowerUpVisual({ groupRef, gemRef, tint, glow }: {
 
 /** Oil: a black patch with an iridescent film. The film is what makes it
  * readable; black on night asphalt is invisible. Unit-sized, scaled per pose. */
-function OilVisual({ groupRef, glow }: { groupRef: MutableRefObject<Group | null>; glow: Texture }) {
+function OilVisual({ groupRef, glow }: VisualProps) {
   return (
     <group ref={groupRef}>
       <mesh position={[0, 0.03, 0]} rotation={FLAT} renderOrder={1}>
@@ -84,7 +94,7 @@ function OilVisual({ groupRef, glow }: { groupRef: MutableRefObject<Group | null
 }
 
 /** Debris: wreckage in hazard colours over an amber warning glow. */
-function DebrisVisual({ groupRef, glow }: { groupRef: MutableRefObject<Group | null>; glow: Texture }) {
+function DebrisVisual({ groupRef, glow }: VisualProps) {
   return (
     <group ref={groupRef}>
       <mesh position={[-0.22, 0.2, 0]} rotation={[0.2, 0.5, 0.3]}>
@@ -108,7 +118,7 @@ function DebrisVisual({ groupRef, glow }: { groupRef: MutableRefObject<Group | n
 }
 
 /** One reusable slot holding all three looks; a pose picks which is shown. */
-function ItemSlot({ register, glow }: { register: (apply: Apply) => void; glow: Texture }) {
+function ItemSlot({ register, glow }: SlotProps) {
   const root = useRef<Group | null>(null);
   const powerUp = useRef<Group | null>(null);
   const gem = useRef<Mesh | null>(null);
@@ -163,7 +173,7 @@ export function RoadItems({ handleRef }: { handleRef: MutableRefObject<RoadItems
 
   handleRef.current = {
     update(items) {
-      for (let i = 0; i < MAX_ITEMS; i += 1) slots.current[i]?.(items[i]);
+      slots.current.forEach((apply, i) => apply(items[i]));
     },
   };
 
