@@ -116,8 +116,17 @@ function Towers({ meshRef, facade, fallback }: { meshRef: (mesh: InstancedMesh |
   );
 }
 
+interface BillboardProps {
+  groupRef: (group: Group | null) => void;
+  art: Texture | undefined;
+  glow: Texture;
+  glowColor: string;
+}
+
+const GLOW_MATERIAL = { transparent: true, opacity: 0.5, blending: AdditiveBlending, depthWrite: false, toneMapped: false, side: DoubleSide };
+
 /** A giant advert screen with a soft glow behind it. */
-function Billboard({ groupRef, art, glow, glowColor }: { groupRef: (group: Group | null) => void; art: Texture | undefined; glow: Texture; glowColor: string }) {
+function Billboard({ groupRef, art, glow, glowColor }: BillboardProps) {
   if (!art) return null;
   return (
     <group ref={groupRef}>
@@ -125,16 +134,7 @@ function Billboard({ groupRef, art, glow, glowColor }: { groupRef: (group: Group
           camera. */}
       <mesh position={[0, 0, -0.3]}>
         <planeGeometry args={[1.9, 1.5]} />
-        <meshBasicMaterial
-          color={glowColor}
-          map={glow}
-          transparent
-          opacity={0.5}
-          blending={AdditiveBlending}
-          depthWrite={false}
-          toneMapped={false}
-          side={DoubleSide}
-        />
+        <meshBasicMaterial color={glowColor} map={glow} {...GLOW_MATERIAL} />
       </mesh>
       <mesh>
         <planeGeometry args={[1, 1]} />
