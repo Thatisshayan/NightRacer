@@ -270,7 +270,7 @@ function SceneLights({ skyLight }: { skyLight: RefObject<HemisphereLight | null>
       <directionalLight position={[7, 9, 30]} intensity={0.3} color="#ff7ad9" />
       {/* Fog colour == clear colour == sky horizon (HAZE_COLOR) so the far
           end of the road and the distant towers dissolve into the sky. */}
-      <fogExp2 attach="fog" args={[HAZE_COLOR, 0.012]} />
+      <fogExp2 attach="fog" args={[HAZE_COLOR, 0.0095]} />
     </>
   );
 }

@@ -138,7 +138,9 @@ function Billboard({ groupRef, art, glow, glowColor }: { groupRef: (group: Group
       </mesh>
       <mesh>
         <planeGeometry args={[1, 1]} />
-        <meshBasicMaterial map={art} toneMapped={false} side={DoubleSide} />
+        {/* Unfogged: a lit screen cuts through haze. Fogged, every advert
+            beyond the nearest block faded to the same dull blue. */}
+        <meshBasicMaterial map={art} toneMapped={false} fog={false} side={DoubleSide} />
       </mesh>
     </group>
   );
