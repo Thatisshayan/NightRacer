@@ -33,7 +33,10 @@ export interface VehicleMeshHandle {
 // bundler, so this map can't be built dynamically.
 const MODEL_MODULES = {
   RATTLETRAP: require('../../assets/3d/apex/rattletrap.glb'),
-  WAR_RUNNER: require('../../assets/3d/apex/war_runner.glb'),
+  // The default car is the red Apex hero from the owner's reference art
+  // (generated from its showroom views, then cleaned with
+  // scripts/clean_vehicle_glb.py). war_runner.glb is the previous model.
+  WAR_RUNNER: require('../../assets/3d/apex/apex_hero.glb'),
   DEATHSLED: require('../../assets/3d/apex/deathsled.glb'),
   SCRAPQUEEN: require('../../assets/3d/apex/scrapqueen.glb'),
   PHANTOM: require('../../assets/3d/apex/phantom.glb'),

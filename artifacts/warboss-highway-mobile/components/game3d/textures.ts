@@ -122,9 +122,11 @@ export function getRoadColorTexture(): DataTexture {
         const paint = roadPaint(x, y);
         const k = paint.coverage;
         return [
-          Math.round(34 * shade * (1 - k) + paint.color[0] * k),
-          Math.round(46 * shade * (1 - k) + paint.color[1] * k),
-          Math.round(66 * shade * (1 - k) + paint.color[2] * k),
+          // Near-black: wet asphalt at night. A lighter base turned lavender
+          // under the scene's blue fill and read as a flat painted floor.
+          Math.round(15 * shade * (1 - k) + paint.color[0] * k),
+          Math.round(18 * shade * (1 - k) + paint.color[1] * k),
+          Math.round(27 * shade * (1 - k) + paint.color[2] * k),
           255,
         ];
       },

@@ -22,10 +22,14 @@ import { HAZE_COLOR } from './textures';
 // only an ~11 degree horizontal half-FOV in portrait — let the player car
 // slide completely off screen whenever the road curved.
 // This seat sits higher, looks down the road and follows the player.
-const CAMERA_Y = 6.4;
+// The aim is only slightly below the horizon: the art-direction target puts
+// the horizon about a third of the way down the screen with the city towering
+// over the road. Aimed lower (LOOK_Y = -3.3), the city was a thin strip
+// hidden behind the HUD.
+const CAMERA_Y = 6.0;
 const CAMERA_Z = -12.2;
 const CAMERA_FOV = 52;
-const LOOK_Y = -3.3;
+const LOOK_Y = 0.4;
 const LOOK_Z = 24;
 // 0 = camera rides the road centreline, 1 = camera locked to the player.
 const CAMERA_FOLLOW = 0.6;
@@ -266,7 +270,7 @@ function SceneLights({ skyLight }: { skyLight: RefObject<HemisphereLight | null>
       <directionalLight position={[7, 9, 30]} intensity={0.3} color="#ff7ad9" />
       {/* Fog colour == clear colour == sky horizon (HAZE_COLOR) so the far
           end of the road and the distant towers dissolve into the sky. */}
-      <fogExp2 attach="fog" args={[HAZE_COLOR, 0.012]} />
+      <fogExp2 attach="fog" args={[HAZE_COLOR, 0.0095]} />
     </>
   );
 }

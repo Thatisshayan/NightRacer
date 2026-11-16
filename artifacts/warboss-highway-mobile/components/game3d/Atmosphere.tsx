@@ -13,6 +13,7 @@ import {
 } from 'three';
 import type { ApexStormFrame } from '@workspace/render-frame';
 import { getSkyTexture } from './textures';
+import { useTexturePack } from './texturePack';
 
 const RAIN_COUNT = 320;
 const RAIN_TOP = 26;
@@ -72,16 +73,30 @@ function RainField({ frameRef }: { frameRef: MutableRefObject<ApexStormFrame | n
 // fogged-out road and towers melt into it with no seam. Not fogged itself.
 function SkyBackdrop({ frameRef }: { frameRef: MutableRefObject<ApexStormFrame | null> }) {
   const material = useRef<MeshBasicMaterial>(null);
-  const map = useMemo(() => getSkyTexture(), []);
+  const gradient = useMemo(() => getSkyTexture(), []);
+  // Authored storm sky (cloud structure, lightning) once the art pack has
+  // loaded; the code-generated gradient until then.
+  const storm = useTexturePack()?.get('storm_sky');
+  const map = storm ?? gradient;
   useFrame(() => {
     // Lightning lifts the whole sky for the length of the flash.
     const flash = frameRef.current?.lightningIntensity ?? 0;
-    material.current?.color.setScalar(1 + flash * 1.6);
+    // The storm art is dimmed at rest so its baked lightning bolts only
+    // really show when a strike fires.
+    material.current?.color.setScalar((storm ? 0.62 : 1) + flash * 1.9);
   });
   return (
-    <mesh position={[0, 110, 262]}>
-      <planeGeometry args={[760, 260]} />
-      <meshBasicMaterial ref={material} map={map} fog={false} side={DoubleSide} depthWrite={false} toneMapped={false} />
+    <mesh position={[0, storm ? 104 : 110, 262]}>
+      <planeGeometry args={[760, storm ? 212 : 260]} />
+      <meshBasicMaterial
+        key={storm ? 'storm' : 'gradient'}
+        ref={material}
+        map={map}
+        fog={false}
+        side={DoubleSide}
+        depthWrite={false}
+        toneMapped={false}
+      />
     </mesh>
   );
 }
@@ -94,6 +109,7 @@ const FAR_TOWER_COUNT = 30;
 // purple rectangle that read as a blank billboard, not a sky.
 function FarSkyline() {
   const mesh = useRef<InstancedMesh>(null);
+  const art = useTexturePack()?.get('skyline_far');
   useEffect(() => {
     const towers = mesh.current;
     if (!towers) return;
@@ -109,6 +125,16 @@ function FarSkyline() {
     }
     towers.instanceMatrix.needsUpdate = true;
   }, []);
+  if (art) {
+    // Authored skyline strip (cut out along its roofline). Unfogged and
+    // dimmed instead: at this distance scene fog would flatten it to haze.
+    return (
+      <mesh position={[0, 28, 236]}>
+        <planeGeometry args={[300, 66]} />
+        <meshBasicMaterial map={art} color="#8f9bb8" alphaTest={0.5} fog={false} side={DoubleSide} toneMapped={false} />
+      </mesh>
+    );
+  }
   return (
     <instancedMesh ref={mesh} args={[undefined, undefined, FAR_TOWER_COUNT]} frustumCulled={false}>
       <boxGeometry args={[1, 1, 1]} />
