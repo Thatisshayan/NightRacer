@@ -103,6 +103,11 @@ export interface ApexStormFrame {
   /** True during the post-crash grace period, while traffic passes through
    * the player without registering a hit. Renderers should show it. */
   playerInvulnerable: boolean;
+  /** Current speed multiplier (1 = base speed), for speed-dependent camera
+   * and weather effects. */
+  speed: number;
+  /** True while a Rush burst is active. */
+  rush: boolean;
   road: readonly ApexRoadSegment[];
   vehicles: readonly ApexVehiclePose[];
   lightningIntensity: number;
@@ -223,7 +228,7 @@ function vehiclePose(state: GameState, entity: RoadEntity): ApexVehiclePose {
   // margin keeps bodywork from looking thinner than its hitbox.
   const laneSpanPixels = Math.max(1, (state.lanes[state.lanes.length - 1] ?? 367.5) - (state.lanes[0] ?? 52.5));
   const unitsPerPixel = ((road.halfWidth - 1.25) * 2) / laneSpanPixels;
-  const width = clamp(entity.width * unitsPerPixel * 1.15, 1.2, 3.4);
+  const width = clamp(entity.width * unitsPerPixel * 1.1, 0.9, 3.4);
   const length = width * (entity.kind === 'player' ? 2.05 : 1.85);
   const facesCamera = entity.kind === 'oncoming';
 
@@ -318,6 +323,8 @@ export function buildApexStormFrame(state: GameState, options?: { demo?: boolean
     roadPhase,
     travel: travelPixels * UNITS_PER_PIXEL,
     playerInvulnerable: state.player.isInvulnerable,
+    speed: state.speedMultiplier,
+    rush: state.rushTimer > 0,
     road,
     vehicles,
     lightningIntensity,

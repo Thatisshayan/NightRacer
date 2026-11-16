@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, StyleSheet, Text, View } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
 import { runOnJS } from 'react-native-reanimated';
 import { useIsFocused } from '@react-navigation/native';
 import { getDailyModifier, type CarType, type GameState } from '@workspace/game-core';
@@ -249,6 +250,29 @@ export default function TabOneScreen() {
                 </View>
               </GestureDetector>
             )}
+            {/* Lens vignette: darkened edges pull the eye to the road and
+                hide the hard cut-off at the frame. Drawn as plain gradient
+                views because expo-gl cannot run a post-processing pass (see
+                PostFX.tsx). */}
+            <LinearGradient
+              pointerEvents="none"
+              colors={['rgba(2,4,12,0)', 'rgba(2,4,12,0.62)']}
+              style={styles.vignetteBottom}
+            />
+            <LinearGradient
+              pointerEvents="none"
+              colors={['rgba(2,4,12,0.5)', 'rgba(2,4,12,0)']}
+              start={{ x: 0, y: 0.5 }}
+              end={{ x: 1, y: 0.5 }}
+              style={styles.vignetteLeft}
+            />
+            <LinearGradient
+              pointerEvents="none"
+              colors={['rgba(2,4,12,0)', 'rgba(2,4,12,0.5)']}
+              start={{ x: 0, y: 0.5 }}
+              end={{ x: 1, y: 0.5 }}
+              style={styles.vignetteRight}
+            />
             {engine && (
               <HudOverlay
                 engine={engine}
@@ -306,6 +330,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#000',
   },
+  vignetteBottom: { position: 'absolute', left: 0, right: 0, bottom: 0, height: '26%' },
+  vignetteLeft: { position: 'absolute', left: 0, top: 0, bottom: 0, width: '16%' },
+  vignetteRight: { position: 'absolute', right: 0, top: 0, bottom: 0, width: '16%' },
   readyOverlay: {
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',

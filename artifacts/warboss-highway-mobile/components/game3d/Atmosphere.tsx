@@ -23,7 +23,7 @@ const RAIN_STREAK = 1.25;
 // which expo-gl rasterises as fat screen-space squares — it read as a field
 // of blocky "stars" hanging in the sky, not weather. One never-recreated
 // LineSegments buffer, recycled top-to-bottom.
-function RainField() {
+function RainField({ frameRef }: { frameRef: MutableRefObject<ApexStormFrame | null> }) {
   const geometry = useMemo(() => {
     const g = new BufferGeometry();
     const positions = new Float32Array(RAIN_COUNT * 2 * 3);
@@ -47,11 +47,15 @@ function RainField() {
     // Clamp the step so a long frame (app resumed from background) can't
     // teleport every streak below the ground at once.
     const fall = Math.min(delta, 0.05) * RAIN_FALL_SPEED;
+    // Driving into rain: the faster the car, the more the streaks rake back
+    // toward the camera instead of falling straight down.
+    const rake = 0.3 + Math.min(2.4, (frameRef.current?.speed ?? 1) * 0.7);
     for (let i = 0; i < RAIN_COUNT; i += 1) {
       let top = attr.getY(i * 2) - fall;
       if (top < 0) top += RAIN_TOP;
       attr.setY(i * 2, top);
       attr.setY(i * 2 + 1, top - RAIN_STREAK);
+      attr.setZ(i * 2 + 1, attr.getZ(i * 2) - rake);
     }
     attr.needsUpdate = true;
   });
@@ -141,7 +145,7 @@ export function Atmosphere({
         <FarSkyline />
       </group>
       <group ref={follow}>
-        <RainField />
+        <RainField frameRef={frameRef} />
       </group>
     </>
   );

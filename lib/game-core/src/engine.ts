@@ -364,6 +364,7 @@ export class GameEngine {
   // (web: window.matchMedia; native: AccessibilityInfo) instead of read
   // directly, since neither API exists universally.
   private reducedMotion: boolean;
+  private entityScale: number;
   // Set by a keyboard press or a platform HUD control, then consumed inside
   // update() so a Rush starts on a deterministic simulation frame.
   private rushRequested = false;
@@ -393,6 +394,11 @@ export class GameEngine {
       // Test/support hook: a caller may provide a deterministic source for
       // ordinary runs. Daily runs keep their date-seeded generator instead.
       random?: () => number;
+      // Uniform multiplier on vehicle hitbox width/height (player and
+      // traffic). 1 keeps the tuned 2D proportions. A perspective renderer
+      // can pass < 1: the same car-to-lane ratio that reads right top-down
+      // looks cramped from a chase camera.
+      entityScale?: number;
     }
   ) {
     this.width = dims.width;
@@ -407,6 +413,7 @@ export class GameEngine {
     this.audio = options?.audio ?? NOOP_AUDIO;
     this.haptics = options?.haptics;
     this.reducedMotion = options?.reducedMotion ?? false;
+    this.entityScale = options?.entityScale ?? 1;
     this.rng = options?.random ?? this.createSeededRNG();
 
     if (this.isDailyChallenge) {
@@ -418,8 +425,8 @@ export class GameEngine {
     this.state = {
       player: {
         x: 0, y: 0,
-        width: car.width,
-        height: car.height,
+        width: car.width * this.entityScale,
+        height: car.height * this.entityScale,
         isInvulnerable: false,
         invulnTimer: 0,
         oilSlicked: false,
@@ -1155,7 +1162,7 @@ export class GameEngine {
     if (type === 'SPORTS')   { height = 72; speed = currentSpeed * 1.5; }
     if (type === 'BOXTRUCK') { width = 56; height = 112; speed = currentSpeed * 0.7; }
     if (type === 'TANK')     { width = 80; height = 128; speed = currentSpeed * 0.4; }
-    return { type, width, height, speed };
+    return { type, width: width * this.entityScale, height: height * this.entityScale, speed };
   }
 
   // Same-direction traffic faster than the player recedes up-screen (see the
