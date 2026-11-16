@@ -5,6 +5,8 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { ErrorFallback } from '@/components/ErrorFallback';
+import { installFatalErrorHandler, subscribeFatalError, toError } from '@/lib/fatal-errors';
 import {
   Inter_400Regular,
   Inter_500Medium,
@@ -17,6 +19,10 @@ import * as SplashScreen from 'expo-splash-screen';
 import { setAudioModeAsync } from 'expo-audio';
 import { setBaseUrl } from '@workspace/api-client-react';
 import { hydrateSettings } from '@/lib/settings';
+
+// Must run before anything else can throw: see lib/fatal-errors.ts for why a
+// fatal JS error otherwise takes the whole process down inside Hermes.
+installFatalErrorHandler();
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
@@ -66,12 +72,27 @@ export default function RootLayout() {
   });
 
   const settingsReady = useSettingsReady();
+  // A fatal JS error thrown outside React's render phase never reaches the
+  // <ErrorBoundary> below (boundaries only catch render/lifecycle errors).
+  // The global handler forwards it here so it lands on the same screen.
+  const [fatalError, setFatalError] = useState<Error | null>(null);
+  useEffect(() => subscribeFatalError((info) => setFatalError(toError(info))), []);
 
   useEffect(() => {
     if ((fontsLoaded || fontError) && settingsReady) {
       SplashScreen.hideAsync();
     }
   }, [fontsLoaded, fontError, settingsReady]);
+
+  if (fatalError) {
+    // The splash screen may still be up if the error fired during boot.
+    SplashScreen.hideAsync().catch(() => {});
+    return (
+      <SafeAreaProvider>
+        <ErrorFallback error={fatalError} resetError={() => setFatalError(null)} />
+      </SafeAreaProvider>
+    );
+  }
 
   if ((!fontsLoaded && !fontError) || !settingsReady) return null;
 
