@@ -32,8 +32,8 @@ const CAMERA_CURVE_LEAN = 0.3;
 // Traffic the player has already passed is faded out over this band behind
 // the player (world units). Left solid, a tall vehicle between the camera and
 // the car hides the player and the road ahead.
-const PASS_FADE_START = 3;
-const PASS_FADE_LENGTH = 5;
+const PASS_FADE_START = 2.5;
+const PASS_FADE_LENGTH = 3.5;
 
 const SKY_LIGHT_INTENSITY = 2.4;
 
@@ -228,9 +228,10 @@ function SceneContent({ engine }: { engine: NativeGameEngine }) {
           cars and lit only the faces a chase camera never sees. */}
       <hemisphereLight ref={skyLight} args={['#86a8d8', '#1b2a45', SKY_LIGHT_INTENSITY]} />
       <directionalLight position={[-4, 12, -10]} intensity={3.4} color="#d6e6ff" />
-      {/* Neon rim from up the road: picks vehicle silhouettes out of the dark
-          in the magenta of the city glow. */}
-      <directionalLight position={[7, 6, 30]} intensity={1.1} color="#ff5fd0" />
+      {/* Faint neon rim from up the road, in the magenta of the city glow.
+          Kept weak: it faces the camera, so anything stronger turns the wet
+          road into a blown-out pink specular sheet. */}
+      <directionalLight position={[7, 9, 30]} intensity={0.3} color="#ff7ad9" />
       {/* Fog colour == clear colour == sky horizon (HAZE_COLOR) so the far
           end of the road and the distant towers dissolve into the sky. */}
       <fogExp2 attach="fog" args={[HAZE_COLOR, 0.012]} />

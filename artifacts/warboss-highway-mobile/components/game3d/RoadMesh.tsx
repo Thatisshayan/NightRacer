@@ -110,8 +110,8 @@ export function RoadSegments({ handleRef }: { handleRef: MutableRefObject<RoadMe
           emissiveMap={emissiveMap}
           emissive="#ffffff"
           emissiveIntensity={1}
-          roughness={0.42}
-          metalness={0.15}
+          roughness={0.62}
+          metalness={0.1}
           side={DoubleSide}
         />
       </mesh>

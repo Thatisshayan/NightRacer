@@ -100,9 +100,16 @@ export function Skyline({ handleRef }: { handleRef: MutableRefObject<SkylineHand
 
         if (i % SIGN_EVERY === 0) {
           // A lit panel on the tower's camera-facing wall.
-          const signHeight = Math.min(b.height * 0.22, 5.5);
-          dummy.position.set(b.x, b.height * (0.42 + hash(i, 7) * 0.3), z - b.depth / 2 - 0.2);
-          dummy.scale.set(b.width * 0.72, signHeight, 0.25);
+          // Kept small: a sign that spans the wall reads as a blank
+          // coloured rectangle, not signage.
+          const signWidth = b.width * (0.3 + hash(i, 8) * 0.2);
+          const signHeight = 1.2 + hash(i, 9) * 2.2;
+          dummy.position.set(
+            b.x - b.side * b.width * 0.18,
+            b.height * (0.3 + hash(i, 7) * 0.4),
+            z - b.depth / 2 - 0.2,
+          );
+          dummy.scale.set(signWidth, signHeight, 0.25);
           dummy.updateMatrix();
           signs.setMatrixAt(i / SIGN_EVERY, dummy.matrix);
         }
