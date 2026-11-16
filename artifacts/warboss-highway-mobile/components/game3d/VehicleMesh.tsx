@@ -92,8 +92,8 @@ function normalizeGroundedModel(object: Group): Group {
     const mesh = child as Mesh;
     if (!mesh.isMesh) return;
     mesh.material = Array.isArray(mesh.material)
-      ? mesh.material.map((m) => m.clone())
-      : mesh.material.clone();
+      ? mesh.material.map((m) => toPaintMaterial(m.clone()))
+      : toPaintMaterial(mesh.material.clone());
   });
 
   const wrapper = new Group();
@@ -101,6 +101,21 @@ function normalizeGroundedModel(object: Group): Group {
   object.position.set(-center.x, -box.min.y, -center.z);
   wrapper.scale.setScalar(scale);
   return wrapper;
+}
+
+// Most of these GLBs omit metallicFactor, and glTF's default for a missing
+// value is 1.0 — fully metallic. A metal has no diffuse term at all: it only
+// shows reflections, and this scene has no environment map to reflect, so the
+// textured paint rendered almost pure black (and plain white while the
+// textures were failing to load). The textures are photo-derived albedo with
+// lighting baked in, so treat every vehicle as painted, non-metallic bodywork.
+function toPaintMaterial<T extends Material>(material: T): T {
+  const standard = material as unknown as MeshStandardMaterial;
+  if (standard.isMeshStandardMaterial) {
+    standard.metalness = 0;
+    standard.roughness = 0.62;
+  }
+  return material;
 }
 
 // Failed GLTF loads are cached so we don't retry a known-bad asset on every

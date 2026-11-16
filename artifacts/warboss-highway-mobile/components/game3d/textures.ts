@@ -218,9 +218,9 @@ export function getSkyTexture(): DataTexture {
         const ease = t * t * (3 - 2 * t);
         const glow = (1 - clamp01((v - SKY_HORIZON_V) / 0.22)) ** 2;
         return [
-          Math.round(HAZE_RGB[0] + (top[0] - HAZE_RGB[0]) * ease + 58 * glow),
-          Math.round(HAZE_RGB[1] + (top[1] - HAZE_RGB[1]) * ease + 14 * glow),
-          Math.round(HAZE_RGB[2] + (top[2] - HAZE_RGB[2]) * ease + 62 * glow),
+          Math.round(HAZE_RGB[0] + (top[0] - HAZE_RGB[0]) * ease + 30 * glow),
+          Math.round(HAZE_RGB[1] + (top[1] - HAZE_RGB[1]) * ease + 10 * glow),
+          Math.round(HAZE_RGB[2] + (top[2] - HAZE_RGB[2]) * ease + 40 * glow),
           255,
         ];
       },
