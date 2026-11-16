@@ -1,8 +1,9 @@
 import { useMemo } from 'react';
 import type { MutableRefObject } from 'react';
-import { BufferAttribute, BufferGeometry, DoubleSide, DynamicDrawUsage } from 'three';
+import { BufferAttribute, BufferGeometry, DoubleSide, DynamicDrawUsage, MeshStandardMaterial } from 'three';
 import { APEX_STORM_ROAD, sampleApexRoad } from '@workspace/render-frame';
 import { getRoadColorTexture, getRoadEmissiveTexture, ROAD_TEXTURE_LENGTH } from './textures';
+import { addWetSheen } from './reflections';
 
 export interface RoadMeshHandle {
   /** roadPhase: curve phase from the frame. travel: world units the surface
@@ -66,6 +67,24 @@ export function RoadSegments({ handleRef }: { handleRef: MutableRefObject<RoadMe
   // directly (a clone would need its own upload to be valid).
   const colorMap = useMemo(() => getRoadColorTexture(), []);
   const emissiveMap = useMemo(() => getRoadEmissiveTexture(), []);
+  // Built imperatively (not as JSX) so the wet-sheen shader hook is attached
+  // before the material is first compiled.
+  const surfaceMaterial = useMemo(
+    () =>
+      addWetSheen(
+        new MeshStandardMaterial({
+          map: colorMap,
+          emissiveMap,
+          emissive: '#ffffff',
+          emissiveIntensity: 1,
+          roughness: 0.62,
+          metalness: 0.1,
+          side: DoubleSide,
+        }),
+        [0.13, 0.15, 0.34],
+      ),
+    [colorMap, emissiveMap],
+  );
 
   handleRef.current = {
     update(roadPhase, travel) {
@@ -104,17 +123,7 @@ export function RoadSegments({ handleRef }: { handleRef: MutableRefObject<RoadMe
         <planeGeometry args={[700, 360]} />
         <meshBasicMaterial color="#070d18" />
       </mesh>
-      <mesh geometry={surface} frustumCulled={false}>
-        <meshStandardMaterial
-          map={colorMap}
-          emissiveMap={emissiveMap}
-          emissive="#ffffff"
-          emissiveIntensity={1}
-          roughness={0.62}
-          metalness={0.1}
-          side={DoubleSide}
-        />
-      </mesh>
+      <mesh geometry={surface} material={surfaceMaterial} frustumCulled={false} />
       <mesh geometry={leftRail} frustumCulled={false}>
         <meshBasicMaterial color="#19c8f0" side={DoubleSide} toneMapped={false} />
       </mesh>
