@@ -33,7 +33,9 @@ const GANTRY_COUNT = 2;
 const GANTRY_SPACING = 170;
 const GANTRY_Z_MIN = -30;
 const GANTRY_Z_RANGE = GANTRY_COUNT * GANTRY_SPACING;
-const GANTRY_HEIGHT = 8.4;
+// High enough that the signs leave the top of the view while still well up
+// the road. At 8.4 they swept through the frame and hid the traffic ahead.
+const GANTRY_HEIGHT = 13;
 const GANTRY_SIGN_COUNT = GANTRY_COUNT * 2;
 
 const wrap = (value: number, range: number) => ((value % range) + range) % range;

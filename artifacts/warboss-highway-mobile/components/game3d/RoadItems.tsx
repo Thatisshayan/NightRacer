@@ -19,10 +19,10 @@ const POWERUP_COLORS: Record<string, string> = {
   EXTRA_LIFE: '#ff3b6b',
 };
 
-// Unfogged: a pickup has to be readable from the far end of the road, which
-// is exactly where fog would otherwise swallow it.
 type Vec3 = [number, number, number];
 
+// Unfogged: a pickup has to be readable from the far end of the road, which
+// is exactly where fog would otherwise swallow it.
 const GLOW = { transparent: true, blending: AdditiveBlending, depthWrite: false, toneMapped: false, fog: false, side: DoubleSide };
 const FLAT: Vec3 = [-Math.PI / 2, 0, 0];
 const GEM_HEIGHT = 1.35;
