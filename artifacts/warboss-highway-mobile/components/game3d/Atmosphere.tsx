@@ -1,7 +1,16 @@
 import { useFrame } from '@react-three/fiber';
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import type { MutableRefObject } from 'react';
-import { BufferAttribute, BufferGeometry, DoubleSide, DynamicDrawUsage, Group, MeshBasicMaterial } from 'three';
+import {
+  BufferAttribute,
+  BufferGeometry,
+  DoubleSide,
+  DynamicDrawUsage,
+  Group,
+  InstancedMesh,
+  MeshBasicMaterial,
+  Object3D,
+} from 'three';
 import type { ApexStormFrame } from '@workspace/render-frame';
 import { getSkyTexture } from './textures';
 
@@ -73,6 +82,37 @@ function SkyBackdrop({ frameRef }: { frameRef: MutableRefObject<ApexStormFrame |
   );
 }
 
+const FAR_TOWER_COUNT = 30;
+
+// A wall of distant towers on the horizon. They sit past the point where fog
+// is total, so they render as flat haze-coloured silhouettes against the sky
+// glow. Without them the sky between the nearer buildings showed as one bare
+// purple rectangle that read as a blank billboard, not a sky.
+function FarSkyline() {
+  const mesh = useRef<InstancedMesh>(null);
+  useEffect(() => {
+    const towers = mesh.current;
+    if (!towers) return;
+    const dummy = new Object3D();
+    for (let i = 0; i < FAR_TOWER_COUNT; i += 1) {
+      const jitter = Math.sin(i * 12.9898) * 4;
+      const height = 26 + (Math.sin(i * 78.233) * 0.5 + 0.5) * 58;
+      const width = 8 + (Math.sin(i * 39.425) * 0.5 + 0.5) * 8;
+      dummy.position.set((i - FAR_TOWER_COUNT / 2) * 12.5 + jitter, height / 2, 215 + (i % 3) * 9);
+      dummy.scale.set(width, height, 8);
+      dummy.updateMatrix();
+      towers.setMatrixAt(i, dummy.matrix);
+    }
+    towers.instanceMatrix.needsUpdate = true;
+  }, []);
+  return (
+    <instancedMesh ref={mesh} args={[undefined, undefined, FAR_TOWER_COUNT]} frustumCulled={false}>
+      <boxGeometry args={[1, 1, 1]} />
+      <meshBasicMaterial color="#0c1830" />
+    </instancedMesh>
+  );
+}
+
 // The tunnel biome (ribs, steam vents) is intentionally not rendered here —
 // see Task 6 of the implementation plan
 // (docs/superpowers/plans/2026-08-28-r3f-native-3d-renderer.md). Rain
@@ -98,6 +138,7 @@ export function Atmosphere({
     <>
       <group ref={sky}>
         <SkyBackdrop frameRef={frameRef} />
+        <FarSkyline />
       </group>
       <group ref={follow}>
         <RainField />

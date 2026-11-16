@@ -211,7 +211,7 @@ export default function TabOneScreen() {
       {screen === 'playing' && (
         <Modal
           visible
-          animationType="fade"
+          animationType="none"
           presentationStyle="fullScreen"
           statusBarTranslucent
           supportedOrientations={['portrait']}

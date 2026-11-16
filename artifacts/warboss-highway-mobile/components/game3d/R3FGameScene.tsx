@@ -7,6 +7,7 @@ import type { NativeGameEngine } from '../game/native-engine';
 import { useApexNativeRenderer } from './r3f-renderer';
 import { RoadSegments, type RoadMeshHandle } from './RoadMesh';
 import { Skyline, type SkylineHandle } from './Skyline';
+import { Roadside, type RoadsideHandle } from './Roadside';
 import { VehicleMesh, preloadVehicleModels, type VehicleMeshHandle } from './VehicleMesh';
 import { Atmosphere } from './Atmosphere';
 import { PostFX } from './PostFX';
@@ -20,10 +21,10 @@ import { HAZE_COLOR } from './textures';
 // only an ~11 degree horizontal half-FOV in portrait — let the player car
 // slide completely off screen whenever the road curved.
 // This seat sits higher, looks down the road and follows the player.
-const CAMERA_Y = 8.5;
-const CAMERA_Z = -15.5;
+const CAMERA_Y = 7.4;
+const CAMERA_Z = -13.8;
 const CAMERA_FOV = 52;
-const LOOK_Y = -2.1;
+const LOOK_Y = -2.7;
 const LOOK_Z = 24;
 // 0 = camera rides the road centreline, 1 = camera locked to the player.
 const CAMERA_FOLLOW = 0.6;
@@ -89,6 +90,7 @@ function SceneContent({ engine }: { engine: NativeGameEngine }) {
   const { latestFrame, latestScreenShake } = useApexNativeRenderer(engine);
   const roadHandle = useRef<RoadMeshHandle | null>(null);
   const skylineHandle = useRef<SkylineHandle | null>(null);
+  const roadsideHandle = useRef<RoadsideHandle | null>(null);
   const vehicleHandles = useRef<(VehicleMeshHandle | null)[]>([]);
   // The Canvas's own default camera (set via the `camera` prop below) — read
   // through useThree rather than defined as JSX so it lives entirely outside
@@ -185,6 +187,7 @@ function SceneContent({ engine }: { engine: NativeGameEngine }) {
     if (!frame) return;
     roadHandle.current?.update(frame.roadPhase, frame.travel);
     skylineHandle.current?.update(frame.travel);
+    roadsideHandle.current?.update(frame.roadPhase, frame.travel);
 
     const selectedCar = engine.getState().selectedCar;
 
@@ -249,6 +252,7 @@ function SceneContent({ engine }: { engine: NativeGameEngine }) {
           geometry and textures), so none of them needs a Suspense boundary. */}
       <RoadSegments handleRef={roadHandle} />
       <Skyline handleRef={skylineHandle} />
+      <Roadside handleRef={roadsideHandle} />
       {/* Vehicle model loading is fail-soft and non-suspending now: LoadedGltf
           loads imperatively (GLTFLoader.loadAsync + try/catch) and renders a
           grounded placeholder if the file:// URI is rejected on device, so it

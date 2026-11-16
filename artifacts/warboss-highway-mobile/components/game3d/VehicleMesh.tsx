@@ -77,6 +77,18 @@ export function VehicleModel({ modelKey }: { modelKey: ModelKey }) {
 // preserving each model's real width/length proportions rather than
 // stretching them to force-fit a generic box's dimensions.
 function normalizeGroundedModel(object: Group): Group {
+  // Every model must end up with its length along Z and its nose at +Z, the
+  // convention VehicleMesh.update's heading assumes. Most of this asset set
+  // already is; the box truck and bus (from a different generator) lie along
+  // X with the cab at -X, and were being drawn broadside across the lanes.
+  // A quarter turn about Y maps -X onto +Z.
+  const rawSize = new Vector3();
+  new Box3().setFromObject(object).getSize(rawSize);
+  if (rawSize.x > rawSize.z) {
+    object.rotation.y = Math.PI / 2;
+    object.updateMatrixWorld(true);
+  }
+
   const box = new Box3().setFromObject(object);
   const size = new Vector3();
   box.getSize(size);
@@ -100,6 +112,10 @@ function normalizeGroundedModel(object: Group): Group {
   wrapper.add(object);
   object.position.set(-center.x, -box.min.y, -center.z);
   wrapper.scale.setScalar(scale);
+  // Width as a fraction of length, read by VehicleMesh.update to size the
+  // vehicle from its hitbox width (a bus is 4x as long as it is wide, a car
+  // about 2x: one fixed length-per-width factor cannot fit both).
+  wrapper.userData.widthRatio = Math.min(size.x, size.z) / horizontalExtent;
   return wrapper;
 }
 
@@ -227,6 +243,9 @@ function LoadedGltf({ uri }: { uri: string }) {
 // background. Loads are non-suspending and fail-soft (a rejected file:// URI
 // renders a grounded placeholder instead of throwing into the root
 // ErrorBoundary).
+// Width / length of a typical car model in this set; used until a model has
+// loaded and by the placeholder.
+const DEFAULT_WIDTH_RATIO = 0.5;
 const TAIL_LIGHT_COLOR = '#ff2a3d';
 const HEAD_LIGHT_COLOR = '#eaf6ff';
 
@@ -242,6 +261,7 @@ function applyOpacity(material: Material, opacity: number): void {
 export const VehicleMesh = forwardRef<VehicleMeshHandle, { index: number }>(function VehicleMesh(_props, ref) {
   const group = useRef<Group>(null);
   const model = useRef<Group>(null);
+  const extras = useRef<Group>(null);
   const lamps = useRef<Group>(null);
   const pool = useRef<Mesh>(null);
   const beam = useRef<Mesh>(null);
@@ -293,16 +313,25 @@ export const VehicleMesh = forwardRef<VehicleMeshHandle, { index: number }>(func
       // calibrated for the old placeholder box's pivot-at-vertical-center
       // geometry. normalizeGroundedModel() already grounds every real model
       // so its lowest point sits at local y=0 — reapplying pose.y here would
-      // lift an already-grounded model back up into the air. Uniform scale
-      // by pose.length only: each normalized model keeps its own real
-      // width/length aspect ratio, so scaling width and length independently
-      // would stretch a bus into a sedan's proportions instead of just
-      // resizing it.
+      // lift an already-grounded model back up into the air. Uniform scale,
+      // chosen so the model's WIDTH equals pose.width (the hitbox width):
+      // each normalized model keeps its own real width/length aspect ratio,
+      // so a bus comes out long and a car short at the same lane fit.
       // X and yaw are negated: frame coordinates are left-handed (Babylon),
       // three.js is right-handed. See toSceneX in R3FGameScene.tsx.
       g.position.set(-pose.x, 0, pose.z);
       g.rotation.y = -pose.heading;
-      g.scale.setScalar(pose.length);
+      const loaded = model.current?.children[0];
+      const widthRatio = (loaded?.userData.widthRatio as number | undefined) ?? DEFAULT_WIDTH_RATIO;
+      g.scale.setScalar(pose.width / widthRatio);
+      if (extras.current) {
+        // Lamps, shadow and light pools are laid out for a typical car's
+        // proportions; narrow them for long vehicles, and keep them hidden
+        // until there is a body for them to belong to (they used to appear
+        // as a pair of floating red boxes before the model had loaded).
+        extras.current.scale.x = widthRatio / DEFAULT_WIDTH_RATIO;
+        extras.current.visible = loaded !== undefined;
+      }
       setActiveKey(pose.vehicleType === 'PLAYER' ? selectedCar : pose.vehicleType);
 
       // Lamps sit on whichever end faces the chase camera: tail lights (red)
@@ -334,6 +363,7 @@ export const VehicleMesh = forwardRef<VehicleMeshHandle, { index: number }>(func
   return (
     <group ref={group} visible={false}>
       <group ref={model}>{activeKey && <VehicleModel key={activeKey} modelKey={activeKey} />}</group>
+      <group ref={extras} visible={false}>
       {/* Contact shadow: grounds the car on the road. The 3D models carry no
           shadow of their own and floated visually without it. */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.006, 0]} material={shadowMaterial}>
@@ -354,17 +384,27 @@ export const VehicleMesh = forwardRef<VehicleMeshHandle, { index: number }>(func
           <boxGeometry args={[0.1, 0.045, 0.02]} />
         </mesh>
       </group>
+      </group>
     </group>
   );
 });
 
-// Best-effort: warms expo-asset's cache for every model up front so the
-// first vehicle of each type to appear doesn't pop in empty for a frame.
-// Not yet verified to actually help on-device — flagged as an assumption in
-// the implementation plan alongside the rest of this file's unverified GLTF
-// loading path.
+// Called from the title screen and again when a run starts (a no-op once
+// everything is cached).
 export function preloadVehicleModels(): void {
-  MODEL_KEYS.forEach((key) => {
-    Asset.fromModule(MODEL_MODULES[key]).downloadAsync().catch(() => {});
-  });
+  // One at a time: resolves each bundled file and parses it into gltfCache,
+  // so a vehicle's first appearance in a run mounts an already-parsed model
+  // instead of popping in a second late. Sequential to avoid thirteen
+  // simultaneous parses (the burst that crashed real devices before).
+  MODEL_KEYS.reduce<Promise<void>>(
+    (chain, key) =>
+      chain
+        .then(() => Asset.fromModule(MODEL_MODULES[key]).downloadAsync())
+        .then((asset) => loadGltf(asset.localUri ?? asset.uri))
+        .then(
+          () => undefined,
+          () => undefined,
+        ),
+    Promise.resolve(),
+  );
 }

@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Image as RNImage, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CAR_STATS, type CarType } from '@workspace/game-core';
 import { CarPreview3D } from '@/components/game3d/CarPreview3D';
+import { preloadVehicleModels } from '@/components/game3d/VehicleMesh';
 import { Settings } from '@/lib/settings';
 
 const CAR_TYPES = Object.keys(CAR_STATS) as CarType[];
@@ -48,6 +49,12 @@ export function TitleScreen({
   const stats = CAR_STATS[selectedCar];
   const insets = useSafeAreaInsets();
   const [scrap, setScrap] = useState(Settings.getScrap());
+  // Parse every vehicle model while the player is still on the menu, so the
+  // run starts with cars on the road instead of filling in over the first
+  // seconds.
+  useEffect(() => {
+    preloadVehicleModels();
+  }, []);
   const [upgrades, setUpgrades] = useState(Settings.getUpgrades(selectedCar));
 
   const selectCar = (car: CarType) => {

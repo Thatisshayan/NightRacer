@@ -116,6 +116,9 @@ type RoadEntity = Pick<Player, 'x' | 'y' | 'width' | 'height'> & {
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
+const ROAD_PRIMARY_FREQUENCY = 0.03;
+const ROAD_SECONDARY_FREQUENCY = 0.013;
+
 /** World units per simulation pixel along the road (the 960px depth band maps
  * onto nearZ..farZ in depthToZ below). */
 const UNITS_PER_PIXEL = (APEX_STORM_ROAD.farZ - APEX_STORM_ROAD.nearZ) / 960;
@@ -134,10 +137,10 @@ function roadTravelPixels(state: Pick<GameState, 'distance'>): number {
   return state.distance * 1.5;
 }
 
-/** Curve phase per scroll pixel. Deliberately slower than the surface scroll
- * so a full S-bend takes several seconds to pass instead of whipping the
- * road (and the camera following it) from side to side. */
-const CURVE_PHASE_PER_PIXEL = 0.002;
+/** Curve phase per scroll pixel, chosen so the bends travel toward the camera
+ * at exactly the speed the road surface scrolls: the curve is then fixed to
+ * the tarmac (and to the roadside scenery) instead of sliding along it. */
+const CURVE_PHASE_PER_PIXEL = UNITS_PER_PIXEL * ROAD_PRIMARY_FREQUENCY;
 
 function roadPhaseFor(state: Pick<GameState, 'distance'>): number {
   return roadTravelPixels(state) * CURVE_PHASE_PER_PIXEL;
@@ -149,10 +152,15 @@ const lerp = (from: number, to: number, t: number) => from + (to - from) * t;
  * skew. Its derivative also provides the only legal vehicle orientation.
  */
 export function sampleApexRoad(z: number, roadPhase: number): ApexRoadSample {
-  const primary = z * 0.082 + roadPhase;
-  const secondary = z * 0.035 + roadPhase * 0.43;
+  // Spatial frequencies are deliberately low: one bend spans roughly the
+  // whole visible road. At the previous 0.082 / 0.035 the ~200 units a chase
+  // camera can see held two and a half full S-bends, so the highway read as
+  // a wriggling ribbon rather than a road.
+  const primary = z * ROAD_PRIMARY_FREQUENCY + roadPhase;
+  const secondary = z * ROAD_SECONDARY_FREQUENCY + roadPhase * 0.43;
   const x = Math.sin(primary) * 2.35 + Math.sin(secondary) * 0.9;
-  const derivative = Math.cos(primary) * 2.35 * 0.082 + Math.cos(secondary) * 0.9 * 0.035;
+  const derivative =
+    Math.cos(primary) * 2.35 * ROAD_PRIMARY_FREQUENCY + Math.cos(secondary) * 0.9 * ROAD_SECONDARY_FREQUENCY;
 
   return {
     x,
@@ -204,7 +212,15 @@ function vehiclePose(state: GameState, entity: RoadEntity): ApexVehiclePose {
   const road = sampleApexRoad(z, roadPhaseFor(state));
   const lateral = laneRatio(state, entity.x) * (road.halfWidth - 1.25);
   const x = road.x + lateral;
-  const width = clamp(1.25 + entity.width / 42, 1.55, 3.05);
+  // Visual width tracks the simulation hitbox. The lane positions map
+  // (laneRatio above) onto +-(halfWidth - 1.25) world units, which fixes the
+  // lateral world-units-per-pixel scale; sizing vehicles from an unrelated
+  // formula made them ~50% wider than what the engine collides with, so cars
+  // visibly overlapped while passing without registering a hit. The small
+  // margin keeps bodywork from looking thinner than its hitbox.
+  const laneSpanPixels = Math.max(1, (state.lanes[state.lanes.length - 1] ?? 367.5) - (state.lanes[0] ?? 52.5));
+  const unitsPerPixel = ((road.halfWidth - 1.25) * 2) / laneSpanPixels;
+  const width = clamp(entity.width * unitsPerPixel * 1.15, 1.2, 3.4);
   const length = width * (entity.kind === 'player' ? 2.05 : 1.85);
   const facesCamera = entity.kind === 'oncoming';
 
