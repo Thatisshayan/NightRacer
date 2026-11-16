@@ -1,12 +1,14 @@
+import { Asset } from 'expo-asset';
 import {
   ClampToEdgeWrapping,
   DataTexture,
   LinearFilter,
   RGBAFormat,
   SRGBColorSpace,
+  Texture,
   UnsignedByteType,
 } from 'three';
-import type { MeshStandardMaterial, Texture } from 'three';
+import type { MeshStandardMaterial } from 'three';
 
 // Reflections for a scene that has no environment map.
 //
@@ -102,8 +104,48 @@ function buildMatcap(): DataTexture {
 // replacing `.value` re-skins all of them at once.
 const reflectionUniform: { value: Texture | null } = { value: null };
 
+// The authored reflection: a rendered chrome-ball view of a rainy neon city
+// at night (generated artwork, cropped so the sphere fills the frame).
+const MATCAP_MODULE = require('../../assets/3d/matcap_night.jpg');
+let imageRequested = false;
+
+// Swaps the code-generated matcap for the authored image once it is on disk.
+// The same upload route @react-three/fiber/native uses for textures: expo-gl
+// decodes a local file itself when handed `{ localUri }` in place of pixels
+// (there is no DOM <img> to give it). If anything fails the generated matcap
+// simply stays.
+function requestReflectionImage(): void {
+  if (imageRequested) return;
+  imageRequested = true;
+  Asset.fromModule(MATCAP_MODULE)
+    .downloadAsync()
+    .then((asset) => {
+      const localUri = asset.localUri ?? asset.uri;
+      if (!localUri.startsWith('file://')) return;
+      const texture = new Texture();
+      texture.image = { data: { localUri }, width: asset.width ?? 512, height: asset.height ?? 512 };
+      // Image files are stored top row first; the lookup expects +Y up.
+      texture.flipY = true;
+      texture.wrapS = ClampToEdgeWrapping;
+      texture.wrapT = ClampToEdgeWrapping;
+      texture.magFilter = LinearFilter;
+      texture.minFilter = LinearFilter;
+      texture.generateMipmaps = false;
+      texture.colorSpace = SRGBColorSpace;
+      // Routes the upload through three's raw-pixel path, which is the one
+      // that forwards `image.data` to expo-gl untouched.
+      (texture as unknown as { isDataTexture: boolean }).isDataTexture = true;
+      texture.needsUpdate = true;
+      reflectionUniform.value = texture;
+    })
+    .catch(() => {
+      // keep the generated matcap
+    });
+}
+
 function reflectionTexture(): { value: Texture | null } {
   if (!reflectionUniform.value) reflectionUniform.value = buildMatcap();
+  requestReflectionImage();
   return reflectionUniform;
 }
 
