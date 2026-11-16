@@ -2,12 +2,14 @@ import { useEffect, useMemo, useRef } from 'react';
 import type { MutableRefObject } from 'react';
 import { AdditiveBlending, Color, DoubleSide, InstancedMesh, MeshBasicMaterial, Object3D } from 'three';
 import type { Group, Texture } from 'three';
+import { sampleApexRoad } from '@workspace/render-frame';
 import { getGlowTexture, getWindowTexture } from './textures';
 import { useTexturePack } from './texturePack';
 
 export interface SkylineHandle {
-  /** travel: world units the road surface has scrolled toward the camera. */
-  update(travel: number): void;
+  /** travel: world units the road surface has scrolled toward the camera.
+   * roadPhase: curve phase from the frame (places reflections on the road). */
+  update(travel: number, roadPhase: number): void;
 }
 
 const BUILDING_COUNT = 48;
@@ -108,7 +110,7 @@ function Towers({ meshRef, facade, fallback }: { meshRef: (mesh: InstancedMesh |
         map={facade ?? null}
         emissive="#ffffff"
         emissiveMap={facade ?? fallback}
-        emissiveIntensity={facade ? 1.5 : 1.15}
+        emissiveIntensity={facade ? 2.3 : 1.15}
         roughness={0.85}
         metalness={0}
       />
@@ -185,6 +187,25 @@ function placeBillboard(group: Group | null, b: Building, z: number): void {
   group.scale.set(height * 0.5625, height, 1);
 }
 
+// Each billboard's glow smeared down the wet road toward the camera: the
+// long coloured reflections that make the surface read as wet.
+const REFLECTION_LENGTH = 30;
+
+function placeReflection(mesh: InstancedMesh | null, dummy: Object3D, b: Building, index: number, z: number, roadPhase: number): void {
+  const centreZ = z - REFLECTION_LENGTH * 0.45;
+  // X is negated: frame coordinates are left-handed.
+  dummy.position.set(-sampleApexRoad(centreZ, roadPhase).x + b.side * 3.3, 0.04, centreZ);
+  dummy.rotation.set(-Math.PI / 2, 0, 0);
+  dummy.scale.set(5.5, REFLECTION_LENGTH, 1);
+  place(mesh, index, dummy);
+}
+
+function tintReflections(mesh: InstancedMesh | null): void {
+  const color = new Color();
+  for (let n = 0; mesh && n < BILLBOARD_COUNT; n += 1) mesh.setColorAt(n, color.set(BILLBOARD_GLOW[n % BILLBOARD_ART]));
+  if (mesh?.instanceColor) mesh.instanceColor.needsUpdate = true;
+}
+
 // The city the reference art is built around: a canyon of lit towers over the
 // highway carrying giant advert screens. A handful of InstancedMeshes (one
 // draw call each) plus a few billboard quads, recycled along z so the city
@@ -199,6 +220,7 @@ export function Skyline({ handleRef }: { handleRef: MutableRefObject<SkylineHand
   const billboards = useRef<(Group | null)[]>([]);
   const strips = useRef<InstancedMesh>(null);
   const beacons = useRef<InstancedMesh>(null);
+  const reflections = useRef<InstancedMesh>(null);
   const beaconMaterial = useRef<MeshBasicMaterial>(null);
   const dummy = useMemo(() => new Object3D(), []);
   const windowMap = useMemo(() => getWindowTexture(), []);
@@ -207,18 +229,22 @@ export function Skyline({ handleRef }: { handleRef: MutableRefObject<SkylineHand
   // Re-applied when the pack arrives: the towers remount with new materials.
   useEffect(() => {
     tintTowers(towers.current, strips.current);
+    tintReflections(reflections.current);
   }, [pack]);
 
   handleRef.current = {
-    update(travel) {
+    update(travel, roadPhase) {
       buildings.forEach((b, i) => {
         const z = Z_MIN + ((((b.zBase - travel) % Z_RANGE) + Z_RANGE) % Z_RANGE);
         placeBuilding(towers.current, strips.current, beacons.current, dummy, b, i, z);
-        if (i % BILLBOARD_EVERY === 0) placeBillboard(billboards.current[i / BILLBOARD_EVERY] ?? null, b, z);
+        if (i % BILLBOARD_EVERY !== 0) return;
+        placeBillboard(billboards.current[i / BILLBOARD_EVERY] ?? null, b, z);
+        placeReflection(reflections.current, dummy, b, i / BILLBOARD_EVERY, z, roadPhase);
       });
       towers.current.forEach(flush);
       flush(strips.current);
       flush(beacons.current);
+      flush(reflections.current);
       // Slow pulse, like real obstruction lights.
       const pulse = 0.3 + 0.7 * Math.max(0, Math.sin(performance.now() * 0.0032));
       beaconMaterial.current?.color.setRGB(pulse, pulse * 0.1, pulse * 0.1);
@@ -247,6 +273,10 @@ export function Skyline({ handleRef }: { handleRef: MutableRefObject<SkylineHand
       <instancedMesh ref={strips} args={[undefined, undefined, STRIP_COUNT]} frustumCulled={false}>
         <boxGeometry args={[1, 1, 1]} />
         <meshBasicMaterial color="#ffffff" toneMapped={false} />
+      </instancedMesh>
+      <instancedMesh ref={reflections} args={[undefined, undefined, BILLBOARD_COUNT]} frustumCulled={false}>
+        <planeGeometry args={[1, 1]} />
+        <meshBasicMaterial map={glowMap} {...GLOW_MATERIAL} opacity={0.34} />
       </instancedMesh>
       <instancedMesh ref={beacons} args={[undefined, undefined, BUILDING_COUNT]} frustumCulled={false}>
         <boxGeometry args={[1, 1, 1]} />

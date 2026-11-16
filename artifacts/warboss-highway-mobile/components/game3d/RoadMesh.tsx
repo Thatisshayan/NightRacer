@@ -77,8 +77,11 @@ export function RoadSegments({ handleRef }: { handleRef: MutableRefObject<RoadMe
           emissiveMap,
           emissive: '#ffffff',
           emissiveIntensity: 1,
-          roughness: 0.62,
-          metalness: 0.1,
+          // Rough on purpose: a glossier surface caught the magenta rim light
+          // as one broad purple wash down the middle of the road. The wet look
+          // comes from the sheen below and the neon reflections in Skyline.
+          roughness: 0.9,
+          metalness: 0,
           side: DoubleSide,
         }),
         [0.045, 0.055, 0.13],

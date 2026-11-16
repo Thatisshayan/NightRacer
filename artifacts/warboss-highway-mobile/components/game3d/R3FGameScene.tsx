@@ -9,6 +9,7 @@ import { useApexNativeRenderer } from './r3f-renderer';
 import { RoadSegments, type RoadMeshHandle } from './RoadMesh';
 import { Skyline, type SkylineHandle } from './Skyline';
 import { Roadside, type RoadsideHandle } from './Roadside';
+import { RoadItems, type RoadItemsHandle } from './RoadItems';
 import { VehicleMesh, preloadVehicleModels, type VehicleMeshHandle, type VehicleMotion } from './VehicleMesh';
 import { Atmosphere } from './Atmosphere';
 import { PostFX } from './PostFX';
@@ -280,6 +281,7 @@ function SceneContent({ engine, onReady }: { engine: NativeGameEngine; onReady?:
   const roadHandle = useRef<RoadMeshHandle | null>(null);
   const skylineHandle = useRef<SkylineHandle | null>(null);
   const roadsideHandle = useRef<RoadsideHandle | null>(null);
+  const itemsHandle = useRef<RoadItemsHandle | null>(null);
   const vehicleHandles = useRef<(VehicleMeshHandle | null)[]>([]);
   const flashMaterial = useRef<MeshBasicMaterial | null>(null);
   const skyLight = useRef<HemisphereLight>(null);
@@ -299,7 +301,8 @@ function SceneContent({ engine, onReady }: { engine: NativeGameEngine; onReady?:
     const frame = latestFrame.current;
     if (!frame) return;
     roadHandle.current?.update(frame.roadPhase, frame.travel);
-    skylineHandle.current?.update(frame.travel);
+    skylineHandle.current?.update(frame.travel, frame.roadPhase);
+    itemsHandle.current?.update(frame.items);
     roadsideHandle.current?.update(frame.roadPhase, frame.travel);
 
     const selectedCar = engine.getState().selectedCar;
@@ -330,6 +333,7 @@ function SceneContent({ engine, onReady }: { engine: NativeGameEngine; onReady?:
       <RoadSegments handleRef={roadHandle} />
       <Skyline handleRef={skylineHandle} />
       <Roadside handleRef={roadsideHandle} />
+      <RoadItems handleRef={itemsHandle} />
       {/* Vehicle model loading is fail-soft and non-suspending: LoadedGltf
           loads imperatively and renders a grounded placeholder on failure, so
           it never throws into the app's root ErrorBoundary. Each slot still
