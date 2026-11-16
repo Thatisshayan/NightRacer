@@ -81,7 +81,7 @@ export function RoadSegments({ handleRef }: { handleRef: MutableRefObject<RoadMe
           metalness: 0.1,
           side: DoubleSide,
         }),
-        [0.13, 0.15, 0.34],
+        [0.07, 0.08, 0.2],
       ),
     [colorMap, emissiveMap],
   );

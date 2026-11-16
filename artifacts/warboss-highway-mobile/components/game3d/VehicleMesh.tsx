@@ -154,7 +154,9 @@ function toPaintMaterial<T extends Material>(material: T): T {
     }
     // Clear-coat style reflection of the night city (see reflections.ts):
     // without anything to reflect, bodywork read as flat matte plastic.
-    addReflection(standard, 1.0, 0.16);
+    // Kept moderate: from a chase camera most of a car is roof, which looks
+    // straight up at the brightest part of the sky.
+    addReflection(standard, 0.62, 0.06);
   }
   return material;
 }
