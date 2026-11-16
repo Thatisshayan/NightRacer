@@ -1,0 +1,136 @@
+name: ios-simulator-build
+
+# Manual-only. Builds an UNSIGNED Release .app for the iOS Simulator (JS bundle
+# embedded, so no Metro needed) and uploads it as an artifact. Used for visual QA
+# on a remote simulator (e.g. `lim ios install-app`). Never uploads to TestFlight.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "full = build the simulator .app; bundle = JS bundle only (fast, for swapping into an existing .app)"
+        type: choice
+        options: [full, bundle]
+        default: full
+  pull_request:
+    paths:
+      - '.github/workflows/ios-simulator-build.yml'
+
+jobs:
+  bundle:
+    name: bundle (JS only, expo export:embed)
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'bundle'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: artifacts/warboss-highway-mobile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies (workspace root)
+        working-directory: .
+        run: pnpm install --frozen-lockfile
+
+      - name: Bundle JS + assets
+        # Same entry resolution and export:embed call the Xcode "Bundle React
+        # Native code and images" phase runs, minus the Hermes bytecode step
+        # (Hermes also executes a plain JS bundle).
+        run: |
+          set -euo pipefail
+          ENTRY="$(node -e "require('expo/scripts/resolveAppEntry')" "$PWD" ios absolute | tail -n 1)"
+          echo "Entry: $ENTRY"
+          mkdir -p "$RUNNER_TEMP/out"
+          npx expo export:embed --platform ios --dev false             --entry-file "$ENTRY"             --bundle-output "$RUNNER_TEMP/out/main.jsbundle"             --assets-dest "$RUNNER_TEMP/out"
+          ls -la "$RUNNER_TEMP/out"
+
+      - name: Upload JS bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: WarbossHighway-jsbundle
+          path: ${{ runner.temp }}/out
+          retention-days: 3
+
+  build:
+    name: build (expo prebuild + xcodebuild, iphonesimulator, unsigned)
+    if: github.event_name != 'workflow_dispatch' || inputs.mode != 'bundle'
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: artifacts/warboss-highway-mobile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select newest available Xcode
+        working-directory: .
+        run: |
+          set -euo pipefail
+          NEWEST="$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+          echo "Selecting: $NEWEST"
+          sudo xcode-select -s "$NEWEST/Contents/Developer"
+          xcodebuild -version
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies (workspace root)
+        working-directory: .
+        run: pnpm install --frozen-lockfile
+
+      - name: Prebuild native iOS project
+        run: npx expo prebuild --platform ios --non-interactive --no-install
+
+      - name: Install CocoaPods dependencies
+        working-directory: artifacts/warboss-highway-mobile/ios
+        run: pod install --repo-update
+
+      - name: Build for iOS Simulator
+        run: |
+          set -euo pipefail
+          WORKSPACE_PATH="$(ls -d ios/*.xcworkspace | head -1)"
+          SCHEME="$(basename "$WORKSPACE_PATH" .xcworkspace)"
+          echo "Workspace: $WORKSPACE_PATH  Scheme: $SCHEME"
+          xcodebuild -workspace "$WORKSPACE_PATH" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/dd" \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Zip .app
+        run: |
+          set -euo pipefail
+          APP="$(find "$RUNNER_TEMP/dd/Build/Products/Release-iphonesimulator" -maxdepth 1 -name '*.app' | head -1)"
+          echo "App: $APP"
+          cd "$(dirname "$APP")"
+          ditto -c -k --sequesterRsrc --keepParent "$(basename "$APP")" "$RUNNER_TEMP/WarbossHighway-simulator.zip"
+
+      - name: Upload simulator build
+        uses: actions/upload-artifact@v4
+        with:
+          name: WarbossHighway-simulator-app
+          path: ${{ runner.temp }}/WarbossHighway-simulator.zip
+          retention-days: 7
