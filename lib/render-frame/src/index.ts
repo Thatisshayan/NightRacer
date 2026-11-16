@@ -1,4 +1,4 @@
-import type { GameState, Player, Vehicle, VehicleType } from '@workspace/game-core';
+import type { GameObject, GameState, ObstacleType, Player, PowerUpType, Vehicle, VehicleType } from '@workspace/game-core';
 
 /**
  * A renderer-independent road layout for Apex Storm.
@@ -89,6 +89,17 @@ export interface ApexBillboardPose {
   color: string;
 }
 
+/** A power-up to collect or a hazard to avoid, lying on the road. */
+export interface ApexItemPose {
+  type: PowerUpType | ObstacleType;
+  x: number;
+  z: number;
+  /** Footprint across and along the road, from the simulation hitbox. */
+  width: number;
+  length: number;
+  alpha: number;
+}
+
 export interface ApexSteamVent {
   x: number;
   z: number;
@@ -110,6 +121,9 @@ export interface ApexStormFrame {
   rush: boolean;
   road: readonly ApexRoadSegment[];
   vehicles: readonly ApexVehiclePose[];
+  /** Power-ups and obstacles. The simulation collides with these, so a
+   * renderer that skips them leaves the player hitting invisible hazards. */
+  items: readonly ApexItemPose[];
   lightningIntensity: number;
   billboards: readonly ApexBillboardPose[];
   biome: ApexBiome;
@@ -196,7 +210,10 @@ function depthToZ(depth: number): number {
 function laneRatio(state: GameState, x: number): number {
   const left = state.lanes[0] ?? 52.5;
   const right = state.lanes[state.lanes.length - 1] ?? 367.5;
-  return clamp(((x - left) / Math.max(1, right - left)) * 2 - 1, -1, 1);
+  // Not clamped to the outer lane centres: the player (and obstacles) can
+  // sit up to ~20px beyond them. Clamping drew the car inside its real
+  // position at the road edge, so its hitbox was offset from what was shown.
+  return clamp(((x - left) / Math.max(1, right - left)) * 2 - 1, -1.13, 1.13);
 }
 
 function wheelContacts(x: number, z: number, heading: number, width: number, length: number): ApexWheelContact[] {
@@ -249,6 +266,22 @@ function vehiclePose(state: GameState, entity: RoadEntity): ApexVehiclePose {
     shadow: { x, z: z + 0.1, radiusX: width * 0.58, radiusZ: length * 0.42, alpha: entity.kind === 'player' ? 0.3 : 0.22 },
     reflection: { x, z: z - length * 0.48, length: length * 0.9, alpha: entity.kind === 'player' ? 0.28 : 0.16 },
     lights: { color: facesCamera ? '#d7f5ff' : '#ff3f53', intensity: entity.kind === 'player' ? 1 : 0.72, facesCamera },
+  };
+}
+
+function itemPose(state: GameState, item: GameObject & { type: PowerUpType | ObstacleType }): ApexItemPose {
+  const depth = entityDepth(item);
+  const z = depthToZ(depth);
+  const road = sampleApexRoad(z, roadPhaseFor(state));
+  const laneSpanPixels = Math.max(1, (state.lanes[state.lanes.length - 1] ?? 367.5) - (state.lanes[0] ?? 52.5));
+  const unitsPerPixel = ((road.halfWidth - 1.25) * 2) / laneSpanPixels;
+  return {
+    type: item.type,
+    x: road.x + laneRatio(state, item.x) * (road.halfWidth - 1.25),
+    z,
+    width: item.width * unitsPerPixel,
+    length: item.height * UNITS_PER_PIXEL,
+    alpha: clamp((depth - 0.015) / 0.13, 0, 1),
   };
 }
 
@@ -327,6 +360,7 @@ export function buildApexStormFrame(state: GameState, options?: { demo?: boolean
     rush: state.rushTimer > 0,
     road,
     vehicles,
+    items: [...state.powerups, ...state.obstacles].map((item) => itemPose(state, item)),
     lightningIntensity,
     billboards,
     biome,
