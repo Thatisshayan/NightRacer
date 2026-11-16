@@ -35,7 +35,10 @@ const MATCAP = require('../../assets/3d/matcap_night.json') as { size: number; r
 const BASE64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
 /** Decodes base64 RGB triples straight into an RGBA byte array. */
-function decodeRgbToRgba(text: string, pixelCount: number): Uint8Array {
+// Return type is inferred on purpose: `new Uint8Array(n)` is backed by a plain
+// ArrayBuffer, which DataTexture requires; annotating it as `Uint8Array`
+// widens that to ArrayBufferLike and fails the typecheck.
+function decodeRgbToRgba(text: string, pixelCount: number) {
   const lookup = new Uint8Array(128);
   for (let i = 0; i < BASE64_ALPHABET.length; i += 1) lookup[BASE64_ALPHABET.charCodeAt(i)] = i;
   const out = new Uint8Array(pixelCount * 4);
