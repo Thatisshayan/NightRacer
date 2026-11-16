@@ -31,6 +31,15 @@ Captures: [`before`](2026-11-15_Claude_NativeVisualQA_Before.png), [`after`](202
 | 11 | A failed score submission took the app to the root error screen. | `GameOverScreen` re-threw the mutation error during render, outside the boundary it returns. | Throw removed; the existing inline error message is shown. |
 | 12 | Each vehicle spawn re-parsed its GLB and re-uploaded its texture. | No cache around `GLTFLoader.loadAsync`. | Loads cached per URI; materials cloned per instance. |
 
+## TestFlight crash (build 32, iPhone 15 Pro Max, iOS 27.0.1)
+
+Reported during this work: `EXC_BAD_ACCESS (SIGSEGV)` 16 seconds after launch, crashed thread inside `HadesGC` under `convertNSExceptionToJSError` <- `ObjCTurboModule::performVoidMethodInvocation`.
+
+- **What it is.** In a release build React Native reports a fatal JS error to the native `ExceptionsManager`, which raises an `NSException` on purpose. On the New Architecture that is caught on a background queue and converted into a JS error against the Hermes runtime from the wrong thread (facebook/react-native#54859). The crash is the consequence of an uncaught JS error, not its cause.
+- **Confirmed by reproduction.** A build that throws from a timer died on the simulator with `ExceptionsManager.reportException raised an exception: Unhandled JS Exception` under `performVoidMethodInvocation`.
+- **Fix.** `lib/fatal-errors.ts` installs a global handler: a fatal JS error now shows the existing error screen (message and stack available from its details button) and is persisted, instead of taking the native path. Verified with the same probe: the app stays alive on the error screen.
+- **Not known.** Which JS error fired on the device. The crash report carries no message, and that build (commit `18d576c`, the pre-rebuild scene) did not fail on the simulator. If it recurs on the new build the error screen will show it.
+
 ## Verification
 
 | Check | Result |

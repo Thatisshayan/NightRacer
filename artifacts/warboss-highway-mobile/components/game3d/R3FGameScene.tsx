@@ -1,7 +1,8 @@
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { Suspense, useEffect, useRef } from 'react';
 import type { HemisphereLight, Mesh, MeshBasicMaterial } from 'three';
-import { sampleApexRoad } from '@workspace/render-frame';
+import { sampleApexRoad, type ApexStormFrame, type ApexVehiclePose } from '@workspace/render-frame';
+import type { CarType } from '@workspace/game-core';
 import type { NativeGameEngine } from '../game/native-engine';
 import { useApexNativeRenderer } from './r3f-renderer';
 import { RoadSegments, type RoadMeshHandle } from './RoadMesh';
@@ -44,6 +45,39 @@ const SKY_LIGHT_INTENSITY = 2.4;
 // RoadMesh and in VehicleMesh. Without this the whole scene is mirrored and
 // dragging right steers the car left on screen.
 const toSceneX = (frameX: number) => -frameX;
+
+// Camera shake + crash flash on collision — engine.ts sets screenShake to 300
+// on a hit and decays it over time (see handleCrash()). The web renderers
+// (apex-storm-renderer.ts, pixi-renderer.ts) both surface this as camera
+// jitter + a flash. Formula matches apex-storm-renderer.ts's sync():
+// deterministic high-frequency noise (not Math.random) so the two renderers
+// shake in lockstep for the same input.
+function shakeFor(screenShake: number): { x: number; y: number; flash: number } {
+  if (screenShake <= 0) return { x: 0, y: 0, flash: 0 };
+  const shake = screenShake * 0.05;
+  const now = performance.now();
+  return {
+    x: Math.sin(now * 0.083) * shake * 0.5,
+    y: Math.sin(now * 0.071 + 1.7) * shake * 0.5,
+    flash: Math.min(0.8, screenShake * 0.15),
+  };
+}
+
+// Follow the player laterally. The road centreline wanders by several units
+// as it curves and the player can sit up to ~5 units either side of it, far
+// more than a portrait frustum shows at the player's depth — a fixed camera
+// loses the car entirely. Blend between the centreline and the player so the
+// car stays on screen while still visibly moving across it when steering.
+function followCameraX(
+  current: number | null,
+  player: ApexVehiclePose,
+  frame: ApexStormFrame,
+  delta: number,
+): number {
+  const centreX = toSceneX(sampleApexRoad(player.z, frame.roadPhase).x);
+  const followX = centreX + (toSceneX(player.x) - centreX) * CAMERA_FOLLOW;
+  return current === null ? followX : current + (followX - current) * Math.min(1, delta * 5);
+}
 
 // Matches apex-storm-renderer.ts's MAX_VEHICLE_SLOTS — a fixed pool of
 // reusable meshes, hidden/shown per frame rather than created/destroyed.
@@ -115,17 +149,8 @@ function SceneContent({ engine }: { engine: NativeGameEngine }) {
     preloadVehicleModels();
   }, []);
 
-  useFrame((_, delta) => {
-    const frame = latestFrame.current;
-    if (!frame) return;
-    roadHandle.current?.update(frame.roadPhase, frame.travel);
-    skylineHandle.current?.update(frame.travel);
-
-    const selectedCar = engine.getState().selectedCar;
-
-    const player = frame.vehicles.find((v) => v.kind === 'player');
-    vehicleHandles.current[0]?.update(player, selectedCar, 1);
-
+  // Assigns every traffic vehicle a stable pool slot and updates it.
+  const syncTraffic = (frame: ApexStormFrame, player: ApexVehiclePose | undefined, selectedCar: CarType) => {
     const traffic = frame.vehicles.filter((v) => v.kind !== 'player');
     // Nearest-first: if traffic count exceeds the pool, the farthest
     // vehicles are the ones left unassigned below, not an arbitrary subset.
@@ -153,43 +178,28 @@ function SceneContent({ engine }: { engine: NativeGameEngine }) {
         free.push(slot);
       }
     }
+  };
 
-    // Camera shake + crash flash on collision — engine.ts sets screenShake
-    // to 300 on a hit and decays it over time (see handleCrash()). The web
-    // renderers (apex-storm-renderer.ts, pixi-renderer.ts) both surface this
-    // as camera jitter + a flash. Formula matches apex-storm-renderer.ts's
-    // sync(): deterministic high-frequency noise (not Math.random) so the
-    // two renderers shake in lockstep for the same input.
-    const screenShake = latestScreenShake.current;
-    let shakeX = 0;
-    let shakeY = 0;
-    if (screenShake > 0) {
-      const shake = screenShake * 0.05;
-      const now = performance.now();
-      shakeX = Math.sin(now * 0.083) * shake * 0.5;
-      shakeY = Math.sin(now * 0.071 + 1.7) * shake * 0.5;
-      if (flashMaterial.current) flashMaterial.current.opacity = Math.min(0.8, screenShake * 0.15);
-    } else if (flashMaterial.current) {
-      flashMaterial.current.opacity = 0;
-    }
+  useFrame((_, delta) => {
+    const frame = latestFrame.current;
+    if (!frame) return;
+    roadHandle.current?.update(frame.roadPhase, frame.travel);
+    skylineHandle.current?.update(frame.travel);
 
-    // Follow the player laterally. The road centreline wanders by several
-    // units as it curves and the player can sit up to ~5 units either side
-    // of it, far more than a portrait frustum shows at the player's depth —
-    // a fixed camera loses the car entirely. Blend between the centreline
-    // and the player so the car stays on screen while still visibly moving
-    // across it when steering.
-    if (player) {
-      const centreX = toSceneX(sampleApexRoad(player.z, frame.roadPhase).x);
-      const followX = centreX + (toSceneX(player.x) - centreX) * CAMERA_FOLLOW;
-      cameraX.current =
-        cameraX.current === null
-          ? followX
-          : cameraX.current + (followX - cameraX.current) * Math.min(1, delta * 5);
-    }
+    const selectedCar = engine.getState().selectedCar;
+
+    const player = frame.vehicles.find((v) => v.kind === 'player');
+    vehicleHandles.current[0]?.update(player, selectedCar, 1);
+
+    syncTraffic(frame, player, selectedCar);
+
+    const shake = shakeFor(latestScreenShake.current);
+    if (flashMaterial.current) flashMaterial.current.opacity = shake.flash;
+
+    if (player) cameraX.current = followCameraX(cameraX.current, player, frame, delta);
     const camX = cameraX.current ?? 0;
     const aheadX = toSceneX(sampleApexRoad(LOOK_Z, frame.roadPhase).x);
-    camera.position.set(camX + shakeX, CAMERA_Y + shakeY, CAMERA_Z);
+    camera.position.set(camX + shake.x, CAMERA_Y + shake.y, CAMERA_Z);
     camera.lookAt(camX + (aheadX - camX) * CAMERA_CURVE_LEAN, LOOK_Y, LOOK_Z);
 
     // Lightning: a brief lift of the sky fill (the backdrop brightens itself,
