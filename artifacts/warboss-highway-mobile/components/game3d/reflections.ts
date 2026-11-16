@@ -1,14 +1,12 @@
-import { Asset } from 'expo-asset';
 import {
   ClampToEdgeWrapping,
   DataTexture,
   LinearFilter,
   RGBAFormat,
   SRGBColorSpace,
-  Texture,
   UnsignedByteType,
 } from 'three';
-import type { MeshStandardMaterial } from 'three';
+import type { MeshStandardMaterial, Texture } from 'three';
 
 // Reflections for a scene that has no environment map.
 //
@@ -25,71 +23,40 @@ import type { MeshStandardMaterial } from 'three';
 // scene lighting, emissive trim and fog behaviour), the lookup is added to
 // MeshStandardMaterial's own shader as an extra reflective layer.
 
-const SIZE = 256;
+// The matcap image: a rendered chrome-ball view of a rainy neon city at night
+// (generated artwork, cropped so the sphere fills the frame). It ships as raw
+// RGB pixels in JSON, not as an image file: handing expo-gl a JPEG to decode
+// itself was tried first and silently never arrived (verified with a probe
+// build), whereas raw pixels take the same typed-array upload as every other
+// texture in this scene and cannot fail to decode. Rows are stored bottom
+// first, the order a GL data texture expects.
+const MATCAP = require('../../assets/3d/matcap_night.json') as { size: number; rgb: string };
 
-type Rgb = [number, number, number];
+const BASE64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
-const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
-const mix = (a: number, b: number, t: number) => a + (b - a) * t;
-
-/** Colour of the imagined surroundings in direction (x, y, z), y up. */
-function environment(x: number, y: number, z: number): Rgb {
-  const azimuth = Math.atan2(x, z);
-  // Neon band hugging the horizon: magenta and cyan signage with amber lamps.
-  const neonMix = 0.5 + 0.5 * Math.sin(azimuth * 3 + 1);
-  const amber = Math.max(0, Math.sin(azimuth * 7 + 0.5)) ** 8;
-  const neon: Rgb = [
-    mix(255, 40, neonMix) + 255 * amber,
-    mix(60, 220, neonMix) + 170 * amber,
-    mix(210, 255, neonMix) + 70 * amber,
-  ];
-  const band = Math.exp(-((y - 0.03) ** 2) / 0.0018);
-
-  if (y >= 0) {
-    // Night sky: navy at the horizon falling to near-black overhead, with one
-    // broad cool key light (the moon / city glow) high and slightly ahead.
-    const t = clamp01(y);
-    const keyDot = Math.max(0, x * 0.2 + y * 0.84 + z * 0.5);
-    const key = keyDot ** 28 * 0.95 + keyDot ** 3 * 0.16;
-    return [
-      mix(20, 4, t) + neon[0] * band * 1.1 + 190 * key,
-      mix(34, 7, t) + neon[1] * band * 1.1 + 215 * key,
-      mix(70, 16, t) + neon[2] * band * 1.1 + 255 * key,
-    ];
+/** Decodes base64 RGB triples straight into an RGBA byte array. */
+function decodeRgbToRgba(text: string, pixelCount: number): Uint8Array {
+  const lookup = new Uint8Array(128);
+  for (let i = 0; i < BASE64_ALPHABET.length; i += 1) lookup[BASE64_ALPHABET.charCodeAt(i)] = i;
+  const out = new Uint8Array(pixelCount * 4);
+  // Four base64 characters carry exactly one RGB pixel (3 bytes).
+  for (let p = 0; p < pixelCount; p += 1) {
+    const c = p * 4;
+    const a = lookup[text.charCodeAt(c)];
+    const b = lookup[text.charCodeAt(c + 1)];
+    const d = lookup[text.charCodeAt(c + 2)];
+    const e = lookup[text.charCodeAt(c + 3)];
+    out[c] = (a << 2) | (b >> 4);
+    out[c + 1] = ((b & 15) << 4) | (d >> 2);
+    out[c + 2] = ((d & 3) << 6) | e;
+    out[c + 3] = 255;
   }
-  // Wet street: dark, carrying a blurred mirror image of the neon band.
-  const mirror = Math.exp(-((y + 0.12) ** 2) / 0.02) * 0.34;
-  return [
-    10 + neon[0] * (band * 1.1 + mirror),
-    14 + neon[1] * (band * 1.1 + mirror),
-    26 + neon[2] * (band * 1.1 + mirror),
-  ];
+  return out;
 }
 
 function buildMatcap(): DataTexture {
-  const data = new Uint8Array(SIZE * SIZE * 4);
-  for (let py = 0; py < SIZE; py += 1) {
-    for (let px = 0; px < SIZE; px += 1) {
-      let nx = (px / (SIZE - 1)) * 2 - 1;
-      let ny = (py / (SIZE - 1)) * 2 - 1;
-      // Outside the sphere's disc, reuse its rim so filtering never pulls in
-      // an unlit corner.
-      const radius = Math.sqrt(nx * nx + ny * ny);
-      if (radius > 0.999) {
-        nx *= 0.999 / radius;
-        ny *= 0.999 / radius;
-      }
-      const nz = Math.sqrt(Math.max(0, 1 - nx * nx - ny * ny));
-      // Mirror the view direction (0, 0, 1) about the sphere normal.
-      const [r, g, b] = environment(2 * nz * nx, 2 * nz * ny, 2 * nz * nz - 1);
-      const i = (py * SIZE + px) * 4;
-      data[i] = Math.min(255, Math.round(r));
-      data[i + 1] = Math.min(255, Math.round(g));
-      data[i + 2] = Math.min(255, Math.round(b));
-      data[i + 3] = 255;
-    }
-  }
-  const texture = new DataTexture(data, SIZE, SIZE, RGBAFormat, UnsignedByteType);
+  const size = MATCAP.size;
+  const texture = new DataTexture(decodeRgbToRgba(MATCAP.rgb, size * size), size, size, RGBAFormat, UnsignedByteType);
   texture.wrapS = ClampToEdgeWrapping;
   texture.wrapT = ClampToEdgeWrapping;
   texture.magFilter = LinearFilter;
@@ -100,52 +67,11 @@ function buildMatcap(): DataTexture {
   return texture;
 }
 
-// One shared uniform: every reflective material samples the same image, and
-// replacing `.value` re-skins all of them at once.
+// One shared uniform: every reflective material samples the same image.
 const reflectionUniform: { value: Texture | null } = { value: null };
-
-// The authored reflection: a rendered chrome-ball view of a rainy neon city
-// at night (generated artwork, cropped so the sphere fills the frame).
-const MATCAP_MODULE = require('../../assets/3d/matcap_night.jpg');
-let imageRequested = false;
-
-// Swaps the code-generated matcap for the authored image once it is on disk.
-// The same upload route @react-three/fiber/native uses for textures: expo-gl
-// decodes a local file itself when handed `{ localUri }` in place of pixels
-// (there is no DOM <img> to give it). If anything fails the generated matcap
-// simply stays.
-function requestReflectionImage(): void {
-  if (imageRequested) return;
-  imageRequested = true;
-  Asset.fromModule(MATCAP_MODULE)
-    .downloadAsync()
-    .then((asset) => {
-      const localUri = asset.localUri ?? asset.uri;
-      if (!localUri.startsWith('file://')) return;
-      const texture = new Texture();
-      texture.image = { data: { localUri }, width: asset.width ?? 512, height: asset.height ?? 512 };
-      // Image files are stored top row first; the lookup expects +Y up.
-      texture.flipY = true;
-      texture.wrapS = ClampToEdgeWrapping;
-      texture.wrapT = ClampToEdgeWrapping;
-      texture.magFilter = LinearFilter;
-      texture.minFilter = LinearFilter;
-      texture.generateMipmaps = false;
-      texture.colorSpace = SRGBColorSpace;
-      // Routes the upload through three's raw-pixel path, which is the one
-      // that forwards `image.data` to expo-gl untouched.
-      (texture as unknown as { isDataTexture: boolean }).isDataTexture = true;
-      texture.needsUpdate = true;
-      reflectionUniform.value = texture;
-    })
-    .catch(() => {
-      // keep the generated matcap
-    });
-}
 
 function reflectionTexture(): { value: Texture | null } {
   if (!reflectionUniform.value) reflectionUniform.value = buildMatcap();
-  requestReflectionImage();
   return reflectionUniform;
 }
 
