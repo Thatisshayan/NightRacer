@@ -65,6 +65,14 @@ Feedback after the second pass: the player car is too big for the lane, car moti
 | 22 | Night-highway look. | Sprite halos standing in for bloom, lamp and tail-light reflections streaked down the wet road, tyre spray, a lens vignette, barrier reflectors, overhead sign gantries, neon strips and roof beacons on the towers. |
 | 23 | React error #311 on first run of this pass. | `useRef` called inside object literals; the React Compiler caches such literals, so the hooks ran only once. Hook calls are now plain statements. The fatal-error handler caught it and showed the error screen, which is how it was diagnosed. |
 
+## Reflections
+
+| # | Change | How |
+| --- | --- | --- |
+| 24 | Vehicle paint reflects a night city. | A matcap (one image of a mirrored sphere) is sampled inside `MeshStandardMaterial`'s shader, weighted by fresnel. No environment map or render targets, which is the path that crashed before (PR #41). The image is generated artwork (`assets/3d/matcap_night.json`). |
+| 25 | The wet road brightens toward the horizon. | A fresnel sheen term in the road shader. |
+| 26 | The reflection image never loaded as a JPEG. | expo-gl did not decode the file handed to it. Confirmed with a probe build whose fallback was pure red (the cars came out pink). The image now ships as raw pixels in JSON and uploads as a typed array. |
+
 ## Verification
 
 | Check | Result |

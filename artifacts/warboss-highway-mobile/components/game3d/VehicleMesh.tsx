@@ -17,6 +17,7 @@ import type { Material, Texture } from 'three';
 import type { ApexVehicleModelType, ApexVehiclePose } from '@workspace/render-frame';
 import type { CarType } from '@workspace/game-core';
 import { getGlowTexture } from './textures';
+import { addReflection } from './reflections';
 
 export interface VehicleMeshHandle {
   /** fade: 0..1 extra opacity multiplier (traffic that has passed the player
@@ -149,8 +150,13 @@ function toPaintMaterial<T extends Material>(material: T): T {
     if (standard.map) {
       standard.emissiveMap = standard.map;
       standard.emissive.set('#ffffff');
-      standard.emissiveIntensity = 0.5;
+      standard.emissiveIntensity = 0.32;
     }
+    // Clear-coat style reflection of the night city (see reflections.ts):
+    // without anything to reflect, bodywork read as flat matte plastic.
+    // Kept moderate: from a chase camera most of a car is roof, which looks
+    // straight up at the brightest part of the sky.
+    addReflection(standard, 0.62, 0.06);
   }
   return material;
 }
