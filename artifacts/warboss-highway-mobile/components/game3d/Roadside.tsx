@@ -73,7 +73,7 @@ export function Roadside({ handleRef }: { handleRef: MutableRefObject<RoadsideHa
     <>
       <instancedMesh ref={posts} args={[undefined, undefined, LAMP_COUNT]} frustumCulled={false}>
         <boxGeometry args={[1, 1, 1]} />
-        <meshBasicMaterial color="#1c2536" />
+        <meshBasicMaterial color="#46587a" />
       </instancedMesh>
       <instancedMesh ref={heads} args={[undefined, undefined, LAMP_COUNT]} frustumCulled={false}>
         <boxGeometry args={[1, 1, 1]} />

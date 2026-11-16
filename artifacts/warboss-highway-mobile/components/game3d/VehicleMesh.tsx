@@ -11,6 +11,8 @@ export interface VehicleMeshHandle {
   /** fade: 0..1 extra opacity multiplier (traffic that has passed the player
    * is faded out so it cannot sit between the chase camera and the car). */
   update(pose: ApexVehiclePose | undefined, selectedCar: CarType, fade: number): void;
+  /** True once this slot's model (or its placeholder) is mounted. */
+  isLoaded(): boolean;
 }
 
 // Every generated model, keyed by the identifier that actually selects it at
@@ -300,6 +302,9 @@ export const VehicleMesh = forwardRef<VehicleMeshHandle, { index: number }>(func
   );
 
   useImperativeHandle(ref, () => ({
+    isLoaded() {
+      return (model.current?.children.length ?? 0) > 0;
+    },
     update(pose, selectedCar, fade) {
       const g = group.current;
       if (!g) return;

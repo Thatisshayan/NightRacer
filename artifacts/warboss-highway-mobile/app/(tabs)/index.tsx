@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, StyleSheet, View } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -160,6 +160,14 @@ export default function TabOneScreen() {
     [engine, scale]
   );
 
+  // Start the simulation exactly once per engine, when its scene is ready.
+  const startedEngine = useRef<typeof engine>(null);
+  const handleSceneReady = useCallback(() => {
+    if (!engine || startedEngine.current === engine) return;
+    startedEngine.current = engine;
+    engine.start();
+  }, [engine]);
+
   const startGame = useCallback(() => {
     NativeAudio.stop('menu');
     setGameOverInfo(null);
@@ -234,7 +242,7 @@ export default function TabOneScreen() {
             {engine && (
               <GestureDetector gesture={pan}>
                 <View style={{ width: GAME_WIDTH * scale, height: GAME_HEIGHT * scale }}>
-                  <R3FGameScene engine={engine} />
+                  <R3FGameScene engine={engine} onReady={handleSceneReady} />
                 </View>
               </GestureDetector>
             )}

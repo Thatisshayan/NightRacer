@@ -100,6 +100,9 @@ export interface ApexStormFrame {
   /** Monotonic distance the road surface has scrolled toward the camera, in
    * world units. Renderers scroll road textures / roadside scenery with it. */
   travel: number;
+  /** True during the post-crash grace period, while traffic passes through
+   * the player without registering a hit. Renderers should show it. */
+  playerInvulnerable: boolean;
   road: readonly ApexRoadSegment[];
   vehicles: readonly ApexVehiclePose[];
   lightningIntensity: number;
@@ -311,5 +314,15 @@ export function buildApexStormFrame(state: GameState, options?: { demo?: boolean
     { x: 5, z: 45, intensity: 0.6 },
   ] : [];
 
-  return { roadPhase, travel: travelPixels * UNITS_PER_PIXEL, road, vehicles, lightningIntensity, billboards, biome, steamVents };
+  return {
+    roadPhase,
+    travel: travelPixels * UNITS_PER_PIXEL,
+    playerInvulnerable: state.player.isInvulnerable,
+    road,
+    vehicles,
+    lightningIntensity,
+    billboards,
+    biome,
+    steamVents,
+  };
 }

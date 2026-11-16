@@ -39,6 +39,21 @@ const PASS_FADE_LENGTH = 3.5;
 
 const SKY_LIGHT_INTENSITY = 2.4;
 
+// Traffic drawn on top of the player (it keeps driving through after a crash,
+// during the grace period) is ghosted to this opacity so the player's car is
+// never swallowed by a truck body.
+const OVERLAP_OPACITY = 0.28;
+// Longest the run will wait for the player's model before starting anyway.
+const READY_TIMEOUT_MS = 1500;
+
+function overlapsPlayer(pose: ApexVehiclePose, player: ApexVehiclePose | undefined): boolean {
+  if (!player) return false;
+  const lateral = Math.abs(pose.x - player.x) < (pose.width + player.width) / 2;
+  // Visual length is roughly 2-4x the width depending on the model.
+  const along = Math.abs(pose.z - player.z) < pose.width * 1.9 + player.width;
+  return lateral && along;
+}
+
 // @workspace/render-frame's coordinates come from the Babylon web renderer,
 // which is LEFT-handed: looking down +Z, +X is screen-right. three.js is
 // right-handed: looking down +Z, +X is screen-LEFT. Every frame X (and every
@@ -86,7 +101,9 @@ const MAX_VEHICLE_SLOTS = 10;
 // Slot 0 is reserved for the player; the rest are assigned to traffic below.
 const MAX_TRAFFIC_SLOTS = MAX_VEHICLE_SLOTS - 1;
 
-function SceneContent({ engine }: { engine: NativeGameEngine }) {
+function SceneContent({ engine, onReady }: { engine: NativeGameEngine; onReady?: () => void }) {
+  const readyAt = useRef<number | null>(null);
+  const readyFired = useRef(false);
   const { latestFrame, latestScreenShake } = useApexNativeRenderer(engine);
   const roadHandle = useRef<RoadMeshHandle | null>(null);
   const skylineHandle = useRef<SkylineHandle | null>(null);
@@ -170,7 +187,8 @@ function SceneContent({ engine }: { engine: NativeGameEngine }) {
         if (slot === undefined) continue; // pool exhausted this frame — farthest traffic skipped
         assigned.set(pose.id, slot);
       }
-      const fade = 1 - Math.max(0, Math.min(1, (fadeStartZ - pose.z) / PASS_FADE_LENGTH));
+      const passFade = 1 - Math.max(0, Math.min(1, (fadeStartZ - pose.z) / PASS_FADE_LENGTH));
+      const fade = overlapsPlayer(pose, player) ? Math.min(passFade, OVERLAP_OPACITY) : passFade;
       vehicleHandles.current[slot]?.update(pose, selectedCar, fade);
     }
     for (const [id, slot] of assigned) {
@@ -192,7 +210,25 @@ function SceneContent({ engine }: { engine: NativeGameEngine }) {
     const selectedCar = engine.getState().selectedCar;
 
     const player = frame.vehicles.find((v) => v.kind === 'player');
-    vehicleHandles.current[0]?.update(player, selectedCar, 1);
+    // Blink the player during the post-crash grace period: the standard
+    // "you were hit, you are briefly safe" signal, which this renderer had
+    // no equivalent of.
+    const blink = frame.playerInvulnerable && Math.sin(performance.now() * 0.03) > 0 ? 0.35 : 1;
+    vehicleHandles.current[0]?.update(player, selectedCar, blink);
+
+    // Tell the screen the scene is drawable, once: after a frame has been
+    // rendered and the player's car is present (or a short timeout). The
+    // simulation is not started until then, so the first second of a run no
+    // longer plays out behind a black, still-initialising GL view.
+    if (!readyFired.current) {
+      const now = performance.now();
+      if (readyAt.current === null) readyAt.current = now;
+      const playerLoaded = vehicleHandles.current[0]?.isLoaded() ?? false;
+      if (playerLoaded || now - readyAt.current > READY_TIMEOUT_MS) {
+        readyFired.current = true;
+        onReady?.();
+      }
+    }
 
     syncTraffic(frame, player, selectedCar);
 
@@ -273,7 +309,7 @@ function SceneContent({ engine }: { engine: NativeGameEngine }) {
   );
 }
 
-export function R3FGameScene({ engine }: { engine: NativeGameEngine }) {
+export function R3FGameScene({ engine, onReady }: { engine: NativeGameEngine; onReady?: () => void }) {
   return (
     <Canvas
       camera={{ position: [0, CAMERA_Y, CAMERA_Z], fov: CAMERA_FOV, near: 1, far: 420 }}
@@ -285,7 +321,7 @@ export function R3FGameScene({ engine }: { engine: NativeGameEngine }) {
         gl.setClearColor(HAZE_COLOR);
       }}
     >
-      <SceneContent engine={engine} />
+      <SceneContent engine={engine} onReady={onReady} />
       <PostFX />
     </Canvas>
   );
