@@ -21,8 +21,10 @@ const POWERUP_COLORS: Record<string, string> = {
 
 // Unfogged: a pickup has to be readable from the far end of the road, which
 // is exactly where fog would otherwise swallow it.
+type Vec3 = [number, number, number];
+
 const GLOW = { transparent: true, blending: AdditiveBlending, depthWrite: false, toneMapped: false, fog: false, side: DoubleSide };
-const FLAT: [number, number, number] = [-Math.PI / 2, 0, 0];
+const FLAT: Vec3 = [-Math.PI / 2, 0, 0];
 const GEM_HEIGHT = 1.35;
 
 type Apply = (pose: ApexItemPose | undefined) => void;
@@ -34,7 +36,7 @@ interface VisualProps {
 
 interface PowerUpProps extends VisualProps {
   gemRef: MutableRefObject<Mesh | null>;
-  tint: (material: MeshBasicMaterial | null) => void;
+  tint: Tint;
 }
 
 interface SlotProps {
@@ -42,8 +44,60 @@ interface SlotProps {
   glow: Texture;
 }
 
-/** A floating gem in the power-up's colour, with a halo, a pool of light on
- * the road and a beam so it can be read from far up the road. */
+type Tint = (material: MeshBasicMaterial | null) => void;
+
+interface GlowSpec {
+  position: Vec3;
+  size: [number, number];
+  opacity: number;
+  /** Fixed colour; omitted = tinted with the power-up's colour. */
+  color?: string;
+  flat?: boolean;
+}
+
+// White-hot core, wide halo, tall beam and a pool of light on the road.
+const POWERUP_GLOWS: GlowSpec[] = [
+  { position: [0, GEM_HEIGHT, 0.15], size: [2.2, 2.2], opacity: 0.9, color: '#ffffff' },
+  { position: [0, GEM_HEIGHT, 0.2], size: [6, 6], opacity: 1 },
+  { position: [0, 5.5, 0.25], size: [1.3, 11], opacity: 0.8 },
+  { position: [0, 0.05, 0], size: [5.5, 5.5], opacity: 0.9, flat: true },
+];
+// The iridescent film is what makes oil readable; black on night asphalt is
+// invisible.
+const OIL_GLOWS: GlowSpec[] = [
+  { position: [-0.08, 0.04, 0.05], size: [1.1, 1.1], opacity: 0.75, color: '#3cffb0', flat: true },
+  { position: [0.12, 0.045, -0.06], size: [0.9, 0.9], opacity: 0.85, color: '#c24bff', flat: true },
+];
+const DEBRIS_GLOWS: GlowSpec[] = [{ position: [0, 0.05, 0], size: [5, 5], opacity: 0.95, color: '#ff8a2a', flat: true }];
+// Wreckage in hazard colours: position, rotation, size, colour.
+const DEBRIS_BOXES: [Vec3, Vec3, Vec3, string][] = [
+  [[-0.22, 0.2, 0], [0.2, 0.5, 0.3], [0.5, 0.36, 0.42], '#ff7a1a'],
+  [[0.24, 0.16, 0.12], [0.4, -0.7, 0.1], [0.4, 0.28, 0.5], '#ffd21a'],
+  [[0.02, 0.34, -0.16], [0.7, 0.2, 0.6], [0.3, 0.3, 0.3], '#aeb4c4'],
+];
+
+interface GlowsProps {
+  specs: GlowSpec[];
+  glow: Texture;
+  tint?: Tint;
+}
+
+const UPRIGHT: Vec3 = [0, 0, 0];
+
+function Glows({ specs, glow, tint }: GlowsProps) {
+  return (
+    <>
+      {specs.map((spec, i) => (
+        <mesh key={i} position={spec.position} rotation={spec.flat ? FLAT : UPRIGHT} renderOrder={i + 2}>
+          <planeGeometry args={spec.size} />
+          <meshBasicMaterial ref={spec.color ? undefined : tint} color={spec.color ?? '#ffffff'} map={glow} opacity={spec.opacity} {...GLOW} />
+        </mesh>
+      ))}
+    </>
+  );
+}
+
+/** A floating gem in the power-up's colour. */
 function PowerUpVisual({ groupRef, gemRef, tint, glow }: PowerUpProps) {
   return (
     <group ref={groupRef}>
@@ -51,29 +105,12 @@ function PowerUpVisual({ groupRef, gemRef, tint, glow }: PowerUpProps) {
         <octahedronGeometry args={[0.72, 0]} />
         <meshBasicMaterial ref={tint} toneMapped={false} fog={false} />
       </mesh>
-      {/* White-hot core over a wide coloured halo. */}
-      <mesh position={[0, GEM_HEIGHT, 0.15]}>
-        <planeGeometry args={[2.2, 2.2]} />
-        <meshBasicMaterial color="#ffffff" map={glow} opacity={0.9} {...GLOW} />
-      </mesh>
-      <mesh position={[0, GEM_HEIGHT, 0.2]}>
-        <planeGeometry args={[6, 6]} />
-        <meshBasicMaterial ref={tint} map={glow} opacity={1} {...GLOW} />
-      </mesh>
-      <mesh position={[0, 5.5, 0.25]}>
-        <planeGeometry args={[1.3, 11]} />
-        <meshBasicMaterial ref={tint} map={glow} opacity={0.8} {...GLOW} />
-      </mesh>
-      <mesh position={[0, 0.05, 0]} rotation={FLAT}>
-        <planeGeometry args={[5.5, 5.5]} />
-        <meshBasicMaterial ref={tint} map={glow} opacity={0.9} {...GLOW} />
-      </mesh>
+      <Glows specs={POWERUP_GLOWS} glow={glow} tint={tint} />
     </group>
   );
 }
 
-/** Oil: a black patch with an iridescent film. The film is what makes it
- * readable; black on night asphalt is invisible. Unit-sized, scaled per pose. */
+/** Oil: a black patch under an iridescent film. Unit-sized, scaled per pose. */
 function OilVisual({ groupRef, glow }: VisualProps) {
   return (
     <group ref={groupRef}>
@@ -81,38 +118,22 @@ function OilVisual({ groupRef, glow }: VisualProps) {
         <circleGeometry args={[0.5, 20]} />
         <meshBasicMaterial color="#020204" transparent opacity={0.92} depthWrite={false} />
       </mesh>
-      <mesh position={[-0.08, 0.04, 0.05]} rotation={FLAT} renderOrder={2}>
-        <planeGeometry args={[1.1, 1.1]} />
-        <meshBasicMaterial color="#3cffb0" map={glow} opacity={0.75} {...GLOW} />
-      </mesh>
-      <mesh position={[0.12, 0.045, -0.06]} rotation={FLAT} renderOrder={3}>
-        <planeGeometry args={[0.9, 0.9]} />
-        <meshBasicMaterial color="#c24bff" map={glow} opacity={0.85} {...GLOW} />
-      </mesh>
+      <Glows specs={OIL_GLOWS} glow={glow} />
     </group>
   );
 }
 
-/** Debris: wreckage in hazard colours over an amber warning glow. */
+/** Debris: wreckage over an amber warning glow. */
 function DebrisVisual({ groupRef, glow }: VisualProps) {
   return (
     <group ref={groupRef}>
-      <mesh position={[-0.22, 0.2, 0]} rotation={[0.2, 0.5, 0.3]}>
-        <boxGeometry args={[0.5, 0.36, 0.42]} />
-        <meshBasicMaterial color="#ff7a1a" toneMapped={false} />
-      </mesh>
-      <mesh position={[0.24, 0.16, 0.12]} rotation={[0.4, -0.7, 0.1]}>
-        <boxGeometry args={[0.4, 0.28, 0.5]} />
-        <meshBasicMaterial color="#ffd21a" toneMapped={false} />
-      </mesh>
-      <mesh position={[0.02, 0.34, -0.16]} rotation={[0.7, 0.2, 0.6]}>
-        <boxGeometry args={[0.3, 0.3, 0.3]} />
-        <meshBasicMaterial color="#aeb4c4" toneMapped={false} />
-      </mesh>
-      <mesh position={[0, 0.05, 0]} rotation={FLAT}>
-        <planeGeometry args={[5, 5]} />
-        <meshBasicMaterial color="#ff8a2a" map={glow} opacity={0.95} {...GLOW} />
-      </mesh>
+      {DEBRIS_BOXES.map(([position, rotation, size, color]) => (
+        <mesh key={color} position={position} rotation={rotation}>
+          <boxGeometry args={size} />
+          <meshBasicMaterial color={color} toneMapped={false} />
+        </mesh>
+      ))}
+      <Glows specs={DEBRIS_GLOWS} glow={glow} />
     </group>
   );
 }
