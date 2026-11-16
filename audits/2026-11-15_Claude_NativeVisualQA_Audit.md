@@ -54,6 +54,17 @@ Found by recording video of steered runs and reading frames from it, and by rend
 | 18 | Lives looked like 5 when a run has 3, and lost lives looked the same as remaining ones. | HUD drew five pips; iOS rendered the skull as a colour emoji that ignores text colour. | Three pips (more only with extra lives), text-presentation glyph, lost pips dimmed. |
 | 19 | Nothing at the roadside; the sky showed as one flat purple rectangle. | No scenery between rails and towers; bare gradient visible between buildings. | Street lamps with light pools streaming past; a far wall of tower silhouettes on the horizon. |
 
+## Third pass (owner feedback)
+
+Feedback after the second pass: the player car is too big for the lane, car motion looks fake, and the visuals should go up a level.
+
+| # | Change | How |
+| --- | --- | --- |
+| 20 | Cars about 40% of a lane instead of ~55%; camera closer. | `GameEngine` takes an optional `entityScale` (default 1, so the 2D web game is unchanged); the native engine passes 0.78 and visuals follow the hitbox. |
+| 21 | Cars move with weight. | The body trails the hitbox by a few frames, the nose turns into lateral motion, the body rolls outward and pitches, and there is a small road bob. The camera banks into steering, and widens and drops back as speed builds. |
+| 22 | Night-highway look. | Sprite halos standing in for bloom, lamp and tail-light reflections streaked down the wet road, tyre spray, a lens vignette, barrier reflectors, overhead sign gantries, neon strips and roof beacons on the towers. |
+| 23 | React error #311 on first run of this pass. | `useRef` called inside object literals; the React Compiler caches such literals, so the hooks ran only once. Hook calls are now plain statements. The fatal-error handler caught it and showed the error screen, which is how it was diagnosed. |
+
 ## Verification
 
 | Check | Result |

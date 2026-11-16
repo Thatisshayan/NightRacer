@@ -230,6 +230,47 @@ export function getSkyTexture(): DataTexture {
   return skyTexture;
 }
 
+const SIGN_W = 96;
+const SIGN_H = 44;
+const signTextures: (DataTexture | null)[] = [null, null];
+const SIGN_BACKGROUNDS: [number, number, number][] = [
+  [12, 118, 86],
+  [18, 84, 168],
+];
+
+/** True where a highway sign carries white paint: a border, two lines of
+ * "lettering" (blocks, not real glyphs) and a lane arrow. */
+function signPaint(x: number, y: number, variant: number): boolean {
+  const border = x < 2 || y < 2 || x >= SIGN_W - 2 || y >= SIGN_H - 2;
+  const inset = x >= 4 && y >= 4 && x < SIGN_W - 4 && y < SIGN_H - 4;
+  if (border) return true;
+  if (!inset) return false;
+  // Row 0 is the bottom of the sign. Lettering sits in the upper two thirds.
+  const line1 = y >= 27 && y <= 33 && x >= 10 && x <= (variant === 0 ? 58 : 66) && x % 7 !== 0;
+  const line2 = y >= 16 && y <= 21 && x >= 10 && x <= (variant === 0 ? 44 : 38) && x % 6 !== 0;
+  // Downward lane arrow on the right: a shaft above a triangular head.
+  const ax = Math.abs(x - 80);
+  const shaft = ax <= 2 && y >= 18 && y <= 34;
+  const head = y >= 9 && y < 18 && ax <= y - 9;
+  return line1 || line2 || shaft || head;
+}
+
+/** Face of an overhead highway sign. variant 0 is green, 1 is blue. */
+export function getSignTexture(variant: 0 | 1): DataTexture {
+  let texture = signTextures[variant];
+  if (!texture) {
+    const bg = SIGN_BACKGROUNDS[variant];
+    texture = buildTexture(
+      SIGN_W,
+      SIGN_H,
+      (x, y) => (signPaint(x, y, variant) ? [236, 244, 240, 255] : [bg[0], bg[1], bg[2], 255]),
+      { repeat: false, srgb: true, mipmaps: true },
+    );
+    signTextures[variant] = texture;
+  }
+  return texture;
+}
+
 let glowTexture: DataTexture | null = null;
 
 /** Soft radial falloff in the alpha channel — light pools on the wet road,

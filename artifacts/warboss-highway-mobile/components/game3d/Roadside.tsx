@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useMemo, useRef } from 'react';
 import type { MutableRefObject, RefObject } from 'react';
-import { AdditiveBlending, Color, DoubleSide, InstancedMesh, Object3D } from 'three';
+import { AdditiveBlending, DoubleSide, InstancedMesh, Object3D } from 'three';
+import type { Mesh } from 'three';
 import { APEX_STORM_ROAD, sampleApexRoad } from '@workspace/render-frame';
-import { getGlowTexture } from './textures';
+import { getGlowTexture, getSignTexture } from './textures';
 
 export interface RoadsideHandle {
   update(roadPhase: number, travel: number): void;
@@ -33,7 +34,7 @@ const GANTRY_SPACING = 170;
 const GANTRY_Z_MIN = -30;
 const GANTRY_Z_RANGE = GANTRY_COUNT * GANTRY_SPACING;
 const GANTRY_HEIGHT = 8.4;
-const GANTRY_SIGN_COLORS = ['#0f8a63', '#1560b8'];
+const GANTRY_SIGN_COUNT = GANTRY_COUNT * 2;
 
 const wrap = (value: number, range: number) => ((value % range) + range) % range;
 // X is negated: frame coordinates are left-handed, three.js is right-handed.
@@ -121,7 +122,7 @@ function placeStuds(mesh: InstancedMesh | null, dummy: Object3D, roadPhase: numb
 // clearest sense-of-scale and sense-of-speed beat on a highway.
 function placeGantries(
   frames: InstancedMesh | null,
-  signs: InstancedMesh | null,
+  signs: (Mesh | null)[],
   dummy: Object3D,
   roadPhase: number,
   travel: number,
@@ -136,16 +137,13 @@ function placeGantries(
       dummy.scale.set(0.5, GANTRY_HEIGHT, 0.5);
       place(frames, g * 3 + (side === -1 ? 0 : 1), dummy);
       // One sign panel over each carriageway half.
-      dummy.position.set(centre + side * 3.4, GANTRY_HEIGHT + 1.5, z - 0.3);
-      dummy.scale.set(5.2, 2.3, 0.2);
-      place(signs, g * 2 + (side === -1 ? 0 : 1), dummy);
+      signs[g * 2 + (side === -1 ? 0 : 1)]?.position.set(centre + side * 3.4, GANTRY_HEIGHT + 1.5, z - 0.3);
     }
     dummy.position.set(centre, GANTRY_HEIGHT, z);
     dummy.scale.set(legX * 2 + 0.5, 0.6, 0.6);
     place(frames, g * 3 + 2, dummy);
   }
   flush(frames);
-  flush(signs);
 }
 
 function GlowInstances({ meshRef, count, color, opacity }: { meshRef: MeshRef; count: number; color: string; opacity: number }) {
@@ -190,18 +188,9 @@ export function Roadside({ handleRef }: { handleRef: MutableRefObject<RoadsideHa
   const lamps: LampRefs = { posts, heads, halos, pools, streaks };
   const studs = useRef<InstancedMesh>(null);
   const gantryFrames = useRef<InstancedMesh>(null);
-  const gantrySigns = useRef<InstancedMesh>(null);
+  const gantrySigns = useRef<(Mesh | null)[]>([]);
   const dummy = useMemo(() => new Object3D(), []);
-
-  useEffect(() => {
-    const signs = gantrySigns.current;
-    if (!signs) return;
-    const color = new Color();
-    for (let i = 0; i < GANTRY_COUNT * 2; i += 1) {
-      signs.setColorAt(i, color.set(GANTRY_SIGN_COLORS[i % GANTRY_SIGN_COLORS.length]));
-    }
-    if (signs.instanceColor) signs.instanceColor.needsUpdate = true;
-  }, []);
+  const signMaps = useMemo(() => [getSignTexture(0), getSignTexture(1)], []);
 
   handleRef.current = {
     update(roadPhase, travel) {
@@ -220,7 +209,14 @@ export function Roadside({ handleRef }: { handleRef: MutableRefObject<RoadsideHa
       <GlowInstances meshRef={lamps.streaks} count={LAMP_COUNT} color="#ffc98a" opacity={0.2} />
       <BoxInstances meshRef={studs} count={STUD_COUNT} color="#ffb347" lit />
       <BoxInstances meshRef={gantryFrames} count={GANTRY_COUNT * 3} color="#3a4866" />
-      <BoxInstances meshRef={gantrySigns} count={GANTRY_COUNT * 2} color="#ffffff" lit />
+      {/* Individual meshes rather than instances: each sign has its own
+          face texture, which instancing cannot vary per instance. */}
+      {Array.from({ length: GANTRY_SIGN_COUNT }, (_, i) => (
+        <mesh key={i} ref={(m) => { gantrySigns.current[i] = m; }} frustumCulled={false}>
+          <boxGeometry args={[5.2, 2.3, 0.2]} />
+          <meshBasicMaterial map={signMaps[i % 2]} toneMapped={false} />
+        </mesh>
+      ))}
     </>
   );
 }
